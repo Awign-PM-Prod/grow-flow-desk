@@ -81,8 +81,18 @@ const handler = async (req: Request): Promise<Response> => {
     // Get the origin from the request
     const origin = req.headers.get("origin") || Deno.env.get("SITE_URL") || supabaseUrl;
     
-    // Create the setup password URL
-    const setupUrl = `${origin}/auth?type=recovery&access_token=${resetData.properties.action_link.split('access_token=')[1]}`;
+    // Extract the token hash from the action link
+    const actionLink = resetData.properties.action_link;
+    const url = new URL(actionLink);
+    const tokenHash = url.searchParams.get('token_hash') || url.searchParams.get('token');
+    
+    if (!tokenHash) {
+      console.error("Failed to extract token from action link:", actionLink);
+      throw new Error("Failed to extract reset token");
+    }
+    
+    // Create the setup password URL with the token hash
+    const setupUrl = `${origin}/auth#access_token=${tokenHash}&type=recovery`;
 
     // Send password reset email
     const emailResponse = await resend.emails.send({
