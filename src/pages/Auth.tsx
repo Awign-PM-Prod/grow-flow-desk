@@ -28,7 +28,19 @@ export default function Auth() {
         navigate("/dashboard");
       }
     });
-  }, [navigate]);
+
+    // Handle password recovery flow
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const type = hashParams.get("type");
+    
+    if (type === "recovery") {
+      setIsLogin(true);
+      toast({
+        title: "Set your password",
+        description: "Please enter your new password below.",
+      });
+    }
+  }, [navigate, toast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
