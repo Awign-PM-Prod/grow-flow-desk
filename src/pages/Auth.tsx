@@ -16,6 +16,7 @@ export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -51,16 +52,18 @@ export default function Auth() {
     setLoading(true);
 
     try {
-      // Validate inputs
-      const emailValidation = emailSchema.safeParse(email);
-      if (!emailValidation.success) {
-        toast({
-          title: "Invalid email",
-          description: emailValidation.error.errors[0].message,
-          variant: "destructive",
-        });
-        setLoading(false);
-        return;
+      // Validate inputs (skip email validation for password recovery)
+      if (!isPasswordRecovery) {
+        const emailValidation = emailSchema.safeParse(email);
+        if (!emailValidation.success) {
+          toast({
+            title: "Invalid email",
+            description: emailValidation.error.errors[0].message,
+            variant: "destructive",
+          });
+          setLoading(false);
+          return;
+        }
       }
 
       const passwordValidation = passwordSchema.safeParse(password);
@@ -75,6 +78,16 @@ export default function Auth() {
       }
 
       if (isPasswordRecovery) {
+        // Validate password confirmation
+        if (password !== confirmPassword) {
+          toast({
+            title: "Passwords don't match",
+            description: "Please make sure both passwords are the same.",
+            variant: "destructive",
+          });
+          setLoading(false);
+          return;
+        }
         // Handle password setup/recovery
         const { error } = await supabase.auth.updateUser({
           password: password,
@@ -213,7 +226,7 @@ export default function Auth() {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{isPasswordRecovery ? "New Password" : "Password"}</Label>
               <Input
                 id="password"
                 type="password"
@@ -223,6 +236,19 @@ export default function Auth() {
                 required
               />
             </div>
+            {isPasswordRecovery && (
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+              </div>
+            )}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Loading..." : isPasswordRecovery ? "Set Password" : isLogin ? "Sign In" : "Sign Up"}
             </Button>
