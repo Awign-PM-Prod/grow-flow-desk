@@ -78,21 +78,10 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("Password reset link generated");
 
-    // Get the origin from the request
-    const origin = req.headers.get("origin") || Deno.env.get("SITE_URL") || supabaseUrl;
-    
-    // Extract the token hash from the action link
+    // Use the action link directly from Supabase
     const actionLink = resetData.properties.action_link;
-    const url = new URL(actionLink);
-    const tokenHash = url.searchParams.get('token_hash') || url.searchParams.get('token');
     
-    if (!tokenHash) {
-      console.error("Failed to extract token from action link:", actionLink);
-      throw new Error("Failed to extract reset token");
-    }
-    
-    // Create the setup password URL with the token hash
-    const setupUrl = `${origin}/auth#access_token=${tokenHash}&type=recovery`;
+    console.log("Action link:", actionLink);
 
     // Send password reset email
     const emailResponse = await resend.emails.send({
@@ -160,7 +149,7 @@ const handler = async (req: Request): Promise<Response> => {
               <p>Click the button below to set up a new password:</p>
               
               <div style="text-align: center;">
-                <a href="${setupUrl}" class="button">Reset Your Password</a>
+                <a href="${actionLink}" class="button">Reset Your Password</a>
               </div>
               
               <div class="info-box">

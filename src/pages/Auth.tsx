@@ -25,38 +25,35 @@ export default function Auth() {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   useEffect(() => {
-    // Handle password recovery flow first
+    // Handle password recovery flow from URL hash or query params
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const type = hashParams.get("type");
-    const accessToken = hashParams.get("access_token");
+    const queryParams = new URLSearchParams(window.location.search);
     
-    if (type === "recovery" && accessToken) {
-      // Set the session using the access token
-      supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: '', // Not needed for recovery
-      }).then(({ data, error }) => {
-        if (error) {
-          console.error("Error setting session:", error);
-          toast({
-            title: "Error",
-            description: "Invalid or expired reset link. Please request a new one.",
-            variant: "destructive",
-          });
-        } else {
-          setIsPasswordRecovery(true);
-          toast({
-            title: "Set your password",
-            description: "Please enter your new password below.",
-          });
-        }
+    const type = hashParams.get("type") || queryParams.get("type");
+    const error = hashParams.get("error") || queryParams.get("error");
+    const errorDescription = hashParams.get("error_description") || queryParams.get("error_description");
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: errorDescription || "Invalid or expired reset link. Please request a new one.",
+        variant: "destructive",
       });
-      return; // Don't check session when setting password
+      return;
+    }
+    
+    if (type === "recovery") {
+      setIsPasswordRecovery(true);
+      toast({
+        title: "Set your password",
+        description: "Please enter your new password below.",
+      });
+      return;
     }
 
     // Check if user is already logged in
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
+      if (session && !isPasswordRecovery) {
         navigate("/dashboard");
       }
     });
