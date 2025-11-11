@@ -24,14 +24,7 @@ export default function Auth() {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   useEffect(() => {
-    // Check if user is already logged in
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        navigate("/dashboard");
-      }
-    });
-
-    // Handle password recovery flow
+    // Handle password recovery flow first
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const type = hashParams.get("type");
     const accessToken = hashParams.get("access_token");
@@ -42,7 +35,15 @@ export default function Auth() {
         title: "Set your password",
         description: "Please enter your new password below.",
       });
+      return; // Don't check session when setting password
     }
+
+    // Check if user is already logged in
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        navigate("/dashboard");
+      }
+    });
   }, [navigate, toast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -88,12 +89,12 @@ export default function Auth() {
         } else {
           toast({
             title: "Success!",
-            description: "Your password has been set. You can now sign in.",
+            description: "Your password has been set. Signing you in...",
           });
-          setIsPasswordRecovery(false);
-          setIsLogin(true);
           // Clear the hash from URL
           window.location.hash = "";
+          // Navigate to dashboard
+          navigate("/dashboard");
         }
       } else if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({
