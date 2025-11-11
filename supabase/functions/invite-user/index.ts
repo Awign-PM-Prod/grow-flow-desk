@@ -140,7 +140,7 @@ const handler = async (req: Request): Promise<Response> => {
     };
 
     const emailResponse = await resend.emails.send({
-      from: "CRM Pro <onboarding@resend.dev>",
+      from: "CRM Pro <userinvitation@awign.in>",
       to: [email],
       subject: "Welcome to CRM Pro - Set Up Your Account",
       html: `
