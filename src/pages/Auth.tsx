@@ -31,10 +31,25 @@ export default function Auth() {
     const accessToken = hashParams.get("access_token");
     
     if (type === "recovery" && accessToken) {
-      setIsPasswordRecovery(true);
-      toast({
-        title: "Set your password",
-        description: "Please enter your new password below.",
+      // Set the session using the access token
+      supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: '', // Not needed for recovery
+      }).then(({ data, error }) => {
+        if (error) {
+          console.error("Error setting session:", error);
+          toast({
+            title: "Error",
+            description: "Invalid or expired reset link. Please request a new one.",
+            variant: "destructive",
+          });
+        } else {
+          setIsPasswordRecovery(true);
+          toast({
+            title: "Set your password",
+            description: "Please enter your new password below.",
+          });
+        }
       });
       return; // Don't check session when setting password
     }
