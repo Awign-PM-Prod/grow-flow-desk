@@ -21,6 +21,8 @@ export default function Auth() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+
   useEffect(() => {
     // Check if user is already logged in
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -32,9 +34,10 @@ export default function Auth() {
     // Handle password recovery flow
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const type = hashParams.get("type");
+    const accessToken = hashParams.get("access_token");
     
-    if (type === "recovery") {
-      setIsLogin(true);
+    if (type === "recovery" && accessToken) {
+      setIsPasswordRecovery(true);
       toast({
         title: "Set your password",
         description: "Please enter your new password below.",
@@ -70,7 +73,29 @@ export default function Auth() {
         return;
       }
 
-      if (isLogin) {
+      if (isPasswordRecovery) {
+        // Handle password setup/recovery
+        const { error } = await supabase.auth.updateUser({
+          password: password,
+        });
+
+        if (error) {
+          toast({
+            title: "Error",
+            description: error.message,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Success!",
+            description: "Your password has been set. You can now sign in.",
+          });
+          setIsPasswordRecovery(false);
+          setIsLogin(true);
+          // Clear the hash from URL
+          window.location.hash = "";
+        }
+      } else if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -148,17 +173,19 @@ export default function Auth() {
             <Building2 className="h-8 w-8 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl font-bold">
-            {isLogin ? "Welcome Back" : "Create Account"}
+            {isPasswordRecovery ? "Set Your Password" : isLogin ? "Welcome Back" : "Create Account"}
           </CardTitle>
           <CardDescription>
-            {isLogin
+            {isPasswordRecovery
+              ? "Create a password for your account"
+              : isLogin
               ? "Sign in to access your CRM dashboard"
               : "Get started with your CRM account"}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
+            {!isLogin && !isPasswordRecovery && (
               <div className="space-y-2">
                 <Label htmlFor="fullName">Full Name</Label>
                 <Input
@@ -171,17 +198,19 @@ export default function Auth() {
                 />
               </div>
             )}
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+            {!isPasswordRecovery && (
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
@@ -194,19 +223,21 @@ export default function Auth() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Loading..." : isLogin ? "Sign In" : "Sign Up"}
+              {loading ? "Loading..." : isPasswordRecovery ? "Set Password" : isLogin ? "Sign In" : "Sign Up"}
             </Button>
-            <div className="text-center text-sm">
-              <button
-                type="button"
-                onClick={() => setIsLogin(!isLogin)}
-                className="text-primary hover:underline"
-              >
-                {isLogin
-                  ? "Don't have an account? Sign up"
-                  : "Already have an account? Sign in"}
-              </button>
-            </div>
+            {!isPasswordRecovery && (
+              <div className="text-center text-sm">
+                <button
+                  type="button"
+                  onClick={() => setIsLogin(!isLogin)}
+                  className="text-primary hover:underline"
+                >
+                  {isLogin
+                    ? "Don't have an account? Sign up"
+                    : "Already have an account? Sign in"}
+                </button>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
