@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Search, UserCog, Loader2 } from "lucide-react";
+import { Search, UserCog, Loader2, Mail } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { InviteUserDialog } from "@/components/InviteUserDialog";
@@ -26,6 +26,7 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [sendingResetEmail, setSendingResetEmail] = useState<string | null>(null);
   const { toast } = useToast();
 
   const fetchUsers = async () => {
@@ -105,6 +106,40 @@ export default function AdminUsers() {
     setEditDialogOpen(true);
   };
 
+  const handleSendPasswordReset = async (user: UserData) => {
+    try {
+      setSendingResetEmail(user.id);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Not authenticated");
+      }
+
+      const { error } = await supabase.functions.invoke("send-password-reset", {
+        body: {
+          email: user.email,
+          full_name: user.full_name || user.email,
+        },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success!",
+        description: `Password reset link sent to ${user.email}`,
+      });
+    } catch (error: any) {
+      console.error("Error sending password reset:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send password reset link",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingResetEmail(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -178,13 +213,30 @@ export default function AdminUsers() {
                       </TableCell>
                       <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => handleEditUser(user)}
-                        >
-                          Edit
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleEditUser(user)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleSendPasswordReset(user)}
+                            disabled={sendingResetEmail === user.id}
+                          >
+                            {sendingResetEmail === user.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Mail className="h-4 w-4 mr-1" />
+                                Reset Password
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

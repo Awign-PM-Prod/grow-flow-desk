@@ -2,3 +2,6 @@ project_id = "nwrgfauknnizzebvigye"
 
 [functions.invite-user]
 verify_jwt = true
+
+[functions.send-password-reset]
+verify_jwt = true
