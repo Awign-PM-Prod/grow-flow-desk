@@ -114,12 +114,10 @@ export default function Auth() {
         } else {
           toast({
             title: "Success!",
-            description: "Your password has been set. Signing you in...",
+            description: "Your password has been set successfully. Please sign in with your new password.",
           });
-          // Clear the hash from URL
-          window.location.hash = "";
-          // Navigate to dashboard
-          navigate("/dashboard");
+          // Clear URL hash and redirect to login
+          window.location.href = "/auth";
         }
       } else if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({
