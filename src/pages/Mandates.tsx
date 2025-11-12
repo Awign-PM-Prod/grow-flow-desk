@@ -780,8 +780,14 @@ export default function Mandates() {
                         <SelectValue placeholder="Select LoB" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="LM">LM</SelectItem>
-                        <SelectItem value="Audit">Audit</SelectItem>
+                        <SelectItem value="Diligence & Audit">Diligence & Audit</SelectItem>
+                        <SelectItem value="New Business Development">New Business Development</SelectItem>
+                        <SelectItem value="Digital Gigs">Digital Gigs</SelectItem>
+                        <SelectItem value="Awign Expert">Awign Expert</SelectItem>
+                        <SelectItem value="Last Mile Operations">Last Mile Operations</SelectItem>
+                        <SelectItem value="Invigilation & Proctoring">Invigilation & Proctoring</SelectItem>
+                        <SelectItem value="Staffing">Staffing</SelectItem>
+                        <SelectItem value="Others">Others</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1470,8 +1476,14 @@ export default function Mandates() {
                             <SelectValue placeholder="Select LoB" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="LM">LM</SelectItem>
-                            <SelectItem value="Audit">Audit</SelectItem>
+                            <SelectItem value="Diligence & Audit">Diligence & Audit</SelectItem>
+                            <SelectItem value="New Business Development">New Business Development</SelectItem>
+                            <SelectItem value="Digital Gigs">Digital Gigs</SelectItem>
+                            <SelectItem value="Awign Expert">Awign Expert</SelectItem>
+                            <SelectItem value="Last Mile Operations">Last Mile Operations</SelectItem>
+                            <SelectItem value="Invigilation & Proctoring">Invigilation & Proctoring</SelectItem>
+                            <SelectItem value="Staffing">Staffing</SelectItem>
+                            <SelectItem value="Others">Others</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : (

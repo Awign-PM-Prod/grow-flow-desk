@@ -27,6 +27,9 @@ interface AccountFormData {
   name: string;
   website: string;
   address: string;
+  city: string;
+  state: string;
+  country: string;
   foundedYear: string;
   industry: string;
   subCategory: string;
@@ -69,6 +72,9 @@ export default function Accounts() {
     name: "",
     website: "",
     address: "",
+    city: "",
+    state: "",
+    country: "",
     foundedYear: "",
     industry: "",
     subCategory: "",
@@ -133,6 +139,9 @@ export default function Accounts() {
         name: formData.name,
         website: formData.website,
         address: formData.address,
+        city: formData.city || null,
+        state: formData.state || null,
+        country: formData.country || null,
         founded_year: parseInt(formData.foundedYear),
         industry: formData.industry,
         sub_category: formData.subCategory,
@@ -160,6 +169,9 @@ export default function Accounts() {
         name: "",
         website: "",
         address: "",
+        city: "",
+        state: "",
+        country: "",
         foundedYear: "",
         industry: "",
         subCategory: "",
@@ -309,7 +321,10 @@ export default function Accounts() {
     const matchesSearch =
       account.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       account.website?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      account.address?.toLowerCase().includes(searchTerm.toLowerCase());
+      account.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      account.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      account.state?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      account.country?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesIndustry = !filterIndustry || account.industry === filterIndustry;
     const matchesRevenue = !filterRevenue || account.revenue_range === filterRevenue;
     const matchesMCVTier = !filterMCVTier || account.mcv_tier === filterMCVTier;
@@ -325,7 +340,10 @@ export default function Accounts() {
     setEditAccountData({
       name: account.name,
       website: account.website,
-      address: account.address,
+      address: account.address || "",
+      city: account.city || "",
+      state: account.state || "",
+      country: account.country || "",
       foundedYear: account.founded_year?.toString() || "",
       industry: account.industry || "",
       subCategory: account.sub_category || "",
@@ -344,6 +362,9 @@ export default function Accounts() {
         name: editAccountData.name,
         website: editAccountData.website,
         address: editAccountData.address,
+        city: editAccountData.city || null,
+        state: editAccountData.state || null,
+        country: editAccountData.country || null,
         founded_year: parseInt(editAccountData.foundedYear) || null,
         industry: editAccountData.industry || null,
         sub_category: editAccountData.subCategory || null,
@@ -430,6 +451,9 @@ export default function Accounts() {
             name: "",
             website: "",
             address: "",
+            city: "",
+            state: "",
+            country: "",
             foundedYear: "",
             industry: "",
             subCategory: "",
@@ -481,7 +505,43 @@ export default function Accounts() {
                       id="address"
                       value={formData.address}
                       onChange={(e) => handleInputChange("address", e.target.value)}
-                      placeholder="Street, City, State, Country"
+                      placeholder="Street address"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="city">
+                      City <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="city"
+                      value={formData.city}
+                      onChange={(e) => handleInputChange("city", e.target.value)}
+                      placeholder="City"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="state">
+                      State <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="state"
+                      value={formData.state}
+                      onChange={(e) => handleInputChange("state", e.target.value)}
+                      placeholder="State"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="country">
+                      Country <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="country"
+                      value={formData.country}
+                      onChange={(e) => handleInputChange("country", e.target.value)}
+                      placeholder="Country"
                       required
                     />
                   </div>
@@ -592,6 +652,9 @@ export default function Accounts() {
                       name: "",
                       website: "",
                       address: "",
+                      city: "",
+                      state: "",
+                      country: "",
                       foundedYear: "",
                       industry: "",
                       subCategory: "",
@@ -629,7 +692,7 @@ export default function Accounts() {
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 <Input
-                  placeholder="Search by Account Name / Website / Address"
+                  placeholder="Search by Account Name / Website / Address / City / State / Country"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -708,6 +771,9 @@ export default function Accounts() {
                       <TableHead>Account Name</TableHead>
                       <TableHead>Website</TableHead>
                       <TableHead>Address</TableHead>
+                      <TableHead>City</TableHead>
+                      <TableHead>State</TableHead>
+                      <TableHead>Country</TableHead>
                       <TableHead>Founded Year</TableHead>
                       <TableHead>Industry</TableHead>
                       <TableHead>Sub Category</TableHead>
@@ -722,7 +788,7 @@ export default function Accounts() {
                   <TableBody>
                     {loadingAccounts ? (
                       <TableRow>
-                        <TableCell colSpan={12} className="text-center py-8">
+                        <TableCell colSpan={15} className="text-center py-8">
                           <div className="flex items-center justify-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-muted-foreground">Loading accounts...</span>
@@ -731,7 +797,7 @@ export default function Accounts() {
                       </TableRow>
                     ) : filteredAccounts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={15} className="text-center text-muted-foreground py-8">
                           No accounts found
                         </TableCell>
                       </TableRow>
@@ -750,6 +816,9 @@ export default function Accounts() {
                             </a>
                           </TableCell>
                           <TableCell>{account.address}</TableCell>
+                          <TableCell>{account.city || "N/A"}</TableCell>
+                          <TableCell>{account.state || "N/A"}</TableCell>
+                          <TableCell>{account.country || "N/A"}</TableCell>
                           <TableCell>{account.founded_year}</TableCell>
                           <TableCell>{account.industry}</TableCell>
                           <TableCell>{account.sub_category}</TableCell>
@@ -805,7 +874,10 @@ export default function Accounts() {
                   setEditAccountData({
                     name: selectedAccount.name,
                     website: selectedAccount.website,
-                    address: selectedAccount.address,
+                    address: selectedAccount.address || "",
+                    city: selectedAccount.city || "",
+                    state: selectedAccount.state || "",
+                    country: selectedAccount.country || "",
                     foundedYear: selectedAccount.founded_year?.toString() || "",
                     industry: selectedAccount.industry || "",
                     subCategory: selectedAccount.sub_category || "",
@@ -865,6 +937,39 @@ export default function Accounts() {
                         />
                       ) : (
                         <p className="mt-1">{selectedAccount.address || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">City:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editAccountData.city}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, city: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.city || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">State:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editAccountData.state}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, state: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.state || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Country:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editAccountData.country}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, country: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.country || "N/A"}</p>
                       )}
                     </div>
                     <div className="space-y-2">
