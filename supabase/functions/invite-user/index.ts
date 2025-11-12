@@ -48,12 +48,13 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Check if user has superadmin role
-    const { data: userRoles, error: roleError } = await supabaseAdmin
-      .from("user_roles")
+    const { data: userProfile, error: roleError } = await supabaseAdmin
+      .from("profiles")
       .select("role")
-      .eq("user_id", user.id);
+      .eq("id", user.id)
+      .single();
 
-    if (roleError || !userRoles?.some(r => r.role === "superadmin")) {
+    if (roleError || userProfile?.role !== "superadmin") {
       throw new Error("Only superadmins can invite users");
     }
 
@@ -95,16 +96,16 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("User created successfully:", newUser.user.id);
 
-    // Assign role to user
-    const { error: roleInsertError } = await supabaseAdmin
-      .from("user_roles")
-      .insert({
-        user_id: newUser.user.id,
+    // Update profile with role
+    const { error: roleUpdateError } = await supabaseAdmin
+      .from("profiles")
+      .update({
         role: role,
-      });
+      })
+      .eq("id", newUser.user.id);
 
-    if (roleInsertError) {
-      console.error("Error assigning role:", roleInsertError);
+    if (roleUpdateError) {
+      console.error("Error assigning role:", roleUpdateError);
       // Clean up: delete the user if role assignment fails
       await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
       throw new Error("Failed to assign role to user");

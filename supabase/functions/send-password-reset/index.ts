@@ -47,12 +47,13 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Check if user has superadmin role
-    const { data: userRoles, error: roleError } = await supabaseAdmin
-      .from("user_roles")
+    const { data: userProfile, error: roleError } = await supabaseAdmin
+      .from("profiles")
       .select("role")
-      .eq("user_id", user.id);
+      .eq("id", user.id)
+      .single();
 
-    if (roleError || !userRoles?.some(r => r.role === "superadmin")) {
+    if (roleError || userProfile?.role !== "superadmin") {
       throw new Error("Only superadmins can send password reset links");
     }
 

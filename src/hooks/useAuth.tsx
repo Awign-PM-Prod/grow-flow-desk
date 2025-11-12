@@ -46,17 +46,22 @@ export function useAuth() {
   const fetchUserRoles = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from("user_roles")
+        .from("profiles")
         .select("role")
-        .eq("user_id", userId);
+        .eq("id", userId)
+        .single();
 
       if (error) throw error;
       
-      if (data) {
-        setUserRoles(data.map(r => r.role as UserRole));
+      if (data && data.role) {
+        // Since role is now a single value instead of an array, we convert it to an array for compatibility
+        setUserRoles([data.role as UserRole]);
+      } else {
+        setUserRoles([]);
       }
     } catch (error) {
       console.error("Error fetching user roles:", error);
+      setUserRoles([]);
     }
   };
 

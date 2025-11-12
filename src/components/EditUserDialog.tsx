@@ -50,23 +50,15 @@ export function EditUserDialog({ user, open, onOpenChange, onUserUpdated }: Edit
     setLoading(true);
 
     try {
-      // First, delete the old role
-      const { error: deleteError } = await supabase
-        .from("user_roles")
-        .delete()
-        .eq("user_id", user.id);
-
-      if (deleteError) throw deleteError;
-
-      // Then insert the new role
-      const { error: insertError } = await supabase
-        .from("user_roles")
-        .insert([{
-          user_id: user.id,
+      // Update the role in the profiles table
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
           role: role as "kam" | "manager" | "leadership" | "superadmin",
-        }]);
+        })
+        .eq("id", user.id);
 
-      if (insertError) throw insertError;
+      if (updateError) throw updateError;
 
       toast({
         title: "Success!",

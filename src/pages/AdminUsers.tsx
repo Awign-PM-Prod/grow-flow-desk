@@ -36,7 +36,7 @@ export default function AdminUsers() {
       // Fetch all profiles with their roles
       const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
-        .select("id, email, full_name, created_at");
+        .select("id, email, full_name, created_at, role");
 
       if (profilesError) throw profilesError;
 
@@ -46,22 +46,13 @@ export default function AdminUsers() {
         return;
       }
 
-      // Fetch roles for all users
-      const { data: roles, error: rolesError } = await supabase
-        .from("user_roles")
-        .select("user_id, role");
-
-      if (rolesError) throw rolesError;
-
-      // Combine the data
+      // Map profiles to users data
       const usersData: UserData[] = profiles.map(profile => {
-        const userRole = roles?.find(r => r.user_id === profile.id);
-        
         return {
           id: profile.id,
           email: profile.email,
           full_name: profile.full_name || undefined,
-          role: userRole?.role || "No Role",
+          role: profile.role || "No Role",
           created_at: profile.created_at,
           last_sign_in_at: undefined,
         };

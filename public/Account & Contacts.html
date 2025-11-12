@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Accounts</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Simple table scroll */
+    .table-wrap { overflow: auto; }
+    /* Hide number spin buttons */
+    input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 flex">
+  <!-- SIDE NAV -->
+  <aside class="w-52 bg-white border-r h-screen p-4 space-y-3">
+    <button id="navAccounts" class="block w-full text-left px-3 py-2 rounded-lg bg-blue-600 text-white">Accounts</button>
+    <button id="navContacts" class="block w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100">Contacts</button>
+  </aside>
+ 
+  <div class="flex-1 mx-auto p-4 sm:p-6" id="accountsContainer">
+    <!-- Header -->
+    <header class="mb-6 flex items-center justify-between">
+      <h1 class="text-2xl sm:text-3xl font-bold">Accounts</h1>
+      <nav class="inline-flex rounded-xl bg-white shadow-sm border">
+        <button id="tabForm" class="px-4 py-2 rounded-l-xl text-sm font-medium bg-blue-600 text-white">Add / Edit</button>
+        <button id="tabView" class="px-4 py-2 rounded-r-xl text-sm font-medium">View Data</button>
+      </nav>
+    </header>
+
+    <!-- PAGES WRAPPER -->
+    <main>
+      <!-- PAGE 1: FORM -->
+      <section id="pageForm" class="space-y-6">
+        <form id="accountForm" class="bg-white rounded-2xl shadow p-4 sm:p-6 border space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Account Name -->
+            <div>
+              <label class="block text-sm font-medium mb-1">Account Name</label>
+              <input name="accountName" type="text" class="w-full rounded-lg border px-3 py-2" placeholder="Acme Pvt Ltd" />
+            </div>
+            <!-- Website (required) -->
+            <div>
+              <label class="block text-sm font-medium mb-1">Website <span class="text-red-600">*</span></label>
+              <input name="website" type="url" required class="w-full rounded-lg border px-3 py-2" placeholder="https://example.com" />
+            </div>
+            <!-- Address (required) -->
+            <div class="md:col-span-2">
+              <label class="block text-sm font-medium mb-1">Address <span class="text-red-600">*</span></label>
+              <input name="address" type="text" required class="w-full rounded-lg border px-3 py-2" placeholder="Street, City, State, Country" />
+            </div>
+            <!-- Founded Year (required) -->
+            <div>
+              <label class="block text-sm font-medium mb-1">Founded Year <span class="text-red-600">*</span></label>
+              <input name="foundedYear" type="number" min="1800" max="2100" required class="w-full rounded-lg border px-3 py-2" placeholder="2010" />
+            </div>
+            <!-- Industry (required) -->
+            <div>
+              <label class="block text-sm font-medium mb-1">Industry <span class="text-red-600">*</span></label>
+              <select name="industry" required class="w-full rounded-lg border px-3 py-2">
+                <option value="">Select...</option>
+                <option>Manufacturing</option>
+                <option>FMCG</option>
+                <option>Retail Trade</option>
+                <option>Information & Communication</option>
+                <option>Financial Services</option>
+                <option>Transportation & Logistics</option>
+                <option>Electricity & Gas</option>
+                <option>Services</option>
+                <option>Construction & Infrastructure</option>
+                <option>Real Estate</option>
+                <option>Media & Entertainment</option>
+                <option>Others</option>
+              </select>
+            </div>
+            <!-- Industry Sub Category (mapped) -->
+            <div>
+              <label class="block text-sm font-medium mb-1">Industry - Sub Category <span class="text-red-600">*</span></label>
+              <select name="subCategory" required class="w-full rounded-lg border px-3 py-2"></select>
+            </div>
+            <!-- Company Size 1 (Revenue Range) -->
+            <div>
+              <label class="block text-sm font-medium mb-1">Company Size 1 (Revenue Range) <span class="text-red-600">*</span></label>
+              <select name="revenueRange" required class="w-full rounded-lg border px-3 py-2">
+                <option value="">Select...</option>
+                <option>~10CR</option>
+                <option>10CR~50CR</option>
+                <option>50CR~100CR</option>
+                <option>100~500CR</option>
+                <option>500CR &above</option>
+              </select>
+            </div>
+            <!-- Auto fields (read-only) -->
+            <div>
+              <label class="block text-sm font-medium mb-1">Total ACV <span class="text-red-600">*</span></label>
+              <input name="totalACV" type="number" class="w-full rounded-lg border px-3 py-2 bg-slate-50" placeholder="Auto" readonly />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Total MCV <span class="text-red-600">*</span></label>
+              <input name="totalMCV" type="number" class="w-full rounded-lg border px-3 py-2 bg-slate-50" placeholder="Auto" readonly />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">MCV Tier (Auto)</label>
+              <input name="mcvTier" type="text" class="w-full rounded-lg border px-3 py-2 bg-slate-50" readonly />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Company Size Tier (Auto)</label>
+              <input name="companySizeTier" type="text" class="w-full rounded-lg border px-3 py-2 bg-slate-50" readonly />
+            </div>
+          </div>
+
+          <!-- Inline subtables to drive auto fields -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Actions -->
+          <div class="flex items-center justify-end gap-3">
+            <button type="reset" class="px-4 py-2 rounded-lg border bg-white hover:bg-slate-100">Clear</button>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Save Account</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- PAGE 2: TABLE VIEW -->
+      <section id="pageView" class="hidden space-y-4">
+        <!-- Filters -->
+        <div class="bg-white rounded-2xl shadow p-4 sm:p-6 border space-y-4">
+          <h3 class="font-semibold text-lg">Filters</h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <input id="filterSearch" type="text" class="rounded-lg border px-3 py-2" placeholder="Search by Account Name / Website / Address" />
+            <select id="filterIndustry" class="rounded-lg border px-3 py-2">
+              <option value="">All Industries</option>
+              <option>Manufacturing</option>
+              <option>FMCG</option>
+              <option>Retail Trade</option>
+              <option>Information & Communication</option>
+              <option>Financial Services</option>
+              <option>Transportation & Logistics</option>
+              <option>Electricity & Gas</option>
+              <option>Services</option>
+              <option>Construction & Infrastructure</option>
+              <option>Real Estate</option>
+              <option>Media & Entertainment</option>
+              <option>Others</option>
+            </select>
+            <select id="filterRevenue" class="rounded-lg border px-3 py-2">
+              <option value="">All Revenue Ranges</option>
+              <option>~10CR</option>
+              <option>10CR~50CR</option>
+              <option>50CR~100CR</option>
+              <option>100~500CR</option>
+              <option>500CR &above</option>
+            </select>
+            <select id="filterMCVTier" class="rounded-lg border px-3 py-2">
+              <option value="">All MCV Tiers</option>
+              <option>Tier 1</option>
+              <option>Tier 2</option>
+            </select>
+            <select id="filterCompanyTier" class="rounded-lg border px-3 py-2">
+              <option value="">All Company Size Tiers</option>
+              <option>Tier 1</option>
+              <option>Tier 2</option>
+            </select>
+            <input id="filterYearMin" type="number" class="rounded-lg border px-3 py-2" placeholder="Founded Year ≥" />
+            <input id="filterYearMax" type="number" class="rounded-lg border px-3 py-2" placeholder="Founded Year ≤" />
+            <button id="clearFilters" class="px-3 py-2 rounded-lg border bg-white hover:bg-slate-100">Clear Filters</button>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="bg-white rounded-2xl shadow p-4 sm:p-6 border">
+          <div class="table-wrap">
+            <table class="w-full text-sm" id="accountsTable">
+              <thead>
+                <tr class="text-left border-b">
+                  <th class="py-2 pr-2">Account Name</th>
+                  <th class="py-2 pr-2">Website</th>
+                  <th class="py-2 pr-2">Address</th>
+                  <th class="py-2 pr-2">Founded Year</th>
+                  <th class="py-2 pr-2">Industry</th>
+                  <th class="py-2 pr-2">Sub Category</th>
+                  <th class="py-2 pr-2">Revenue Range</th>
+                  <th class="py-2 pr-2">Total ACV</th>
+                  <th class="py-2 pr-2">Total MCV</th>
+                  <th class="py-2 pr-2">MCV Tier</th>
+                  <th class="py-2 pr-2">Company Size Tier</th>
+                  <th class="py-2 pr-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+<tr class="border-b">
+<td class="py-2 pr-2">Dummy Account</td>
+<td class="py-2 pr-2"><a class="text-blue-600 hover:underline" href="#">https://dummy.com</a></td>
+<td class="py-2 pr-2">Dummy Address</td>
+<td class="py-2 pr-2">2020</td>
+<td class="py-2 pr-2">Services</td>
+<td class="py-2 pr-2">Consulting</td>
+<td class="py-2 pr-2">100~500CR</td>
+<td class="py-2 pr-2">10,00,000</td>
+<td class="py-2 pr-2">5,00,000</td>
+<td class="py-2 pr-2">Tier 1</td>
+<td class="py-2 pr-2">Tier 1</td>
+<td class="py-2 pr-2"><button class="px-2 py-1 rounded border hover:bg-slate-100 mr-1" onclick='viewDetails()'>View Details</button></td>
+</tr>
+</tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+</div>
+
+<!-- CONTACTS UI -->
+<div class="flex-1 mx-auto p-4 sm:p-6 hidden" id="contactsContainer">
+  <header class="mb-6 flex items-center justify-between">
+    <h1 class="text-2xl sm:text-3xl font-bold">Contacts</h1>
+    <nav class="inline-flex rounded-xl bg-white shadow-sm border">
+      <button id="tabContactForm" class="px-4 py-2 rounded-l-xl text-sm font-medium bg-blue-600 text-white">Add Contact</button>
+      <button id="tabContactView" class="px-4 py-2 rounded-r-xl text-sm font-medium">View Contacts</button>
+    </nav>
+  </header>
+
+  
+
+  <section id="pageContactForm" class="space-y-6">
+    <div class="bg-white rounded-2xl shadow p-4 border">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Account Name *</label>
+          <select class="w-full rounded-lg border px-3 py-2">
+            <option>Dummy Account</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">First Name *</label>
+          <input type="text" class="w-full rounded-lg border px-3 py-2" placeholder="John" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Last Name *</label>
+          <input type="text" class="w-full rounded-lg border px-3 py-2" placeholder="Doe" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Email *</label>
+          <input type="email" class="w-full rounded-lg border px-3 py-2" placeholder="john@domain.com" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Phone Number *</label>
+          <input type="text" class="w-full rounded-lg border px-3 py-2" placeholder="9876543210" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Department *</label>
+          <input type="text" class="w-full rounded-lg border px-3 py-2" placeholder="Finance" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">KRA (optional)</label>
+          <input type="text" class="w-full rounded-lg border px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Title *</label>
+          <input type="text" class="w-full rounded-lg border px-3 py-2" placeholder="Head of Procurement" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Level *</label>
+          <select class="w-full rounded-lg border px-3 py-2">
+            <option>Lv.3</option>
+            <option>Lv.2</option>
+            <option>Lv.1</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Zone *</label>
+          <select class="w-full rounded-lg border px-3 py-2">
+            <option>Central</option>
+            <option>Regional</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Region (if Zone = Regional)</label>
+          <input type="text" class="w-full rounded-lg border px-3 py-2" placeholder="North 2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Reports To (optional)</label>
+          <input type="text" class="w-full rounded-lg border px-3 py-2" placeholder="Another Contact" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Positioning *</label>
+          <select class="w-full rounded-lg border px-3 py-2">
+            <option>Decision Maker</option>
+            <option>Influencer</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Awign Champion *</label>
+          <select class="w-full rounded-lg border px-3 py-2">
+            <option>YES</option>
+            <option>NO</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pageContactView" class="space-y-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-4 border"><div class="table-wrap">
+      <table class="w-full text-sm border">
+        <thead>
+          <tr class="border-b bg-slate-50 text-left">
+            <th class="py-2 px-3">Account</th>
+            <th class="py-2 px-3">Name</th>
+            <th class="py-2 px-3">Email</th>
+            <th class="py-2 px-3">Phone</th>
+            <th class="py-2 px-3">Title</th>
+            <th class="py-2 px-3">Level</th>
+            <th class="py-2 px-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-b">
+            <td class="py-2 px-3">Dummy Account</td>
+            <td class="py-2 px-3">Rohit Sharma</td>
+            <td class="py-2 px-3">rohit@dummy.com</td>
+            <td class="py-2 px-3">9999991111</td>
+            <td class="py-2 px-3">CFO</td>
+            <td class="py-2 px-3">Lv.3</td>
+            <td class="py-2 px-3"><button class="px-2 py-1 rounded border hover:bg-slate-100" onclick="viewContactDetails()">View Details</button></td>
+          </tr>
+          <tr class="border-b">
+            <td class="py-2 px-3">Dummy Account</td>
+            <td class="py-2 px-3">Priya Nair</td>
+            <td class="py-2 px-3">priya@dummy.com</td>
+            <td class="py-2 px-3">9999992222</td>
+            <td class="py-2 px-3">Head Procurement</td>
+            <td class="py-2 px-3">Lv.2</td>
+            <td class="py-2 px-3"><button class="px-2 py-1 rounded border hover:bg-slate-100" onclick="viewContactDetails()">View Details</button></td>
+          </tr>
+          <tr class="border-b">
+            <td class="py-2 px-3">Dummy Account</td>
+            <td class="py-2 px-3">Ankit Verma</td>
+            <td class="py-2 px-3">ankit@dummy.com</td>
+            <td class="py-2 px-3">9999993333</td>
+            <td class="py-2 px-3">Analytics Lead</td>
+            <td class="py-2 px-3">Lv.1</td>
+            <td class="py-2 px-3"><button class="px-2 py-1 rounded border hover:bg-slate-100" onclick="viewContactDetails()">View Details</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div></div>
+  </section>
+</div>
+  </div>
+
+  <!-- View Details Modal -->
+  <div id="detailsModal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" onclick="closeDetails()"></div>
+    <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 mx-auto w-full max-w-none bg-white rounded-2xl shadow-xl border p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 id="mdTitle" class="text-xl font-semibold">Account</h3>
+          <p id="mdMeta" class="text-sm text-slate-600 mt-1"></p>
+          <p id="mdTotals" class="text-sm mt-2"></p>
+        </div>
+        <button class="rounded-lg border px-3 py-1.5 hover:bg-slate-50" onclick="closeDetails()">Close</button>
+      </div>
+
+      <div class="mt-6 space-y-6">
+        <!-- Retention Types (view-only placeholder) -->
+        <div class="border rounded-xl p-4 bg-slate-50">
+          <h4 class="font-semibold mb-3">Mandates per Retention Type</h4>
+          <div class="table-wrap">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left border-b">
+                  <th class="py-2 pr-3">Retention Type</th>
+                  <th class="py-2 pr-3">Count</th>
+                </tr>
+              </thead>
+              <tbody id="mdRetentionBody"></tbody>
+            </table>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">(Linked to mandates; will populate when mandate data source is connected.)</p>
+        </div>
+
+        <!-- Cross Sell Deals (view-only) -->
+        <div class="border rounded-xl p-4 bg-slate-50">
+          <h4 class="font-semibold mb-3">Cross Sell Deals</h4>
+          <div class="table-wrap">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left border-b">
+                  <th class="py-2 pr-3">Vertical</th>
+                  <th class="py-2 pr-3">Line of Business</th>
+                  <th class="py-2 pr-3">Use Case</th>
+                  <th class="py-2 pr-3">Sub Use Case</th>
+                  <th class="py-2 pr-3">Expected Revenue</th>
+                  <th class="py-2 pr-3">MPV</th>
+                  <th class="py-2 pr-3">Max MPV</th>
+                  <th class="py-2 pr-3">Monthly Volume</th>
+                  <th class="py-2 pr-3">Max Monthly Volume</th>
+                  <th class="py-2 pr-3">Commercial / head-task</th>
+                  <th class="py-2 pr-3">PRJ months</th>
+                  <th class="py-2 pr-3">Status</th>
+                </tr>
+              </thead>
+              <tbody id="mdDealsBody"></tbody>
+            </table>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">Totals above are auto-calculated: ACV = Σ(Expected Revenue), MCV = Σ(MPV).</p>
+        </div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <script>
+// SIMPLE WIREFRAME TOGGLE ONLY — no logic
+const pageForm = document.getElementById('pageForm');
+const pageView = document.getElementById('pageView');
+const tabFormBtn = document.getElementById('tabForm');
+const tabViewBtn = document.getElementById('tabView');
+
+function showForm(){pageForm.classList.remove('hidden');pageView.classList.add('hidden');tabFormBtn.classList.add('bg-blue-600','text-white');tabViewBtn.classList.remove('bg-blue-600','text-white');}
+function showView(){pageView.classList.remove('hidden');pageForm.classList.add('hidden');tabViewBtn.classList.add('bg-blue-600','text-white');tabFormBtn.classList.remove('bg-blue-600','text-white');}
+
+showForm();
+
+// simple nav toggle
+const navA=document.getElementById('navAccounts');const navC=document.getElementById('navContacts');
+const acc=document.getElementById('accountsContainer');const con=document.getElementById('contactsContainer');
+navA.onclick=()=>{acc.classList.remove('hidden');con.classList.add('hidden');navA.classList.add('bg-blue-600','text-white');navC.classList.remove('bg-blue-600','text-white');}
+navC.onclick=()=>{con.classList.remove('hidden');acc.classList.add('hidden');navC.classList.add('bg-blue-600','text-white');navA.classList.remove('bg-blue-600','text-white');showContactForm();}
+
+// CONTACTS TAB TOGGLE
+const tabContactForm=document.getElementById('tabContactForm');
+const tabContactView=document.getElementById('tabContactView');
+const pageContactForm=document.getElementById('pageContactForm');
+const pageContactView=document.getElementById('pageContactView');
+
+function showContactForm(){pageContactForm.classList.remove('hidden');pageContactView.classList.add('hidden');tabContactForm.classList.add('bg-blue-600','text-white');tabContactView.classList.remove('bg-blue-600','text-white');}
+function showContactView(){pageContactView.classList.remove('hidden');pageContactForm.classList.add('hidden');tabContactView.classList.add('bg-blue-600','text-white');tabContactForm.classList.remove('bg-blue-600','text-white');}
+
+showContactForm();
+tabContactForm.onclick=showContactForm;
+tabContactView.onclick=showContactView;
+
+// dummy modal wiring
+const modal = document.getElementById('detailsModal');
+window.viewDetails = () => {
+  document.getElementById('mdTitle').textContent = 'Dummy Account';
+  document.getElementById('mdMeta').textContent = 'Industry · Revenue · Founded 2020';
+  document.getElementById('mdTotals').textContent = 'Total ACV: ₹10,00,000 · Total MCV: ₹5,00,000';
+  document.getElementById('mdRetentionBody').innerHTML = '<tr><td class="py-2 pr-3">STAR</td><td class="py-2 pr-3">20</td></tr><tr><td class="py-2 pr-3">A</td><td class="py-2 pr-3">40</td></tr><tr><td class="py-2 pr-3">B</td><td class="py-2 pr-3">30</td></tr><tr><td class="py-2 pr-3">C</td><td class="py-2 pr-3">30</td></tr><tr><td class="py-2 pr-3">D</td><td class="py-2 pr-3">10</td></tr><tr><td class="py-2 pr-3">E</td><td class="py-2 pr-3">10</td></tr><tr><td class="py-2 pr-3">NI</td><td class="py-2 pr-3">5</td></tr>';
+  document.getElementById('mdDealsBody').innerHTML = '<tr><td class="py-2 pr-3">D&A</td><td class="py-2 pr-3">LOB1</td><td class="py-2 pr-3">UC1</td><td class="py-2 pr-3">SUBUC1</td><td class="py-2 pr-3">1000000</td><td class="py-2 pr-3">500000</td><td class="py-2 pr-3">600000</td><td class="py-2 pr-3">200</td><td class="py-2 pr-3">300</td><td class="py-2 pr-3">25</td><td class="py-2 pr-3">6</td><td class="py-2 pr-3">Active</td></tr>';
+  modal.classList.remove('hidden');
+};
+window.closeDetails = () => modal.classList.add('hidden');
+tabFormBtn.onclick = showForm;
+tabViewBtn.onclick = showView;
+</script>
+<!-- CONTACT DETAILS MODAL -->
+<div id="contactDetailsModal" class="hidden fixed inset-0 z-50">
+  <div class="absolute inset-0 bg-black/40" onclick="closeContactDetails()"></div>
+  <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 mx-auto w-full max-w-none bg-white rounded-2xl shadow-xl border p-6">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h3 class="text-xl font-semibold">Rohit Sharma</h3>
+        <p class="text-sm text-slate-600 mt-1">Dummy Account · CFO · Lv.3</p>
+      </div>
+      <button class="rounded-lg border px-3 py-1.5 hover:bg-slate-50" onclick="closeContactDetails()">Close</button>
+    </div>
+
+    <div class="mt-6 space-y-6">
+      <div class="border rounded-xl p-4 bg-slate-50">
+        <h4 class="font-semibold mb-3">Basic</h4>
+        <p class="text-sm">Email: rohit@dummy.com</p>
+        <p class="text-sm">Phone: 9999991111</p>
+        <p class="text-sm">Department: Finance</p>
+        <p class="text-sm">KRA: Procurement + Vendor Audit</p>
+      </div>
+      <div class="border rounded-xl p-4 bg-slate-50">
+        <h4 class="font-semibold mb-3">Mapping</h4>
+        <p class="text-sm">Zone: Central</p>
+        <p class="text-sm">Region: —</p>
+        <p class="text-sm">Reports To: CFO India</p>
+      </div>
+      <div class="border rounded-xl p-4 bg-slate-50">
+        <h4 class="font-semibold mb-3">Supplement</h4>
+        <p class="text-sm">Positioning: Decision Maker</p>
+        <p class="text-sm">Awign Champion: YES</p>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function viewContactDetails(){ document.getElementById('contactDetailsModal').classList.remove('hidden'); }
+function closeContactDetails(){ document.getElementById('contactDetailsModal').classList.add('hidden'); }
+</script>
+<!-- MANDATES UI -->
+<div class="flex-1 mx-auto p-4 sm:p-6 hidden" id="mandatesContainer">
+  <header class="mb-6 flex items-center justify-between">
+    <h1 class="text-2xl sm:text-3xl font-bold">Mandates</h1>
+    <nav class="inline-flex rounded-xl bg-white shadow-sm border">
+      <button id="tabMandateForm" class="px-4 py-2 rounded-l-xl text-sm font-medium bg-blue-600 text-white">Add Mandate</button>
+      <button id="tabMandateView" class="px-4 py-2 rounded-r-xl text-sm font-medium">View Mandates</button>
+    </nav>
+  </header>
+
+  <section id="pageMandateForm" class="space-y-6">
+    <div class="bg-white rounded-2xl shadow p-4 border"><div class="space-y-6">
+  <!-- Project Info -->
+  <h3 class="font-semibold text-lg">Project Info</h3>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div><label class="block text-sm font-medium mb-1">Project Code *</label><input type="text" readonly placeholder="Auto" class="w-full rounded-lg border px-3 py-2 bg-slate-50"/></div>
+    <div><label class="block text-sm font-medium mb-1">Project Name *</label><input type="text" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">Account Name *</label><select class="w-full rounded-lg border px-3 py-2"><option>Dummy Account</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">KAM *</label><select class="w-full rounded-lg border px-3 py-2"><option>John KAM</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">LoB (Vertical) *</label><select class="w-full rounded-lg border px-3 py-2"><option>Vertical Sample</option></select></div>
+  </div>
+
+  <!-- Handover Info -->
+  <h3 class="font-semibold text-lg">Handover Info (from Demand Team)</h3>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div><label class="block text-sm font-medium mb-1">New Sales Owner</label><input type="text" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">MCV *</label><input type="text" readonly placeholder="Auto" class="w-full rounded-lg border px-3 py-2 bg-slate-50"/></div>
+    <div><label class="block text-sm font-medium mb-1">Monthly Volume *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">Commercial per head/task *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">PRJ duration in months *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">ACV *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">PRJ Type *</label><select class="w-full rounded-lg border px-3 py-2"><option>Recurring</option><option>One-time</option></select></div>
+  </div>
+
+  <!-- Revenue Info -->
+  <h3 class="font-semibold text-lg">Revenue Info (KAM)</h3>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div><label class="block text-sm font-medium mb-1">MCV *</label><input type="text" readonly placeholder="Auto" class="w-full rounded-lg border px-3 py-2 bg-slate-50"/></div>
+    <div><label class="block text-sm font-medium mb-1">Monthly Volume *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">Commercial per head/task *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">ACV *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+    <div><label class="block text-sm font-medium mb-1">PRJ Type *</label><select class="w-full rounded-lg border px-3 py-2"><option>Recurring</option><option>One-time</option></select></div>
+  </div>
+
+  <!-- Mandate Checker -->
+  <h3 class="font-semibold text-lg">Mandate Checker</h3>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div><label class="block text-sm font-medium mb-1">Mandate Health *</label><select class="w-full rounded-lg border px-3 py-2"><option>Exceeds Expectations</option><option>Meets Expectations</option><option>Need Improvement</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">Upsell Constraint *</label><select class="w-full rounded-lg border px-3 py-2"><option>YES</option><option>NO</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">Upsell Constraint Type *</label><select class="w-full rounded-lg border px-3 py-2"><option>-</option><option>Internal</option><option>External</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">Upsell Constraint Type - Sub *</label><select class="w-full rounded-lg border px-3 py-2"><option>Existing Sales - Data Image</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">Upsell Constraint Type - Sub 2 *</label><select class="w-full rounded-lg border px-3 py-2"><option>Existing Sales - Data Image</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">Client Budget Trend *</label><select class="w-full rounded-lg border px-3 py-2"><option>Increase</option><option>Same</option><option>Decrease</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">Awign Share % *</label><select class="w-full rounded-lg border px-3 py-2"><option>Below 70%</option><option>70% & Above</option></select></div>
+    <div><label class="block text-sm font-medium mb-1">Retention Type (Auto)</label><input type="text" readonly placeholder="Auto" class="w-full rounded-lg border px-3 py-2 bg-slate-50"/></div>
+  </div>
+
+  <!-- Upsell Action -->
+  <h3 class="font-semibold text-lg">Upsell Action Status</h3>
+  <div><select class="w-full rounded-lg border px-3 py-2"><option>Not Started</option><option>Ongoing</option><option>Done</option></select></div>
+
+  <div class="flex justify-end">
+    <button class="px-4 py-2 rounded-lg bg-blue-600 text-white">Save Mandate</button>
+  </div>
+</div></div>
+  </section>
+
+  <section id="pageMandateView" class="space-y-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-4 border">(Mandates Table wireframe placeholder)</div>
+  </section>
+</div>
+<script>
+const navM=document.getElementById('navMandates');
+const man=document.getElementById('mandatesContainer');
+navM.onclick=()=>{man.classList.remove('hidden');acc.classList.add('hidden');con.classList.add('hidden');navM.classList.add('bg-blue-600','text-white');navA.classList.remove('bg-blue-600','text-white');navC.classList.remove('bg-blue-600','text-white');showMandateForm();}
+const tabMandateForm=document.getElementById('tabMandateForm');
+const tabMandateView=document.getElementById('tabMandateView');
+const pageMandateForm=document.getElementById('pageMandateForm');
+const pageMandateView=document.getElementById('pageMandateView');
+function showMandateForm(){pageMandateForm.classList.remove('hidden');pageMandateView.classList.add('hidden');tabMandateForm.classList.add('bg-blue-600','text-white');tabMandateView.classList.remove('bg-blue-600','text-white');}
+function showMandateView(){pageMandateView.classList.remove('hidden');pageMandateForm.classList.add('hidden');tabMandateView.classList.add('bg-blue-600','text-white');tabMandateForm.classList.remove('bg-blue-600','text-white');}
+tabMandateForm.onclick=showMandateForm;
+tabMandateView.onclick=showMandateView;
+</script>
+</body>
+</html>

@@ -141,7 +141,7 @@ export function AppSidebar() {
             variant="outline"
             size="sm"
             onClick={signOut}
-            className="w-full"
+            className="w-full bg-blue-600 text-white hover:bg-blue-700 border-blue-600"
           >
             Sign Out
           </Button>
