@@ -446,127 +446,142 @@ export default function Accounts() {
             <DialogTitle>Add Account</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Account Name</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => handleInputChange("name", e.target.value)}
-                    placeholder="Acme Pvt Ltd"
-                  />
+            {/* 1st Section: General Information */}
+            <Card className="border-blue-200 bg-blue-50/50">
+              <CardContent className="pt-6">
+                <h3 className="font-semibold text-lg mb-4 text-blue-900">General Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Account Name</Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => handleInputChange("name", e.target.value)}
+                      placeholder="Acme Pvt Ltd"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="website">
+                      Website <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="website"
+                      type="url"
+                      value={formData.website}
+                      onChange={(e) => handleInputChange("website", e.target.value)}
+                      placeholder="https://example.com"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="address">
+                      Address <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="address"
+                      value={formData.address}
+                      onChange={(e) => handleInputChange("address", e.target.value)}
+                      placeholder="Street, City, State, Country"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="foundedYear">
+                      Founded Year <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="foundedYear"
+                      type="number"
+                      min="1800"
+                      max="2100"
+                      value={formData.foundedYear}
+                      onChange={(e) => handleInputChange("foundedYear", e.target.value)}
+                      placeholder="2010"
+                      required
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="website">
-                    Website <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="website"
-                    type="url"
-                    value={formData.website}
-                    onChange={(e) => handleInputChange("website", e.target.value)}
-                    placeholder="https://example.com"
-                    required
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="address">
-                    Address <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="address"
-                    value={formData.address}
-                    onChange={(e) => handleInputChange("address", e.target.value)}
-                    placeholder="Street, City, State, Country"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="foundedYear">
-                    Founded Year <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="foundedYear"
-                    type="number"
-                    min="1800"
-                    max="2100"
-                    value={formData.foundedYear}
-                    onChange={(e) => handleInputChange("foundedYear", e.target.value)}
-                    placeholder="2010"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="industry">
-                    Industry <span className="text-destructive">*</span>
-                  </Label>
-                  <Select
-                    value={formData.industry}
-                    onValueChange={(value) => handleInputChange("industry", value)}
-                    required
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {industries.map((industry) => (
-                        <SelectItem key={industry} value={industry}>
-                          {industry}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="subCategory">
-                    Industry - Sub Category <span className="text-destructive">*</span>
-                  </Label>
-                  <Select
-                    value={formData.subCategory}
-                    onValueChange={(value) => handleInputChange("subCategory", value)}
-                    required
-                    disabled={!formData.industry}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {formData.industry && industrySubCategories[formData.industry] ? (
-                        industrySubCategories[formData.industry].map((subCat) => (
-                          <SelectItem key={subCat} value={subCat}>
-                            {subCat}
+              </CardContent>
+            </Card>
+
+            {/* 2nd Section: Industry Classification */}
+            <Card className="border-green-200 bg-green-50/50">
+              <CardContent className="pt-6">
+                <h3 className="font-semibold text-lg mb-4 text-green-900">Industry Classification</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="industry">
+                      Industry <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.industry}
+                      onValueChange={(value) => handleInputChange("industry", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {industries.map((industry) => (
+                          <SelectItem key={industry} value={industry}>
+                            {industry}
                           </SelectItem>
-                        ))
-                      ) : (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                          Select industry first
-                        </div>
-                      )}
-                    </SelectContent>
-                  </Select>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="subCategory">
+                      Industry - Sub Category <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.subCategory}
+                      onValueChange={(value) => handleInputChange("subCategory", value)}
+                      required
+                      disabled={!formData.industry}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {formData.industry && industrySubCategories[formData.industry] ? (
+                          industrySubCategories[formData.industry].map((subCat) => (
+                            <SelectItem key={subCat} value={subCat}>
+                              {subCat}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Select industry first
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="revenueRange">
+                      Company Size 1 (Revenue Range) <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.revenueRange}
+                      onValueChange={(value) => handleInputChange("revenueRange", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {revenueRanges.map((range) => (
+                          <SelectItem key={range} value={range}>
+                            {range}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="revenueRange">
-                    Company Size 1 (Revenue Range) <span className="text-destructive">*</span>
-                  </Label>
-                  <Select
-                    value={formData.revenueRange}
-                    onValueChange={(value) => handleInputChange("revenueRange", value)}
-                    required
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {revenueRanges.map((range) => (
-                        <SelectItem key={range} value={range}>
-                          {range}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              </CardContent>
+            </Card>
 
               <div className="flex items-center justify-end gap-3">
                 <Button
@@ -776,182 +791,206 @@ export default function Accounts() {
       }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle>{selectedAccount?.name || "Account Details"}</DialogTitle>
-              <div className="flex gap-2">
-                {!isEditMode ? (
-                  <Button variant="outline" onClick={() => setIsEditMode(true)}>
-                    Edit
-                  </Button>
-                ) : (
-                  <>
-                    <Button variant="outline" onClick={() => {
-                      setIsEditMode(false);
-                      setEditAccountData({
-                        name: selectedAccount.name,
-                        website: selectedAccount.website,
-                        address: selectedAccount.address,
-                        foundedYear: selectedAccount.founded_year?.toString() || "",
-                        industry: selectedAccount.industry || "",
-                        subCategory: selectedAccount.sub_category || "",
-                        revenueRange: selectedAccount.revenue_range || "",
-                      });
-                    }}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleUpdateAccount} disabled={updatingAccount}>
-                      {updatingAccount ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        "Save Changes"
-                      )}
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
+            <DialogTitle>{selectedAccount?.name || "Account Details"}</DialogTitle>
           </DialogHeader>
+          <div className="flex items-center justify-end gap-2 mb-4">
+            {!isEditMode ? (
+              <Button variant="outline" onClick={() => setIsEditMode(true)}>
+                Edit
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => {
+                  setIsEditMode(false);
+                  setEditAccountData({
+                    name: selectedAccount.name,
+                    website: selectedAccount.website,
+                    address: selectedAccount.address,
+                    foundedYear: selectedAccount.founded_year?.toString() || "",
+                    industry: selectedAccount.industry || "",
+                    subCategory: selectedAccount.sub_category || "",
+                    revenueRange: selectedAccount.revenue_range || "",
+                  });
+                }}>
+                  Cancel
+                </Button>
+                <Button onClick={handleUpdateAccount} disabled={updatingAccount}>
+                  {updatingAccount ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
+              </>
+            )}
+          </div>
           {selectedAccount && editAccountData && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="space-y-2">
-                  <Label className="font-semibold">Account Name:</Label>
-                  {isEditMode ? (
-                    <Input
-                      value={editAccountData.name}
-                      onChange={(e) => setEditAccountData({ ...editAccountData, name: e.target.value })}
-                    />
-                  ) : (
-                    <p>{selectedAccount.name}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-semibold">Website:</Label>
-                  {isEditMode ? (
-                    <Input
-                      value={editAccountData.website}
-                      onChange={(e) => setEditAccountData({ ...editAccountData, website: e.target.value })}
-                    />
-                  ) : (
-                    <p>{selectedAccount.website}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-semibold">Address:</Label>
-                  {isEditMode ? (
-                    <Input
-                      value={editAccountData.address}
-                      onChange={(e) => setEditAccountData({ ...editAccountData, address: e.target.value })}
-                    />
-                  ) : (
-                    <p>{selectedAccount.address}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-semibold">Founded Year:</Label>
-                  {isEditMode ? (
-                    <Input
-                      type="number"
-                      value={editAccountData.foundedYear}
-                      onChange={(e) => setEditAccountData({ ...editAccountData, foundedYear: e.target.value })}
-                    />
-                  ) : (
-                    <p>{selectedAccount.founded_year}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-semibold">Industry:</Label>
-                  {isEditMode ? (
-                    <Select
-                      value={editAccountData.industry}
-                      onValueChange={(value) => {
-                        setEditAccountData({ ...editAccountData, industry: value, subCategory: "" });
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select industry" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {industries.map((industry) => (
-                          <SelectItem key={industry} value={industry}>
-                            {industry}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p>{selectedAccount.industry}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-semibold">Sub Category:</Label>
-                  {isEditMode ? (
-                    <Select
-                      value={editAccountData.subCategory}
-                      onValueChange={(value) => setEditAccountData({ ...editAccountData, subCategory: value })}
-                      disabled={!editAccountData.industry}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select sub category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {editAccountData.industry && industrySubCategories[editAccountData.industry] ? (
-                          industrySubCategories[editAccountData.industry].map((subCat) => (
-                            <SelectItem key={subCat} value={subCat}>
-                              {subCat}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            Select industry first
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p>{selectedAccount.sub_category}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-semibold">Revenue Range:</Label>
-                  {isEditMode ? (
-                    <Select
-                      value={editAccountData.revenueRange}
-                      onValueChange={(value) => setEditAccountData({ ...editAccountData, revenueRange: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select revenue range" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {revenueRanges.map((range) => (
-                          <SelectItem key={range} value={range}>
-                            {range}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p>{selectedAccount.revenue_range}</p>
-                  )}
-                </div>
-                <div>
-                  <span className="font-semibold">Total ACV:</span>{" "}
-                  {selectedAccount.total_acv?.toLocaleString("en-IN") || "0"}
-                </div>
-                <div>
-                  <span className="font-semibold">Total MCV:</span>{" "}
-                  {selectedAccount.total_mcv?.toLocaleString("en-IN") || "0"}
-                </div>
-                <div>
-                  <span className="font-semibold">MCV Tier:</span> {selectedAccount.mcv_tier || "N/A"}
-                </div>
-                <div>
-                  <span className="font-semibold">Company Size Tier:</span> {selectedAccount.company_size_tier || "N/A"}
-                </div>
-              </div>
+            <div className="space-y-6">
+              {/* 1st Section: General Information */}
+              <Card className="border-blue-200 bg-blue-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-blue-900">General Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Account Name:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editAccountData.name}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, name: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.name || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Website:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editAccountData.website}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, website: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.website || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label className="font-medium text-muted-foreground">Address:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editAccountData.address}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, address: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.address || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Founded Year:</Label>
+                      {isEditMode ? (
+                        <Input
+                          type="number"
+                          value={editAccountData.foundedYear}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, foundedYear: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.founded_year || "N/A"}</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 2nd Section: Industry Classification */}
+              <Card className="border-green-200 bg-green-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-green-900">Industry Classification</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Industry:</Label>
+                      {isEditMode ? (
+                        <Select
+                          value={editAccountData.industry}
+                          onValueChange={(value) => {
+                            setEditAccountData({ ...editAccountData, industry: value, subCategory: "" });
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select industry" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {industries.map((industry) => (
+                              <SelectItem key={industry} value={industry}>
+                                {industry}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="mt-1">{selectedAccount.industry || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Sub Category:</Label>
+                      {isEditMode ? (
+                        <Select
+                          value={editAccountData.subCategory}
+                          onValueChange={(value) => setEditAccountData({ ...editAccountData, subCategory: value })}
+                          disabled={!editAccountData.industry}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select sub category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {editAccountData.industry && industrySubCategories[editAccountData.industry] ? (
+                              industrySubCategories[editAccountData.industry].map((subCat) => (
+                                <SelectItem key={subCat} value={subCat}>
+                                  {subCat}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                Select industry first
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="mt-1">{selectedAccount.sub_category || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Revenue Range:</Label>
+                      {isEditMode ? (
+                        <Select
+                          value={editAccountData.revenueRange}
+                          onValueChange={(value) => setEditAccountData({ ...editAccountData, revenueRange: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select revenue range" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {revenueRanges.map((range) => (
+                              <SelectItem key={range} value={range}>
+                                {range}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="mt-1">{selectedAccount.revenue_range || "N/A"}</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 3rd Section: Financial Metrics */}
+              <Card className="border-purple-200 bg-purple-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-purple-900">Financial Metrics</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="font-medium text-muted-foreground">Total ACV:</Label>
+                      <p className="mt-1">{selectedAccount.total_acv?.toLocaleString("en-IN") || "0"}</p>
+                    </div>
+                    <div>
+                      <Label className="font-medium text-muted-foreground">Total MCV:</Label>
+                      <p className="mt-1">{selectedAccount.total_mcv?.toLocaleString("en-IN") || "0"}</p>
+                    </div>
+                    <div>
+                      <Label className="font-medium text-muted-foreground">MCV Tier:</Label>
+                      <p className="mt-1">{selectedAccount.mcv_tier || "N/A"}</p>
+                    </div>
+                    <div>
+                      <Label className="font-medium text-muted-foreground">Company Size Tier:</Label>
+                      <p className="mt-1">{selectedAccount.company_size_tier || "N/A"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
         </DialogContent>

@@ -760,55 +760,53 @@ export default function Contacts() {
       }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle>
-                {selectedContact
-                  ? `${selectedContact.first_name} ${selectedContact.last_name}`
-                  : "Contact Details"}
-              </DialogTitle>
-              <div className="flex gap-2">
-                {!isEditMode ? (
-                  <Button variant="outline" onClick={() => setIsEditMode(true)}>
-                    Edit
-                  </Button>
-                ) : (
-                  <>
-                    <Button variant="outline" onClick={() => {
-                      setIsEditMode(false);
-                      setEditContactData({
-                        accountId: selectedContact.account_id || "",
-                        firstName: selectedContact.first_name || "",
-                        lastName: selectedContact.last_name || "",
-                        email: selectedContact.email || "",
-                        phoneNumber: selectedContact.phone_number || "",
-                        department: selectedContact.department || "",
-                        kra: selectedContact.kra || "",
-                        title: selectedContact.title || "",
-                        level: selectedContact.level || "",
-                        zone: selectedContact.zone || "",
-                        region: selectedContact.region || "",
-                        reportsTo: selectedContact.reports_to || "",
-                        positioning: selectedContact.positioning || "",
-                        awignChampion: selectedContact.awign_champion ? "YES" : "NO",
-                      });
-                    }}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleUpdateContact} disabled={updatingContact}>
-                      {updatingContact ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        "Save Changes"
-                      )}
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
+            <DialogTitle>
+              {selectedContact
+                ? `${selectedContact.first_name} ${selectedContact.last_name}`
+                : "Contact Details"}
+            </DialogTitle>
           </DialogHeader>
+          <div className="flex items-center justify-end gap-2 mb-4">
+            {!isEditMode ? (
+              <Button variant="outline" onClick={() => setIsEditMode(true)}>
+                Edit
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => {
+                  setIsEditMode(false);
+                  setEditContactData({
+                    accountId: selectedContact.account_id || "",
+                    firstName: selectedContact.first_name || "",
+                    lastName: selectedContact.last_name || "",
+                    email: selectedContact.email || "",
+                    phoneNumber: selectedContact.phone_number || "",
+                    department: selectedContact.department || "",
+                    kra: selectedContact.kra || "",
+                    title: selectedContact.title || "",
+                    level: selectedContact.level || "",
+                    zone: selectedContact.zone || "",
+                    region: selectedContact.region || "",
+                    reportsTo: selectedContact.reports_to || "",
+                    positioning: selectedContact.positioning || "",
+                    awignChampion: selectedContact.awign_champion ? "YES" : "NO",
+                  });
+                }}>
+                  Cancel
+                </Button>
+                <Button onClick={handleUpdateContact} disabled={updatingContact}>
+                  {updatingContact ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
+              </>
+            )}
+          </div>
           {selectedContact && editContactData && (
             <div className="space-y-6">
               {/* 1st Segment: General Information */}

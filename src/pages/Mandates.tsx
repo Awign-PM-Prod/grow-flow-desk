@@ -110,6 +110,8 @@ export default function Mandates() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editMandateData, setEditMandateData] = useState<any>(null);
   const [updatingMandate, setUpdatingMandate] = useState(false);
+  const [isMandateCheckerEditMode, setIsMandateCheckerEditMode] = useState(false);
+  const [updatingMandateChecker, setUpdatingMandateChecker] = useState(false);
 
   const { toast } = useToast();
 
@@ -488,6 +490,7 @@ export default function Mandates() {
       upsellActionStatus: mandate.upsell_action_status || "",
     });
     setIsEditMode(false);
+    setIsMandateCheckerEditMode(false);
     setDetailsModalOpen(true);
   };
 
@@ -549,6 +552,69 @@ export default function Mandates() {
       });
     } finally {
       setUpdatingMandate(false);
+    }
+  };
+
+  const handleUpdateMandateChecker = async () => {
+    if (!selectedMandate) return;
+    
+    setUpdatingMandateChecker(true);
+    try {
+      const updateData: any = {
+        mandate_health: editMandateData.mandateHealth || null,
+        upsell_constraint: editMandateData.upsellConstraint === "YES",
+        upsell_constraint_type: editMandateData.upsellConstraintType && editMandateData.upsellConstraintType !== "-" ? editMandateData.upsellConstraintType : null,
+        upsell_constraint_sub: editMandateData.upsellConstraintSub || null,
+        upsell_constraint_sub2: editMandateData.upsellConstraintSub2 || null,
+        client_budget_trend: editMandateData.clientBudgetTrend || null,
+        awign_share_percent: editMandateData.awignSharePercent || null,
+        retention_type: editMandateData.retentionType || null,
+      };
+
+      const { error } = await supabase
+        .from("mandates")
+        .update(updateData)
+        .eq("id", selectedMandate.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success!",
+        description: "Mandate Checker updated successfully.",
+      });
+
+      setIsMandateCheckerEditMode(false);
+      fetchMandates();
+      // Refresh the selected mandate data
+      const { data: updatedMandate } = await supabase
+        .from("mandates")
+        .select("*")
+        .eq("id", selectedMandate.id)
+        .single();
+      
+      if (updatedMandate) {
+        setSelectedMandate(updatedMandate);
+        setEditMandateData({
+          ...editMandateData,
+          mandateHealth: updatedMandate.mandate_health || "",
+          upsellConstraint: updatedMandate.upsell_constraint ? "YES" : "NO",
+          upsellConstraintType: updatedMandate.upsell_constraint_type || "",
+          upsellConstraintSub: updatedMandate.upsell_constraint_sub || "",
+          upsellConstraintSub2: updatedMandate.upsell_constraint_sub2 || "",
+          clientBudgetTrend: updatedMandate.client_budget_trend || "",
+          awignSharePercent: updatedMandate.awign_share_percent || "",
+          retentionType: updatedMandate.retention_type || "",
+        });
+      }
+    } catch (error: any) {
+      console.error("Error updating mandate checker:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update mandate checker. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingMandateChecker(false);
     }
   };
 
@@ -1234,67 +1300,92 @@ export default function Mandates() {
         setDetailsModalOpen(open);
         if (!open) {
           setIsEditMode(false);
+          setIsMandateCheckerEditMode(false);
         }
       }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle>{selectedMandate?.project_name || "Mandate Details"}</DialogTitle>
-              <div className="flex gap-2">
-                {!isEditMode ? (
-                  <Button variant="outline" onClick={() => setIsEditMode(true)}>
-                    Edit
-                  </Button>
-                ) : (
-                  <>
-                    <Button variant="outline" onClick={() => {
-                      setIsEditMode(false);
-                      setEditMandateData({
-                        projectCode: selectedMandate.project_code || "",
-                        projectName: selectedMandate.project_name || "",
-                        accountId: selectedMandate.account_id || "",
-                        kamId: selectedMandate.kam_id || "",
-                        lob: selectedMandate.lob || "",
-                        newSalesOwner: selectedMandate.new_sales_owner || "",
-                        handoverMonthlyVolume: selectedMandate.handover_monthly_volume?.toString() || "",
-                        handoverCommercialPerHead: selectedMandate.handover_commercial_per_head?.toString() || "",
-                        handoverMcv: selectedMandate.handover_mcv?.toString() || "",
-                        prjDurationMonths: selectedMandate.prj_duration_months?.toString() || "",
-                        handoverAcv: selectedMandate.handover_acv?.toString() || "",
-                        handoverPrjType: selectedMandate.handover_prj_type || "",
-                        revenueMonthlyVolume: selectedMandate.revenue_monthly_volume?.toString() || "",
-                        revenueCommercialPerHead: selectedMandate.revenue_commercial_per_head?.toString() || "",
-                        revenueMcv: selectedMandate.revenue_mcv?.toString() || "",
-                        revenueAcv: selectedMandate.revenue_acv?.toString() || "",
-                        revenuePrjType: selectedMandate.revenue_prj_type || "",
-                        mandateHealth: selectedMandate.mandate_health || "",
-                        upsellConstraint: selectedMandate.upsell_constraint ? "YES" : "NO",
-                        upsellConstraintType: selectedMandate.upsell_constraint_type || "",
-                        upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
-                        upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
-                        clientBudgetTrend: selectedMandate.client_budget_trend || "",
-                        awignSharePercent: selectedMandate.awign_share_percent || "",
-                        retentionType: selectedMandate.retention_type || "",
-                        upsellActionStatus: selectedMandate.upsell_action_status || "",
-                      });
-                    }}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleUpdateMandate} disabled={updatingMandate}>
-                      {updatingMandate ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        "Save Changes"
-                      )}
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
+            <DialogTitle>{selectedMandate?.project_name || "Mandate Details"}</DialogTitle>
           </DialogHeader>
+          <div className="flex items-center justify-end gap-2 mb-4">
+            {!isEditMode && !isMandateCheckerEditMode ? (
+              <>
+                <Button variant="outline" onClick={() => setIsEditMode(true)}>
+                  Edit
+                </Button>
+                <Button variant="outline" onClick={() => {
+                  // Ensure editMandateData has current values for Mandate Checker fields
+                  setEditMandateData((prev: any) => ({
+                    ...prev,
+                    mandateHealth: selectedMandate.mandate_health || "",
+                    upsellConstraint: selectedMandate.upsell_constraint ? "YES" : "NO",
+                    upsellConstraintType: selectedMandate.upsell_constraint_type || "",
+                    upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
+                    upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
+                    clientBudgetTrend: selectedMandate.client_budget_trend || "",
+                    awignSharePercent: selectedMandate.awign_share_percent || "",
+                    retentionType: selectedMandate.retention_type || "",
+                  }));
+                  setIsMandateCheckerEditMode(true);
+                  // Scroll to Mandate Checker section after a brief delay to allow state update
+                  setTimeout(() => {
+                    const mandateCheckerCard = document.getElementById('mandate-checker-section');
+                    if (mandateCheckerCard) {
+                      mandateCheckerCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }, 100);
+                }}>
+                  Update
+                </Button>
+              </>
+            ) : isEditMode ? (
+              <>
+                <Button variant="outline" onClick={() => {
+                  setIsEditMode(false);
+                  setEditMandateData({
+                    projectCode: selectedMandate.project_code || "",
+                    projectName: selectedMandate.project_name || "",
+                    accountId: selectedMandate.account_id || "",
+                    kamId: selectedMandate.kam_id || "",
+                    lob: selectedMandate.lob || "",
+                    newSalesOwner: selectedMandate.new_sales_owner || "",
+                    handoverMonthlyVolume: selectedMandate.handover_monthly_volume?.toString() || "",
+                    handoverCommercialPerHead: selectedMandate.handover_commercial_per_head?.toString() || "",
+                    handoverMcv: selectedMandate.handover_mcv?.toString() || "",
+                    prjDurationMonths: selectedMandate.prj_duration_months?.toString() || "",
+                    handoverAcv: selectedMandate.handover_acv?.toString() || "",
+                    handoverPrjType: selectedMandate.handover_prj_type || "",
+                    revenueMonthlyVolume: selectedMandate.revenue_monthly_volume?.toString() || "",
+                    revenueCommercialPerHead: selectedMandate.revenue_commercial_per_head?.toString() || "",
+                    revenueMcv: selectedMandate.revenue_mcv?.toString() || "",
+                    revenueAcv: selectedMandate.revenue_acv?.toString() || "",
+                    revenuePrjType: selectedMandate.revenue_prj_type || "",
+                    mandateHealth: selectedMandate.mandate_health || "",
+                    upsellConstraint: selectedMandate.upsell_constraint ? "YES" : "NO",
+                    upsellConstraintType: selectedMandate.upsell_constraint_type || "",
+                    upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
+                    upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
+                    clientBudgetTrend: selectedMandate.client_budget_trend || "",
+                    awignSharePercent: selectedMandate.awign_share_percent || "",
+                    retentionType: selectedMandate.retention_type || "",
+                    upsellActionStatus: selectedMandate.upsell_action_status || "",
+                  });
+                }}>
+                  Cancel
+                </Button>
+                <Button onClick={handleUpdateMandate} disabled={updatingMandate}>
+                  {updatingMandate ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
+              </>
+            ) : null}
+          </div>
           {selectedMandate && editMandateData && (
             <div className="space-y-6">
               {/* 1st Section: Project Info */}
@@ -1583,13 +1674,45 @@ export default function Mandates() {
               </Card>
 
               {/* 4th Section: Mandate Checker */}
-              <Card className="border-orange-200 bg-orange-50/50">
+              <Card id="mandate-checker-section" className="border-orange-200 bg-orange-50/50">
                 <CardContent className="pt-6">
-                  <h3 className="font-semibold text-lg mb-4 text-orange-900">Mandate Checker</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-lg text-orange-900">Mandate Checker</h3>
+                    {isMandateCheckerEditMode && (
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => {
+                          setIsMandateCheckerEditMode(false);
+                          setEditMandateData({
+                            ...editMandateData,
+                            mandateHealth: selectedMandate.mandate_health || "",
+                            upsellConstraint: selectedMandate.upsell_constraint ? "YES" : "NO",
+                            upsellConstraintType: selectedMandate.upsell_constraint_type || "",
+                            upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
+                            upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
+                            clientBudgetTrend: selectedMandate.client_budget_trend || "",
+                            awignSharePercent: selectedMandate.awign_share_percent || "",
+                            retentionType: selectedMandate.retention_type || "",
+                          });
+                        }}>
+                          Cancel
+                        </Button>
+                        <Button size="sm" onClick={handleUpdateMandateChecker} disabled={updatingMandateChecker}>
+                          {updatingMandateChecker ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            "Save"
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Mandate Health:</Label>
-                      {isEditMode ? (
+                      {(isEditMode || isMandateCheckerEditMode) ? (
                         <Select
                           value={editMandateData.mandateHealth}
                           onValueChange={(value) => setEditMandateData({ ...editMandateData, mandateHealth: value })}
@@ -1600,7 +1723,7 @@ export default function Mandates() {
                           <SelectContent>
                             <SelectItem value="Exceeds Expectations">Exceeds Expectations</SelectItem>
                             <SelectItem value="Meets Expectations">Meets Expectations</SelectItem>
-                            <SelectItem value="Below Expectations">Below Expectations</SelectItem>
+                            <SelectItem value="Need Improvement">Need Improvement</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : (
@@ -1609,7 +1732,7 @@ export default function Mandates() {
                     </div>
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Upsell Constraint:</Label>
-                      {isEditMode ? (
+                      {(isEditMode || isMandateCheckerEditMode) ? (
                         <Select
                           value={editMandateData.upsellConstraint}
                           onValueChange={(value) => setEditMandateData({ ...editMandateData, upsellConstraint: value, upsellConstraintType: value === "NO" ? "" : editMandateData.upsellConstraintType, upsellConstraintSub: value === "NO" ? "" : editMandateData.upsellConstraintSub, upsellConstraintSub2: value === "NO" ? "" : editMandateData.upsellConstraintSub2 })}
@@ -1626,58 +1749,77 @@ export default function Mandates() {
                         <p className="mt-1">{selectedMandate.upsell_constraint ? "YES" : selectedMandate.upsell_constraint === false ? "NO" : "N/A"}</p>
                       )}
                     </div>
-                    {((isEditMode && editMandateData.upsellConstraint === "YES") || (!isEditMode && selectedMandate.upsell_constraint)) && (
-                      <>
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Upsell Constraint Type:</Label>
-                          {isEditMode ? (
-                            <Select
-                              value={editMandateData.upsellConstraintType}
-                              onValueChange={(value) => setEditMandateData({ ...editMandateData, upsellConstraintType: value, upsellConstraintSub: value === "-" ? "" : editMandateData.upsellConstraintSub, upsellConstraintSub2: value === "-" ? "" : editMandateData.upsellConstraintSub2 })}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="-">-</SelectItem>
-                                <SelectItem value="Budget">Budget</SelectItem>
-                                <SelectItem value="Resource">Resource</SelectItem>
-                                <SelectItem value="Timeline">Timeline</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <p className="mt-1">{selectedMandate.upsell_constraint_type || "N/A"}</p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Upsell Constraint Type - Sub:</Label>
-                          {isEditMode ? (
-                            <Input
-                              value={editMandateData.upsellConstraintSub}
-                              onChange={(e) => setEditMandateData({ ...editMandateData, upsellConstraintSub: e.target.value })}
-                            />
-                          ) : (
-                            <p className="mt-1">{selectedMandate.upsell_constraint_sub || "N/A"}</p>
-                          )}
-                        </div>
-                        {((isEditMode && editMandateData.upsellConstraintSub) || (!isEditMode && selectedMandate.upsell_constraint_sub2)) && (
-                          <div className="space-y-2">
-                            <Label className="font-medium text-muted-foreground">Upsell Constraint Type - Sub 2:</Label>
-                            {isEditMode ? (
-                              <Input
-                                value={editMandateData.upsellConstraintSub2}
-                                onChange={(e) => setEditMandateData({ ...editMandateData, upsellConstraintSub2: e.target.value })}
-                              />
-                            ) : (
-                              <p className="mt-1">{selectedMandate.upsell_constraint_sub2 || "N/A"}</p>
-                            )}
-                          </div>
+                    {/* Always show Upsell Constraint Type fields - always visible in view mode, conditionally enabled in edit mode */}
+                    <>
+                      <div className="space-y-2">
+                        <Label className="font-medium text-muted-foreground">Upsell Constraint Type:</Label>
+                        {(isEditMode || isMandateCheckerEditMode) ? (
+                          <Select
+                            value={editMandateData.upsellConstraintType}
+                            onValueChange={(value) => setEditMandateData({ ...editMandateData, upsellConstraintType: value, upsellConstraintSub: value === "-" ? "" : editMandateData.upsellConstraintSub, upsellConstraintSub2: value === "-" ? "" : editMandateData.upsellConstraintSub2 })}
+                            disabled={editMandateData.upsellConstraint !== "YES"}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="-">-</SelectItem>
+                              <SelectItem value="Internal">Internal</SelectItem>
+                              <SelectItem value="External">External</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="mt-1">{selectedMandate.upsell_constraint_type || "N/A"}</p>
                         )}
-                      </>
-                    )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="font-medium text-muted-foreground">Upsell Constraint Type - Sub:</Label>
+                        {(isEditMode || isMandateCheckerEditMode) ? (
+                          <Select
+                            value={editMandateData.upsellConstraintSub}
+                            onValueChange={(value) => setEditMandateData({ ...editMandateData, upsellConstraintSub: value })}
+                            disabled={editMandateData.upsellConstraint !== "YES"}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Profitability">Profitability</SelectItem>
+                              <SelectItem value="Delivery">Delivery</SelectItem>
+                              <SelectItem value="Others">Others</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="mt-1">{selectedMandate.upsell_constraint_sub || "N/A"}</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="font-medium text-muted-foreground">Upsell Constraint Type - Sub 2:</Label>
+                        {(isEditMode || isMandateCheckerEditMode) ? (
+                          <Select
+                            value={editMandateData.upsellConstraintSub2}
+                            onValueChange={(value) => setEditMandateData({ ...editMandateData, upsellConstraintSub2: value })}
+                            disabled={editMandateData.upsellConstraint !== "YES" || !editMandateData.upsellConstraintSub}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="GM too Low">GM too Low</SelectItem>
+                              <SelectItem value="CoC (Cost of Capital too high)">
+                                CoC (Cost of Capital too high)
+                              </SelectItem>
+                              <SelectItem value="Schedule too tight">Schedule too tight</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="mt-1">{selectedMandate.upsell_constraint_sub2 || "N/A"}</p>
+                        )}
+                      </div>
+                    </>
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Client Budget Trend:</Label>
-                      {isEditMode ? (
+                      {(isEditMode || isMandateCheckerEditMode) ? (
                         <Select
                           value={editMandateData.clientBudgetTrend}
                           onValueChange={(value) => setEditMandateData({ ...editMandateData, clientBudgetTrend: value })}
@@ -1686,9 +1828,9 @@ export default function Mandates() {
                             <SelectValue placeholder="Select trend" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Increasing">Increasing</SelectItem>
-                            <SelectItem value="Stable">Stable</SelectItem>
-                            <SelectItem value="Decreasing">Decreasing</SelectItem>
+                            <SelectItem value="Increase">Increase</SelectItem>
+                            <SelectItem value="Same">Same</SelectItem>
+                            <SelectItem value="Decrease">Decrease</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : (
@@ -1697,7 +1839,7 @@ export default function Mandates() {
                     </div>
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Awign Share %:</Label>
-                      {isEditMode ? (
+                      {(isEditMode || isMandateCheckerEditMode) ? (
                         <Select
                           value={editMandateData.awignSharePercent}
                           onValueChange={(value) => setEditMandateData({ ...editMandateData, awignSharePercent: value })}
@@ -1706,9 +1848,8 @@ export default function Mandates() {
                             <SelectValue placeholder="Select share" />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="Below 70%">Below 70%</SelectItem>
                             <SelectItem value="70% & Above">70% & Above</SelectItem>
-                            <SelectItem value="50-70%">50-70%</SelectItem>
-                            <SelectItem value="Below 50%">Below 50%</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : (
@@ -1717,7 +1858,7 @@ export default function Mandates() {
                     </div>
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Retention Type:</Label>
-                      {isEditMode ? (
+                      {(isEditMode || isMandateCheckerEditMode) ? (
                         <Input
                           value={editMandateData.retentionType}
                           placeholder="Auto"
