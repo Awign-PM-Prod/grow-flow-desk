@@ -31,10 +31,16 @@ CREATE TABLE public.pipeline_deals (
   prj_start_date DATE NOT NULL,
   probability INTEGER NOT NULL DEFAULT 10,
   
-  -- Status-based fields (Proposal Stage)
+  -- Status-based fields (Pre-Appointment Prep Done)
+  discovery_meeting_slides TEXT,
+  
+  -- Status-based fields (Solution Proposal Made)
   solution_proposal_slides TEXT,
   gantt_chart_url TEXT,
   expected_contract_sign_date DATE,
+  
+  -- Status-based fields (Final Proposal Done)
+  final_proposal_slides TEXT,
   
   -- Status-based fields (Closed Won)
   contract_sign_date DATE,

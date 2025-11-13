@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -44,11 +45,31 @@ interface DealFormData {
   prjStartDate: string;
   probability: string;
   // Status-based fields
+  discoveryMeetingSlides: string;
   solutionProposalSlides: string;
   ganttChartUrl: string;
   expectedContractSignDate: string;
+  finalProposalSlides: string;
   contractSignDate: string;
   signedContractLink: string;
+  droppedReason: string;
+  droppedReasonOthers: string;
+}
+
+interface StatusUpdateFormData {
+  newStatus: string;
+  discoveryMeetingSlides: string;
+  discoveryMeetingSlidesFile: File | null;
+  solutionProposalSlides: string;
+  solutionProposalSlidesFile: File | null;
+  ganttChartUrl: string;
+  ganttChartFile: File | null;
+  expectedContractSignDate: string;
+  finalProposalSlides: string;
+  finalProposalSlidesFile: File | null;
+  contractSignDate: string;
+  signedContractLink: string;
+  signedContractFile: File | null;
   droppedReason: string;
   droppedReasonOthers: string;
 }
@@ -115,7 +136,7 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
   },
 };
 
-const prjDurationOptions = ["1", "6", "12"];
+const prjDurationOptions = ["1","2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 const prjFrequencyOptions = ["One-Time", "Recurring"];
 
 const droppedReasons = [
@@ -148,6 +169,15 @@ export default function Pipeline() {
   const [deals, setDeals] = useState<any[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
   
+  // Status update dialog state
+  const [statusUpdateDialogOpen, setStatusUpdateDialogOpen] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [dealForStatusUpdate, setDealForStatusUpdate] = useState<any | null>(null);
+  
+  // View details dialog state
+  const [viewDetailsDialogOpen, setViewDetailsDialogOpen] = useState(false);
+  const [selectedDealForView, setSelectedDealForView] = useState<any | null>(null);
+  
   // Filters for view mode
   const [searchTerm, setSearchTerm] = useState("");
   const [filterLob, setFilterLob] = useState("all");
@@ -175,11 +205,31 @@ export default function Pipeline() {
     status: "Listed",
     prjStartDate: "",
     probability: "",
+    discoveryMeetingSlides: "",
     solutionProposalSlides: "",
     ganttChartUrl: "",
     expectedContractSignDate: "",
+    finalProposalSlides: "",
     contractSignDate: "",
     signedContractLink: "",
+    droppedReason: "",
+    droppedReasonOthers: "",
+  });
+
+  const [statusUpdateForm, setStatusUpdateForm] = useState<StatusUpdateFormData>({
+    newStatus: "",
+    discoveryMeetingSlides: "",
+    discoveryMeetingSlidesFile: null,
+    solutionProposalSlides: "",
+    solutionProposalSlidesFile: null,
+    ganttChartUrl: "",
+    ganttChartFile: null,
+    expectedContractSignDate: "",
+    finalProposalSlides: "",
+    finalProposalSlidesFile: null,
+    contractSignDate: "",
+    signedContractLink: "",
+    signedContractFile: null,
     droppedReason: "",
     droppedReasonOthers: "",
   });
@@ -416,13 +466,22 @@ export default function Pipeline() {
 
   // Auto-generate Sales Module Name
   useEffect(() => {
-    if (formData.accountId && formData.lob && formData.useCase) {
+    if (formData.accountId && formData.lob) {
       const account = accounts.find((a) => a.id === formData.accountId);
-      const moduleName = `${account?.name || ""} - ${formData.lob} - ${formData.useCase}`;
-      setFormData((prev) => ({
-        ...prev,
-        salesModuleName: moduleName,
-      }));
+      // If use case is empty or '-', only use account name and LoB
+      if (!formData.useCase || formData.useCase === "-") {
+        const moduleName = `${account?.name || ""} - ${formData.lob}`;
+        setFormData((prev) => ({
+          ...prev,
+          salesModuleName: moduleName,
+        }));
+      } else if (formData.useCase) {
+        const moduleName = `${account?.name || ""} - ${formData.lob} - ${formData.useCase}`;
+        setFormData((prev) => ({
+          ...prev,
+          salesModuleName: moduleName,
+        }));
+      }
     }
   }, [formData.accountId, formData.lob, formData.useCase, accounts]);
 
@@ -466,9 +525,11 @@ export default function Pipeline() {
         status: formData.status,
         prj_start_date: formData.prjStartDate || null,
         probability: parseInt(formData.probability) || 10,
+        discovery_meeting_slides: formData.discoveryMeetingSlides || null,
         solution_proposal_slides: formData.solutionProposalSlides || null,
         gantt_chart_url: formData.ganttChartUrl || null,
         expected_contract_sign_date: formData.expectedContractSignDate || null,
+        final_proposal_slides: formData.finalProposalSlides || null,
         contract_sign_date: formData.contractSignDate || null,
         signed_contract_link: formData.signedContractLink || null,
         dropped_reason: formData.droppedReason || null,
@@ -510,9 +571,11 @@ export default function Pipeline() {
         status: "Listed",
         prjStartDate: "",
         probability: "",
+        discoveryMeetingSlides: "",
         solutionProposalSlides: "",
         ganttChartUrl: "",
         expectedContractSignDate: "",
+        finalProposalSlides: "",
         contractSignDate: "",
         signedContractLink: "",
         droppedReason: "",
@@ -561,9 +624,11 @@ export default function Pipeline() {
       status: deal.status || "Listed",
       prjStartDate: deal.prj_start_date || "",
       probability: deal.probability?.toString() || "",
+      discoveryMeetingSlides: deal.discovery_meeting_slides || "",
       solutionProposalSlides: deal.solution_proposal_slides || "",
       ganttChartUrl: deal.gantt_chart_url || "",
       expectedContractSignDate: deal.expected_contract_sign_date || "",
+      finalProposalSlides: deal.final_proposal_slides || "",
       contractSignDate: deal.contract_sign_date || "",
       signedContractLink: deal.signed_contract_link || "",
       droppedReason: deal.dropped_reason || "",
@@ -618,9 +683,11 @@ export default function Pipeline() {
         status: formData.status,
         prj_start_date: formData.prjStartDate || null,
         probability: parseInt(formData.probability) || 10,
+        discovery_meeting_slides: formData.discoveryMeetingSlides || null,
         solution_proposal_slides: formData.solutionProposalSlides || null,
         gantt_chart_url: formData.ganttChartUrl || null,
         expected_contract_sign_date: formData.expectedContractSignDate || null,
+        final_proposal_slides: formData.finalProposalSlides || null,
         contract_sign_date: formData.contractSignDate || null,
         signed_contract_link: formData.signedContractLink || null,
         dropped_reason: formData.droppedReason || null,
@@ -652,6 +719,313 @@ export default function Pipeline() {
       });
     } finally {
       setUpdatingDeal(false);
+    }
+  };
+
+  // Helper function to extract filename from URL
+  const getFileNameFromUrl = (url: string, defaultName: string): string => {
+    try {
+      const urlPath = new URL(url).pathname;
+      const fileName = urlPath.split('/').pop() || defaultName;
+      return fileName.includes('.') ? fileName : `${defaultName}.pdf`;
+    } catch {
+      return `${defaultName}.pdf`;
+    }
+  };
+
+  // Helper function to download file from URL
+  const downloadFile = async (url: string, fileName: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      toast({
+        title: "Error",
+        description: "Failed to download file. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // File upload helper function
+  const uploadFile = async (file: File, dealId: string, fileType: string, statusFolder: string): Promise<string> => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${fileType}-${Date.now()}.${fileExt}`;
+    const filePath = `${dealId}/${statusFolder}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('pipeline-deal-status-files')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage
+      .from('pipeline-deal-status-files')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  };
+
+  // Get required fields for a status
+  const getRequiredFieldsForStatus = (status: string): string[] => {
+    switch (status) {
+      case "Pre-Appointment Prep Done":
+        return []; // All optional
+      case "Discovery Meeting Done":
+        return [];
+      case "Requirement Gathering Done":
+        return [];
+      case "Solution Proposal Made":
+        return ["solutionProposalSlides", "expectedContractSignDate"];
+      case "SOW Handshake Done":
+        return [];
+      case "Final Proposal Done":
+        return ["finalProposalSlides"];
+      case "Commercial Agreed":
+        return [];
+      case "Closed Won":
+        return ["contractSignDate", "signedContractLink"];
+      case "Dropped":
+        return ["droppedReason"];
+      default:
+        return [];
+    }
+  };
+
+  // Validate status update form
+  const validateStatusUpdate = (status: string, form: StatusUpdateFormData): { valid: boolean; errors: string[] } => {
+    const requiredFields = getRequiredFieldsForStatus(status);
+    const errors: string[] = [];
+
+    requiredFields.forEach((field) => {
+      if (field === "solutionProposalSlides" && !form.solutionProposalSlides && !form.solutionProposalSlidesFile) {
+        errors.push("Solution Proposal Slides is required");
+      }
+      if (field === "expectedContractSignDate" && !form.expectedContractSignDate) {
+        errors.push("Expected Contract Sign Date is required");
+      }
+      if (field === "finalProposalSlides" && !form.finalProposalSlides && !form.finalProposalSlidesFile) {
+        errors.push("Final Proposal Slides is required");
+      }
+      if (field === "contractSignDate" && !form.contractSignDate) {
+        errors.push("Contract Sign Date is required");
+      }
+      if (field === "signedContractLink" && !form.signedContractLink && !form.signedContractFile) {
+        errors.push("Signed Contract Link is required");
+      }
+      if (field === "droppedReason" && !form.droppedReason) {
+        errors.push("Dropped Reason is required");
+      }
+    });
+
+    return { valid: errors.length === 0, errors };
+  };
+
+  // Handle opening view details dialog
+  const handleViewDetails = (deal: any) => {
+    setSelectedDealForView(deal);
+    setViewDetailsDialogOpen(true);
+  };
+
+  // Handle opening status update dialog from view details
+  const handleUpdateStatusFromView = (deal: any) => {
+    setViewDetailsDialogOpen(false);
+    setDealForStatusUpdate(deal);
+    setStatusUpdateForm({
+      newStatus: deal.status || "",
+      discoveryMeetingSlides: deal.discovery_meeting_slides || "",
+      discoveryMeetingSlidesFile: null,
+      solutionProposalSlides: deal.solution_proposal_slides || "",
+      solutionProposalSlidesFile: null,
+      ganttChartUrl: deal.gantt_chart_url || "",
+      ganttChartFile: null,
+      expectedContractSignDate: deal.expected_contract_sign_date || "",
+      finalProposalSlides: deal.final_proposal_slides || "",
+      finalProposalSlidesFile: null,
+      contractSignDate: deal.contract_sign_date || "",
+      signedContractLink: deal.signed_contract_link || "",
+      signedContractFile: null,
+      droppedReason: deal.dropped_reason || "",
+      droppedReasonOthers: deal.dropped_reason_others || "",
+    });
+    setStatusUpdateDialogOpen(true);
+  };
+
+  // Handle opening edit dialog from view details
+  const handleEditFromView = (deal: any) => {
+    setViewDetailsDialogOpen(false);
+    handleEditDeal(deal);
+  };
+
+  // Handle opening status update dialog
+  const handleUpdateStatus = (deal: any) => {
+    setDealForStatusUpdate(deal);
+    setStatusUpdateForm({
+      newStatus: deal.status || "",
+      discoveryMeetingSlides: deal.discovery_meeting_slides || "",
+      discoveryMeetingSlidesFile: null,
+      solutionProposalSlides: deal.solution_proposal_slides || "",
+      solutionProposalSlidesFile: null,
+      ganttChartUrl: deal.gantt_chart_url || "",
+      ganttChartFile: null,
+      expectedContractSignDate: deal.expected_contract_sign_date || "",
+      finalProposalSlides: deal.final_proposal_slides || "",
+      finalProposalSlidesFile: null,
+      contractSignDate: deal.contract_sign_date || "",
+      signedContractLink: deal.signed_contract_link || "",
+      signedContractFile: null,
+      droppedReason: deal.dropped_reason || "",
+      droppedReasonOthers: deal.dropped_reason_others || "",
+    });
+    setStatusUpdateDialogOpen(true);
+  };
+
+  // Handle status update submission
+  const handleStatusUpdateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dealForStatusUpdate) return;
+
+    // Validate required fields
+    const validation = validateStatusUpdate(statusUpdateForm.newStatus, statusUpdateForm);
+    if (!validation.valid) {
+      toast({
+        title: "Validation Error",
+        description: validation.errors.join(", "),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setUpdatingStatus(true);
+    try {
+      const dealId = dealForStatusUpdate.id;
+      const updateData: any = {
+        status: statusUpdateForm.newStatus,
+      };
+
+      // Upload files and update URLs
+      if (statusUpdateForm.discoveryMeetingSlidesFile) {
+        const url = await uploadFile(
+          statusUpdateForm.discoveryMeetingSlidesFile,
+          dealId,
+          "discovery-meeting-slides",
+          "pre-appointment-prep-done"
+        );
+        updateData.discovery_meeting_slides = url;
+      } else if (statusUpdateForm.discoveryMeetingSlides) {
+        updateData.discovery_meeting_slides = statusUpdateForm.discoveryMeetingSlides;
+      }
+
+      if (statusUpdateForm.solutionProposalSlidesFile) {
+        const url = await uploadFile(
+          statusUpdateForm.solutionProposalSlidesFile,
+          dealId,
+          "solution-proposal-slides",
+          "solution-proposal-made"
+        );
+        updateData.solution_proposal_slides = url;
+      } else if (statusUpdateForm.solutionProposalSlides) {
+        updateData.solution_proposal_slides = statusUpdateForm.solutionProposalSlides;
+      }
+
+      if (statusUpdateForm.ganttChartFile) {
+        const url = await uploadFile(
+          statusUpdateForm.ganttChartFile,
+          dealId,
+          "gantt-chart",
+          "solution-proposal-made"
+        );
+        updateData.gantt_chart_url = url;
+      } else if (statusUpdateForm.ganttChartUrl) {
+        updateData.gantt_chart_url = statusUpdateForm.ganttChartUrl;
+      }
+
+      if (statusUpdateForm.finalProposalSlidesFile) {
+        const url = await uploadFile(
+          statusUpdateForm.finalProposalSlidesFile,
+          dealId,
+          "final-proposal-slides",
+          "final-proposal-done"
+        );
+        updateData.final_proposal_slides = url;
+      } else if (statusUpdateForm.finalProposalSlides) {
+        updateData.final_proposal_slides = statusUpdateForm.finalProposalSlides;
+      }
+
+      if (statusUpdateForm.signedContractFile) {
+        const url = await uploadFile(
+          statusUpdateForm.signedContractFile,
+          dealId,
+          "signed-contract",
+          "closed-won"
+        );
+        updateData.signed_contract_link = url;
+      } else if (statusUpdateForm.signedContractLink) {
+        updateData.signed_contract_link = statusUpdateForm.signedContractLink;
+      }
+
+      // Update date fields
+      if (statusUpdateForm.expectedContractSignDate) {
+        updateData.expected_contract_sign_date = statusUpdateForm.expectedContractSignDate;
+      }
+      if (statusUpdateForm.contractSignDate) {
+        updateData.contract_sign_date = statusUpdateForm.contractSignDate;
+      }
+
+      // Update dropped reason fields
+      if (statusUpdateForm.droppedReason) {
+        updateData.dropped_reason = statusUpdateForm.droppedReason;
+        updateData.dropped_reason_others = statusUpdateForm.droppedReasonOthers || null;
+      }
+
+      // Update probability based on new status
+      let probability = 10;
+      if (statusUpdateForm.newStatus === "Listed") probability = 10;
+      else if (statusUpdateForm.newStatus === "Pre-Appointment Prep Done") probability = 20;
+      else if (statusUpdateForm.newStatus === "Discovery Meeting Done") probability = 30;
+      else if (statusUpdateForm.newStatus === "Requirement Gathering Done") probability = 40;
+      else if (statusUpdateForm.newStatus === "Solution Proposal Made") probability = 50;
+      else if (statusUpdateForm.newStatus === "SOW Handshake Done") probability = 60;
+      else if (statusUpdateForm.newStatus === "Final Proposal Done") probability = 70;
+      else if (statusUpdateForm.newStatus === "Commercial Agreed") probability = 80;
+      else if (statusUpdateForm.newStatus === "Closed Won") probability = 100;
+      else if (statusUpdateForm.newStatus === "Dropped") probability = 0;
+
+      updateData.probability = probability;
+
+      const { error } = await supabase
+        .from("pipeline_deals")
+        .update(updateData)
+        .eq("id", dealId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success!",
+        description: "Deal status updated successfully.",
+      });
+
+      setStatusUpdateDialogOpen(false);
+      setDealForStatusUpdate(null);
+      fetchDeals();
+    } catch (error: any) {
+      console.error("Error updating status:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update status. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -714,9 +1088,11 @@ export default function Pipeline() {
             status: "Listed",
             prjStartDate: "",
             probability: "",
+            discoveryMeetingSlides: "",
             solutionProposalSlides: "",
             ganttChartUrl: "",
             expectedContractSignDate: "",
+            finalProposalSlides: "",
             contractSignDate: "",
             signedContractLink: "",
             droppedReason: "",
@@ -1387,9 +1763,9 @@ export default function Pipeline() {
                           <Button 
                             variant="ghost" 
                             size="sm"
-                            onClick={() => handleEditDeal(deal)}
+                            onClick={() => handleViewDetails(deal)}
                           >
-                            Edit
+                            View Details
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -1401,6 +1777,723 @@ export default function Pipeline() {
           </CardContent>
         </Card>
       </div>
+
+      {/* View Details Dialog */}
+      <Dialog open={viewDetailsDialogOpen} onOpenChange={(open) => {
+        setViewDetailsDialogOpen(open);
+        if (!open) {
+          setSelectedDealForView(null);
+        }
+      }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <DialogTitle>
+                {selectedDealForView?.sales_module_name || "Deal Details"}
+              </DialogTitle>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => selectedDealForView && handleUpdateStatusFromView(selectedDealForView)}
+                >
+                  Update Status
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => selectedDealForView && handleEditFromView(selectedDealForView)}
+                >
+                  Edit
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+          {selectedDealForView && (
+            <div className="space-y-6">
+              {/* Sales Module Section */}
+              <Card className="border-blue-200 bg-blue-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-blue-900">Sales Module</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Sales Module Name:</Label>
+                      <p className="mt-1">{selectedDealForView.sales_module_name || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">KAM:</Label>
+                      <p className="mt-1">{selectedDealForView.kam || "N/A"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Deal Details Section */}
+              <Card className="border-green-200 bg-green-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-green-900">Deal Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Account:</Label>
+                      <p className="mt-1">{selectedDealForView.account || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">SPOC:</Label>
+                      <p className="mt-1">{selectedDealForView.spoc || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">LoB:</Label>
+                      <p className="mt-1">{selectedDealForView.lob || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Use Case:</Label>
+                      <p className="mt-1">{selectedDealForView.use_case || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Sub Use Case:</Label>
+                      <p className="mt-1">{selectedDealForView.sub_use_case || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Monthly Volume:</Label>
+                      <p className="mt-1">{selectedDealForView.monthly_volume ? selectedDealForView.monthly_volume.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Max Monthly Volume:</Label>
+                      <p className="mt-1">{selectedDealForView.max_monthly_volume ? selectedDealForView.max_monthly_volume.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Commercial per head:</Label>
+                      <p className="mt-1">{selectedDealForView.commercial_per_head ? selectedDealForView.commercial_per_head.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Expected Revenue:</Label>
+                      <p className="mt-1">
+                        {selectedDealForView.expected_revenue
+                          ? `₹${selectedDealForView.expected_revenue.toLocaleString("en-IN")}`
+                          : "N/A"}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">MPV:</Label>
+                      <p className="mt-1">{selectedDealForView.mpv ? selectedDealForView.mpv.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Max MPV:</Label>
+                      <p className="mt-1">{selectedDealForView.max_mpv ? selectedDealForView.max_mpv.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">PRJ Duration (months):</Label>
+                      <p className="mt-1">{selectedDealForView.prj_duration_months || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">GM Threshold:</Label>
+                      <p className="mt-1">{selectedDealForView.gm_threshold ? selectedDealForView.gm_threshold.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">PRJ Frequency:</Label>
+                      <p className="mt-1">{selectedDealForView.prj_frequency || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Status:</Label>
+                      <p className="mt-1">
+                        <Badge variant="outline">{selectedDealForView.status || "N/A"}</Badge>
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">PRJ Start Date:</Label>
+                      <p className="mt-1">{selectedDealForView.prj_start_date || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Probability:</Label>
+                      <p className="mt-1">{selectedDealForView.probability || "N/A"}%</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Status-based Details */}
+              {(selectedDealForView.discovery_meeting_slides || 
+                selectedDealForView.solution_proposal_slides || 
+                selectedDealForView.gantt_chart_url || 
+                selectedDealForView.expected_contract_sign_date ||
+                selectedDealForView.final_proposal_slides ||
+                selectedDealForView.contract_sign_date ||
+                selectedDealForView.signed_contract_link ||
+                selectedDealForView.dropped_reason) && (
+                <Card className="border-orange-200 bg-orange-50/50">
+                  <CardContent className="pt-6">
+                    <h3 className="font-semibold text-lg mb-4 text-orange-900">Status-based Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {selectedDealForView.discovery_meeting_slides && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Discovery Meeting Slides:</Label>
+                          <p className="mt-1">
+                            <a href={selectedDealForView.discovery_meeting_slides} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                              View File
+                            </a>
+                          </p>
+                        </div>
+                      )}
+                      {selectedDealForView.solution_proposal_slides && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Solution Proposal Slides:</Label>
+                          <p className="mt-1">
+                            <a href={selectedDealForView.solution_proposal_slides} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                              View File
+                            </a>
+                          </p>
+                        </div>
+                      )}
+                      {selectedDealForView.gantt_chart_url && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Gantt Chart URL:</Label>
+                          <p className="mt-1">
+                            <a href={selectedDealForView.gantt_chart_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                              View File
+                            </a>
+                          </p>
+                        </div>
+                      )}
+                      {selectedDealForView.expected_contract_sign_date && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Expected Contract Sign Date:</Label>
+                          <p className="mt-1">{selectedDealForView.expected_contract_sign_date}</p>
+                        </div>
+                      )}
+                      {selectedDealForView.final_proposal_slides && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Final Proposal Slides:</Label>
+                          <p className="mt-1">
+                            <a href={selectedDealForView.final_proposal_slides} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                              View File
+                            </a>
+                          </p>
+                        </div>
+                      )}
+                      {selectedDealForView.contract_sign_date && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Contract Sign Date:</Label>
+                          <p className="mt-1">{selectedDealForView.contract_sign_date}</p>
+                        </div>
+                      )}
+                      {selectedDealForView.signed_contract_link && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Signed Contract Link:</Label>
+                          <p className="mt-1">
+                            <a href={selectedDealForView.signed_contract_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                              View File
+                            </a>
+                          </p>
+                        </div>
+                      )}
+                      {selectedDealForView.dropped_reason && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Dropped Reason:</Label>
+                          <p className="mt-1">{selectedDealForView.dropped_reason}</p>
+                        </div>
+                      )}
+                      {selectedDealForView.dropped_reason_others && (
+                        <div className="space-y-2">
+                          <Label className="font-medium text-muted-foreground">Dropped Reason - Others:</Label>
+                          <p className="mt-1">{selectedDealForView.dropped_reason_others}</p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Attached Documents Section */}
+              {(selectedDealForView.discovery_meeting_slides || 
+                selectedDealForView.solution_proposal_slides || 
+                selectedDealForView.gantt_chart_url || 
+                selectedDealForView.final_proposal_slides ||
+                selectedDealForView.signed_contract_link) && (
+                <Card className="border-indigo-200 bg-indigo-50/50">
+                  <CardContent className="pt-6">
+                    <h3 className="font-semibold text-lg mb-4 text-indigo-900">Attached Documents</h3>
+                    <div className="space-y-3">
+                      {selectedDealForView.discovery_meeting_slides && (
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <span className="text-blue-600 font-semibold">DM</span>
+                            </div>
+                            <div>
+                              <p className="font-medium">Discovery Meeting Slides</p>
+                              <p className="text-sm text-muted-foreground">Pre-Appointment Prep Done</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(selectedDealForView.discovery_meeting_slides, '_blank')}
+                            >
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => downloadFile(
+                                selectedDealForView.discovery_meeting_slides,
+                                getFileNameFromUrl(selectedDealForView.discovery_meeting_slides, 'discovery-meeting-slides')
+                              )}
+                            >
+                              Download
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {selectedDealForView.solution_proposal_slides && (
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                              <span className="text-green-600 font-semibold">SP</span>
+                            </div>
+                            <div>
+                              <p className="font-medium">Solution Proposal Slides</p>
+                              <p className="text-sm text-muted-foreground">Solution Proposal Made</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(selectedDealForView.solution_proposal_slides, '_blank')}
+                            >
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => downloadFile(
+                                selectedDealForView.solution_proposal_slides,
+                                getFileNameFromUrl(selectedDealForView.solution_proposal_slides, 'solution-proposal-slides')
+                              )}
+                            >
+                              Download
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {selectedDealForView.gantt_chart_url && (
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                              <span className="text-purple-600 font-semibold">GC</span>
+                            </div>
+                            <div>
+                              <p className="font-medium">Gantt Chart</p>
+                              <p className="text-sm text-muted-foreground">Solution Proposal Made</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(selectedDealForView.gantt_chart_url, '_blank')}
+                            >
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => downloadFile(
+                                selectedDealForView.gantt_chart_url,
+                                getFileNameFromUrl(selectedDealForView.gantt_chart_url, 'gantt-chart')
+                              )}
+                            >
+                              Download
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {selectedDealForView.final_proposal_slides && (
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                              <span className="text-orange-600 font-semibold">FP</span>
+                            </div>
+                            <div>
+                              <p className="font-medium">Final Proposal Slides</p>
+                              <p className="text-sm text-muted-foreground">Final Proposal Done</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(selectedDealForView.final_proposal_slides, '_blank')}
+                            >
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => downloadFile(
+                                selectedDealForView.final_proposal_slides,
+                                getFileNameFromUrl(selectedDealForView.final_proposal_slides, 'final-proposal-slides')
+                              )}
+                            >
+                              Download
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {selectedDealForView.signed_contract_link && (
+                        <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                              <span className="text-emerald-600 font-semibold">SC</span>
+                            </div>
+                            <div>
+                              <p className="font-medium">Signed Contract</p>
+                              <p className="text-sm text-muted-foreground">Closed Won</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(selectedDealForView.signed_contract_link, '_blank')}
+                            >
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => downloadFile(
+                                selectedDealForView.signed_contract_link,
+                                getFileNameFromUrl(selectedDealForView.signed_contract_link, 'signed-contract')
+                              )}
+                            >
+                              Download
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Status Update Dialog */}
+      <Dialog open={statusUpdateDialogOpen} onOpenChange={(open) => {
+        setStatusUpdateDialogOpen(open);
+        if (!open) {
+          setDealForStatusUpdate(null);
+          setStatusUpdateForm({
+            newStatus: "",
+            discoveryMeetingSlides: "",
+            discoveryMeetingSlidesFile: null,
+            solutionProposalSlides: "",
+            solutionProposalSlidesFile: null,
+            ganttChartUrl: "",
+            ganttChartFile: null,
+            expectedContractSignDate: "",
+            finalProposalSlides: "",
+            finalProposalSlidesFile: null,
+            contractSignDate: "",
+            signedContractLink: "",
+            signedContractFile: null,
+            droppedReason: "",
+            droppedReasonOthers: "",
+          });
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Update Deal Status</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleStatusUpdateSubmit} className="space-y-6">
+            {/* Status Selection */}
+            <div className="space-y-2">
+              <Label htmlFor="newStatus">
+                New Status <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={statusUpdateForm.newStatus}
+                onValueChange={(value) => setStatusUpdateForm({ ...statusUpdateForm, newStatus: value })}
+                required
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statusOptions.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Pre-Appointment Prep Done Fields */}
+            {statusUpdateForm.newStatus === "Pre-Appointment Prep Done" && (
+              <Card className="border-blue-200 bg-blue-50/50">
+                <CardContent className="pt-6">
+                  <h4 className="font-semibold mb-4">Pre-Appointment Prep Done Details</h4>
+                  <div className="space-y-2">
+                    <Label htmlFor="discoveryMeetingSlides">
+                      Discovery Meeting Slides (Optional)
+                    </Label>
+                    <Input
+                      id="discoveryMeetingSlides"
+                      type="file"
+                      accept=".pdf,.ppt,.pptx,.doc,.docx"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setStatusUpdateForm({ ...statusUpdateForm, discoveryMeetingSlidesFile: file });
+                        }
+                      }}
+                    />
+                    <Input
+                      placeholder="Or enter URL"
+                      value={statusUpdateForm.discoveryMeetingSlides}
+                      onChange={(e) => setStatusUpdateForm({ ...statusUpdateForm, discoveryMeetingSlides: e.target.value })}
+                    />
+                    {statusUpdateForm.discoveryMeetingSlidesFile && (
+                      <p className="text-sm text-muted-foreground">
+                        Selected: {statusUpdateForm.discoveryMeetingSlidesFile.name}
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Solution Proposal Made Fields */}
+            {statusUpdateForm.newStatus === "Solution Proposal Made" && (
+              <Card className="border-green-200 bg-green-50/50">
+                <CardContent className="pt-6">
+                  <h4 className="font-semibold mb-4">Solution Proposal Made Details</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="solutionProposalSlides">
+                        Solution Proposal Slides <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="solutionProposalSlides"
+                        type="file"
+                        accept=".pdf,.ppt,.pptx,.doc,.docx"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setStatusUpdateForm({ ...statusUpdateForm, solutionProposalSlidesFile: file });
+                          }
+                        }}
+                        required
+                      />
+                      <Input
+                        placeholder="Or enter URL"
+                        value={statusUpdateForm.solutionProposalSlides}
+                        onChange={(e) => setStatusUpdateForm({ ...statusUpdateForm, solutionProposalSlides: e.target.value })}
+                      />
+                      {statusUpdateForm.solutionProposalSlidesFile && (
+                        <p className="text-sm text-muted-foreground">
+                          Selected: {statusUpdateForm.solutionProposalSlidesFile.name}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="ganttChart">
+                        Gantt Chart Link (Optional)
+                      </Label>
+                      <Input
+                        id="ganttChart"
+                        type="file"
+                        accept=".pdf,.xls,.xlsx,.png,.jpg"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setStatusUpdateForm({ ...statusUpdateForm, ganttChartFile: file });
+                          }
+                        }}
+                      />
+                      <Input
+                        placeholder="Or enter URL"
+                        value={statusUpdateForm.ganttChartUrl}
+                        onChange={(e) => setStatusUpdateForm({ ...statusUpdateForm, ganttChartUrl: e.target.value })}
+                      />
+                      {statusUpdateForm.ganttChartFile && (
+                        <p className="text-sm text-muted-foreground">
+                          Selected: {statusUpdateForm.ganttChartFile.name}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="expectedContractSignDate">
+                        Expected Contract Sign Date <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="expectedContractSignDate"
+                        type="date"
+                        value={statusUpdateForm.expectedContractSignDate}
+                        onChange={(e) => setStatusUpdateForm({ ...statusUpdateForm, expectedContractSignDate: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Final Proposal Done Fields */}
+            {statusUpdateForm.newStatus === "Final Proposal Done" && (
+              <Card className="border-purple-200 bg-purple-50/50">
+                <CardContent className="pt-6">
+                  <h4 className="font-semibold mb-4">Final Proposal Done Details</h4>
+                  <div className="space-y-2">
+                    <Label htmlFor="finalProposalSlides">
+                      Final (Solution) Proposal Slides <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="finalProposalSlides"
+                      type="file"
+                      accept=".pdf,.ppt,.pptx,.doc,.docx"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setStatusUpdateForm({ ...statusUpdateForm, finalProposalSlidesFile: file });
+                        }
+                      }}
+                      required
+                    />
+                    <Input
+                      placeholder="Or enter URL"
+                      value={statusUpdateForm.finalProposalSlides}
+                      onChange={(e) => setStatusUpdateForm({ ...statusUpdateForm, finalProposalSlides: e.target.value })}
+                    />
+                    {statusUpdateForm.finalProposalSlidesFile && (
+                      <p className="text-sm text-muted-foreground">
+                        Selected: {statusUpdateForm.finalProposalSlidesFile.name}
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Closed Won Fields */}
+            {statusUpdateForm.newStatus === "Closed Won" && (
+              <Card className="border-green-200 bg-green-50/50">
+                <CardContent className="pt-6">
+                  <h4 className="font-semibold mb-4">Closed Won Details</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="contractSignDate">
+                        Contract Sign Date <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="contractSignDate"
+                        type="date"
+                        value={statusUpdateForm.contractSignDate}
+                        onChange={(e) => setStatusUpdateForm({ ...statusUpdateForm, contractSignDate: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signedContractLink">
+                        Signed Contract Link <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="signedContractLink"
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setStatusUpdateForm({ ...statusUpdateForm, signedContractFile: file });
+                          }
+                        }}
+                        required
+                      />
+                      <Input
+                        placeholder="Or enter URL"
+                        value={statusUpdateForm.signedContractLink}
+                        onChange={(e) => setStatusUpdateForm({ ...statusUpdateForm, signedContractLink: e.target.value })}
+                      />
+                      {statusUpdateForm.signedContractFile && (
+                        <p className="text-sm text-muted-foreground">
+                          Selected: {statusUpdateForm.signedContractFile.name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Dropped Fields */}
+            {statusUpdateForm.newStatus === "Dropped" && (
+              <Card className="border-rose-200 bg-rose-50/50">
+                <CardContent className="pt-6">
+                  <h4 className="font-semibold mb-4">Dropped Reason</h4>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="droppedReason">
+                        Reason <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={statusUpdateForm.droppedReason}
+                        onValueChange={(value) => setStatusUpdateForm({ ...statusUpdateForm, droppedReason: value })}
+                        required
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select reason" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {droppedReasons.map((reason) => (
+                            <SelectItem key={reason} value={reason}>
+                              {reason}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="droppedReasonOthers">Reason - Others</Label>
+                      <Input
+                        id="droppedReasonOthers"
+                        value={statusUpdateForm.droppedReasonOthers}
+                        onChange={(e) => setStatusUpdateForm({ ...statusUpdateForm, droppedReasonOthers: e.target.value })}
+                        disabled={statusUpdateForm.droppedReason !== "Others (put details below)"}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setStatusUpdateDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updatingStatus}>
+                {updatingStatus ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  "Update Status"
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
