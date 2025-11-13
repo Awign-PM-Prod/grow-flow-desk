@@ -14,7 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2 } from "lucide-react";
+import { Loader2, Download, Upload, FileText } from "lucide-react";
+import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
   Dialog,
   DialogContent,
@@ -163,6 +165,9 @@ export default function Pipeline() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<any | null>(null);
   const [updatingDeal, setUpdatingDeal] = useState(false);
+  const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
+  const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [kams, setKams] = useState<{ id: string; full_name: string }[]>([]);
   const [contacts, setContacts] = useState<{ id: string; first_name: string; last_name: string; account_id: string }[]>([]);
@@ -268,6 +273,572 @@ export default function Pipeline() {
     fetchData();
   }, []);
 
+  const handleDownloadDealTemplate = () => {
+    // Exclude auto-calculated fields: sales_module_name (auto-generated), mpv, max_mpv (calculated from monthly_volume * commercial_per_head)
+    // Exclude status field (defaults to "Listed" for new deals)
+    const templateHeaders = [
+      { key: "kam_name", label: "KAM Name" },
+      { key: "account_name", label: "Account Name" },
+      { key: "spoc_name", label: "SPOC Name" },
+      { key: "spoc2_name", label: "SPOC 2 Name" },
+      { key: "spoc3_name", label: "SPOC 3 Name" },
+      { key: "lob", label: "LoB" },
+      { key: "use_case", label: "Use Case" },
+      { key: "sub_use_case", label: "Sub Use Case" },
+      { key: "monthly_volume", label: "Monthly Volume" },
+      { key: "max_monthly_volume", label: "Max Monthly Volume" },
+      { key: "commercial_per_head", label: "Commercial per head/task" },
+      { key: "expected_revenue", label: "Expected Revenue" },
+      { key: "prj_duration_months", label: "PRJ duration in months" },
+      { key: "gm_threshold", label: "GM Threshold" },
+      { key: "prj_frequency", label: "PRJ Frequency" },
+      { key: "prj_start_date", label: "PRJ Start Date" },
+      { key: "probability", label: "Probability" },
+    ];
+    downloadCSVTemplate(templateHeaders, "pipeline_deals_upload_template.csv");
+    toast({
+      title: "Template Downloaded",
+      description: "CSV template downloaded. Note: If LoB has '-' for Use Case/Sub Use Case, leave those fields blank. Status defaults to 'Listed'.",
+    });
+  };
+
+  const handleBulkUploadDeals = async (file: File) => {
+    try {
+      const text = await file.text();
+      const csvData = parseCSV(text);
+
+      if (csvData.length === 0) {
+        toast({
+          title: "Error",
+          description: "CSV file is empty or invalid.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate minimum and maximum entries
+      const MIN_ENTRIES = 1;
+      const MAX_ENTRIES = 1000;
+
+      if (csvData.length < MIN_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file must contain at least ${MIN_ENTRIES} entry.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (csvData.length > MAX_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file cannot contain more than ${MAX_ENTRIES} entries. Please split your file into smaller batches.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get account name to ID mapping for validation
+      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("id, name")
+        .in("name", accountNames);
+
+      const accountMap: Record<string, string> = {};
+      accountData?.forEach((acc) => {
+        accountMap[acc.name] = acc.id;
+      });
+
+      // Get KAM name to ID mapping for validation
+      const kamNames = [...new Set(csvData.map((row: any) => row["KAM Name"]).filter(Boolean))];
+      const { data: kamData } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .in("full_name", kamNames);
+
+      const kamMap: Record<string, string> = {};
+      kamData?.forEach((kam) => {
+        kamMap[kam.full_name] = kam.id;
+      });
+
+      // Get SPOC names to ID mapping for validation
+      const allSpocNames = [
+        ...csvData.map((row: any) => row["SPOC Name"]).filter(Boolean),
+        ...csvData.map((row: any) => row["SPOC 2 Name"]).filter(Boolean),
+        ...csvData.map((row: any) => row["SPOC 3 Name"]).filter(Boolean),
+      ];
+      const uniqueSpocNames = [...new Set(allSpocNames)];
+      
+      const { data: contactData } = await supabase
+        .from("contacts")
+        .select("id, first_name, last_name");
+
+      const spocMap: Record<string, string> = {};
+      contactData?.forEach((contact) => {
+        const fullName = `${contact.first_name} ${contact.last_name}`;
+        spocMap[fullName] = contact.id;
+      });
+
+      // Parse and validate each row
+      const previewRows = csvData.map((row: any, index: number) => {
+        const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
+        const errors: string[] = [];
+        const accountName = row["Account Name"];
+        const accountId = accountMap[accountName];
+        const kamName = row["KAM Name"];
+        const kamId = kamMap[kamName];
+        const spocName = row["SPOC Name"];
+        const spocId = spocMap[spocName];
+        const spoc2Name = row["SPOC 2 Name"];
+        const spoc2Id = spocMap[spoc2Name];
+        const spoc3Name = row["SPOC 3 Name"];
+        const spoc3Id = spocMap[spoc3Name];
+
+        // Validate lookup fields
+        if (accountName && !accountId) {
+          errors.push(`Account "${accountName}" does not exist`);
+        }
+        if (kamName && !kamId) {
+          errors.push(`KAM "${kamName}" does not exist`);
+        }
+        if (spocName && !spocId) {
+          errors.push(`SPOC "${spocName}" does not exist`);
+        }
+        if (spoc2Name && !spoc2Id) {
+          errors.push(`SPOC 2 "${spoc2Name}" does not exist`);
+        }
+        if (spoc3Name && !spoc3Id) {
+          errors.push(`SPOC 3 "${spoc3Name}" does not exist`);
+        }
+
+        if (!accountName || accountName.trim() === "") {
+          errors.push("Account Name is required");
+        }
+        if (!kamName || kamName.trim() === "") {
+          errors.push("KAM Name is required");
+        }
+        // Validate LoB
+        if (!row["LoB"] || row["LoB"].trim() === "") {
+          errors.push("LoB is required");
+        } else if (!lobOptions.includes(row["LoB"])) {
+          errors.push(`Invalid LoB. Must be one of: ${lobOptions.join(", ")}`);
+        } else {
+          const selectedLob = row["LoB"];
+          const validUseCases = getUseCasesForLob(selectedLob);
+          
+          // Check if this LoB has "-" as the only use case (meaning no use case needed)
+          const hasDashUseCase = validUseCases.includes("-");
+          
+          if (hasDashUseCase && validUseCases.length === 1) {
+            // This LoB has no use cases, so Use Case and Sub Use Case should be blank
+            if (row["Use Case"] && row["Use Case"].trim() !== "") {
+              errors.push(`Use Case should be blank for LoB "${selectedLob}"`);
+            }
+            if (row["Sub Use Case"] && row["Sub Use Case"].trim() !== "") {
+              errors.push(`Sub Use Case should be blank for LoB "${selectedLob}"`);
+            }
+          } else {
+            // This LoB has use cases, validate them
+            if (!row["Use Case"] || row["Use Case"].trim() === "") {
+              errors.push("Use Case is required");
+            } else if (!validUseCases.includes(row["Use Case"])) {
+              errors.push(`Invalid Use Case for LoB "${selectedLob}". Must be one of: ${validUseCases.filter(uc => uc !== "-").join(", ")}`);
+            } else {
+              const selectedUseCase = row["Use Case"];
+              const validSubUseCases = getSubUseCasesForUseCase(selectedLob, selectedUseCase);
+              
+              // Check if this use case has "-" as the only sub use case (meaning no sub use case needed)
+              const hasDashSubUseCase = validSubUseCases.includes("-");
+              
+              if (hasDashSubUseCase && validSubUseCases.length === 1) {
+                // This Use Case has no sub use cases, so Sub Use Case should be blank
+                if (row["Sub Use Case"] && row["Sub Use Case"].trim() !== "") {
+                  errors.push(`Sub Use Case should be blank for Use Case "${selectedUseCase}"`);
+                }
+              } else {
+                // This Use Case has sub use cases, validate them
+                if (!row["Sub Use Case"] || row["Sub Use Case"].trim() === "") {
+                  errors.push("Sub Use Case is required");
+                } else if (!validSubUseCases.includes(row["Sub Use Case"])) {
+                  errors.push(`Invalid Sub Use Case for Use Case "${selectedUseCase}". Must be one of: ${validSubUseCases.filter(suc => suc !== "-").join(", ")}`);
+                }
+              }
+            }
+          }
+        }
+        if (!row["Monthly Volume"] || isNaN(parseFloat(row["Monthly Volume"]))) {
+          errors.push("Monthly Volume must be a valid number");
+        }
+        if (!row["Max Monthly Volume"] || isNaN(parseFloat(row["Max Monthly Volume"]))) {
+          errors.push("Max Monthly Volume must be a valid number");
+        }
+        if (!row["Commercial per head/task"] || isNaN(parseFloat(row["Commercial per head/task"]))) {
+          errors.push("Commercial per head/task must be a valid number");
+        }
+        if (!row["Expected Revenue"] || isNaN(parseFloat(row["Expected Revenue"]))) {
+          errors.push("Expected Revenue must be a valid number");
+        }
+        if (!row["PRJ duration in months"] || isNaN(parseInt(row["PRJ duration in months"]))) {
+          errors.push("PRJ duration in months must be a valid number");
+        }
+        if (!row["PRJ Frequency"] || row["PRJ Frequency"].trim() === "") {
+          errors.push("PRJ Frequency is required");
+        }
+        // Status is not required - defaults to "Listed"
+        if (!row["PRJ Start Date"] || row["PRJ Start Date"].trim() === "") {
+          errors.push("PRJ Start Date is required");
+        }
+
+        return {
+          rowNumber,
+          data: row,
+          isValid: errors.length === 0,
+          errors,
+        };
+      });
+
+      // Store preview data and open dialog
+      setCsvPreviewRows(previewRows);
+      setCsvFileToUpload(file);
+      setCsvPreviewOpen(true);
+    } catch (error: any) {
+      console.error("Error parsing CSV:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to parse CSV file. Please check the format.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!csvFileToUpload) return;
+
+    try {
+      setLoadingDeals(true);
+      setCsvPreviewOpen(false);
+
+      const text = await csvFileToUpload.text();
+      const csvData = parseCSV(text);
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error("You must be logged in to upload deals");
+      }
+
+      // Get account name to ID mapping
+      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("id, name")
+        .in("name", accountNames);
+
+      const accountMap: Record<string, string> = {};
+      accountData?.forEach((acc) => {
+        accountMap[acc.name] = acc.id;
+      });
+
+      // Get KAM name to ID mapping
+      const kamNames = [...new Set(csvData.map((row: any) => row["KAM Name"]).filter(Boolean))];
+      const { data: kamData } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .in("full_name", kamNames);
+
+      const kamMap: Record<string, string> = {};
+      kamData?.forEach((kam) => {
+        kamMap[kam.full_name] = kam.id;
+      });
+
+      // Get SPOC names to ID mapping
+      const allSpocNames = [
+        ...csvData.map((row: any) => row["SPOC Name"]).filter(Boolean),
+        ...csvData.map((row: any) => row["SPOC 2 Name"]).filter(Boolean),
+        ...csvData.map((row: any) => row["SPOC 3 Name"]).filter(Boolean),
+      ];
+      const uniqueSpocNames = [...new Set(allSpocNames)];
+      
+      const { data: contactData } = await supabase
+        .from("contacts")
+        .select("id, first_name, last_name");
+
+      const spocMap: Record<string, string> = {};
+      contactData?.forEach((contact) => {
+        const fullName = `${contact.first_name} ${contact.last_name}`;
+        spocMap[fullName] = contact.id;
+      });
+
+      // Filter out invalid rows
+      const validRows = csvData.filter((row: any, index: number) => {
+        const previewRow = csvPreviewRows[index];
+        return previewRow?.isValid;
+      });
+
+      // Helper function to parse date from various formats (DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, etc.)
+      const parseDate = (dateString: string): string | null => {
+        if (!dateString || dateString.trim() === "") {
+          return null;
+        }
+        
+        const trimmed = dateString.trim();
+        
+        // Try to parse different date formats
+        // Format: DD-MM-YYYY or DD/MM/YYYY
+        const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+        if (ddmmyyyyMatch) {
+          const [, day, month, year] = ddmmyyyyMatch;
+          return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+        }
+        
+        // Format: YYYY-MM-DD (already correct)
+        const yyyymmddMatch = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+        if (yyyymmddMatch) {
+          const [, year, month, day] = yyyymmddMatch;
+          return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+        }
+        
+        // Try to parse as ISO date string
+        const date = new Date(trimmed);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().split("T")[0];
+        }
+        
+        return null;
+      };
+
+      const dealsToInsert = validRows.map((row: any, index: number) => {
+        // Generate sales module name: Account Name - LoB - Use Case (if any)
+        const accountName = row["Account Name"];
+        const lob = row["LoB"];
+        const useCase = row["Use Case"] && row["Use Case"].trim() !== "" ? row["Use Case"] : null;
+        
+        let salesModuleName = accountName;
+        if (lob) {
+          salesModuleName += ` - ${lob}`;
+        }
+        if (useCase && useCase !== "-") {
+          salesModuleName += ` - ${useCase}`;
+        }
+
+        // Calculate MPV values
+        const monthlyVolume = parseFloat(row["Monthly Volume"]) || 0;
+        const maxMonthlyVolume = parseFloat(row["Max Monthly Volume"]) || 0;
+        const commercialPerHead = parseFloat(row["Commercial per head/task"]) || 0;
+        const mpv = monthlyVolume * commercialPerHead;
+        const maxMpv = maxMonthlyVolume * commercialPerHead;
+
+        // Parse PRJ Start Date
+        const prjStartDate = parseDate(row["PRJ Start Date"]);
+        if (!prjStartDate) {
+          throw new Error(`Row ${index + 2}: Invalid PRJ Start Date format. Expected DD-MM-YYYY or YYYY-MM-DD.`);
+        }
+
+        return {
+          sales_module_name: salesModuleName,
+          kam_id: kamMap[row["KAM Name"]],
+          account_id: accountMap[row["Account Name"]],
+          spoc_id: spocMap[`${row["SPOC Name"]}`] || null,
+          spoc2_id: spocMap[`${row["SPOC 2 Name"]}`] || null,
+          spoc3_id: spocMap[`${row["SPOC 3 Name"]}`] || null,
+          lob: row["LoB"],
+          use_case: row["Use Case"] && row["Use Case"].trim() !== "" ? row["Use Case"] : "",
+          sub_use_case: row["Sub Use Case"] && row["Sub Use Case"].trim() !== "" ? row["Sub Use Case"] : "",
+          monthly_volume: monthlyVolume,
+          max_monthly_volume: maxMonthlyVolume,
+          commercial_per_head: commercialPerHead,
+          expected_revenue: parseFloat(row["Expected Revenue"]) || 0,
+          mpv: mpv,
+          max_mpv: maxMpv,
+          prj_duration_months: parseInt(row["PRJ duration in months"]) || 0,
+          gm_threshold: row["GM Threshold"] ? parseFloat(row["GM Threshold"]) : null,
+          prj_frequency: row["PRJ Frequency"],
+          status: "Listed", // Default status for bulk uploads
+          prj_start_date: prjStartDate,
+          probability: parseFloat(row["Probability"]) || 0,
+          created_by: user.id,
+        };
+      });
+
+      // Insert deals in batches
+      const batchSize = 50;
+      let successCount = 0;
+      let errorCount = 0;
+      const errors: string[] = [];
+
+      console.log("Deals to insert:", dealsToInsert.length);
+      console.log("Sample deal:", JSON.stringify(dealsToInsert[0], null, 2));
+
+      for (let i = 0; i < dealsToInsert.length; i += batchSize) {
+        const batch = dealsToInsert.slice(i, i + batchSize);
+        const { data, error } = await supabase.from("pipeline_deals").insert(batch).select();
+        
+        if (error) {
+          console.error("Error inserting batch:", error);
+          console.error("Error details:", JSON.stringify(error, null, 2));
+          errors.push(`Batch ${i / batchSize + 1}: ${error.message}`);
+          errorCount += batch.length;
+        } else {
+          console.log(`Successfully inserted batch ${i / batchSize + 1}:`, data?.length || 0, "deals");
+          successCount += (data?.length || 0);
+        }
+      }
+
+      if (errorCount > 0) {
+        toast({
+          title: "Upload Partially Failed",
+          description: `Successfully uploaded ${successCount} deals. ${errorCount} failed. ${errors.length > 0 ? `Errors: ${errors.join("; ")}` : ""}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Upload Complete",
+          description: `Successfully uploaded ${successCount} deals.`,
+        });
+      }
+
+      // Reset preview state
+      setCsvPreviewRows([]);
+      setCsvFileToUpload(null);
+
+      // Reset filters to ensure new deals are visible
+      setSearchTerm("");
+      setFilterLob("all");
+      setFilterStatus("all");
+
+      // Refresh deals list - add a small delay to ensure database consistency
+      setTimeout(() => {
+        fetchDeals();
+      }, 500);
+    } catch (error: any) {
+      console.error("Error uploading deals:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload deals. Please check the CSV format.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingDeals(false);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    setCsvPreviewOpen(false);
+    setCsvPreviewRows([]);
+    setCsvFileToUpload(null);
+  };
+
+  const handleExportDeals = async () => {
+    try {
+      setLoadingDeals(true);
+      
+      // Fetch all deals with related data
+      const { data, error } = await supabase
+        .from("pipeline_deals")
+        .select(`
+          *,
+          accounts:account_id (
+            id,
+            name
+          ),
+          profiles:kam_id (
+            id,
+            full_name
+          ),
+          spoc:spoc_id (
+            id,
+            first_name,
+            last_name
+          ),
+          spoc2:spoc2_id (
+            id,
+            first_name,
+            last_name
+          ),
+          spoc3:spoc3_id (
+            id,
+            first_name,
+            last_name
+          )
+        `)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        toast({
+          title: "No data",
+          description: "No pipeline deals found to export.",
+          variant: "default",
+        });
+        return;
+      }
+
+      // Prepare data for CSV with all fields
+      const csvData = data.map((deal: any) => ({
+        id: deal.id || "",
+        sales_module_name: deal.sales_module_name || "",
+        kam_id: deal.kam_id || "",
+        kam_name: deal.profiles?.full_name || "",
+        account_id: deal.account_id || "",
+        account_name: deal.accounts?.name || "",
+        spoc_id: deal.spoc_id || "",
+        spoc_name: deal.spoc ? `${deal.spoc.first_name} ${deal.spoc.last_name}` : "",
+        spoc2_id: deal.spoc2_id || "",
+        spoc2_name: deal.spoc2 ? `${deal.spoc2.first_name} ${deal.spoc2.last_name}` : "",
+        spoc3_id: deal.spoc3_id || "",
+        spoc3_name: deal.spoc3 ? `${deal.spoc3.first_name} ${deal.spoc3.last_name}` : "",
+        lob: deal.lob || "",
+        use_case: deal.use_case || "",
+        sub_use_case: deal.sub_use_case || "",
+        monthly_volume: deal.monthly_volume || 0,
+        max_monthly_volume: deal.max_monthly_volume || 0,
+        commercial_per_head: deal.commercial_per_head || 0,
+        expected_revenue: deal.expected_revenue || 0,
+        mpv: deal.mpv || 0,
+        max_mpv: deal.max_mpv || 0,
+        prj_duration_months: deal.prj_duration_months || "",
+        gm_threshold: deal.gm_threshold || "",
+        prj_frequency: deal.prj_frequency || "",
+        status: deal.status || "",
+        prj_start_date: formatDateForCSV(deal.prj_start_date),
+        probability: deal.probability || 0,
+        discovery_meeting_slides: deal.discovery_meeting_slides || "",
+        solution_proposal_slides: deal.solution_proposal_slides || "",
+        gantt_chart_url: deal.gantt_chart_url || "",
+        expected_contract_sign_date: formatDateForCSV(deal.expected_contract_sign_date),
+        final_proposal_slides: deal.final_proposal_slides || "",
+        contract_sign_date: formatDateForCSV(deal.contract_sign_date),
+        signed_contract_link: deal.signed_contract_link || "",
+        dropped_reason: deal.dropped_reason || "",
+        dropped_reason_others: deal.dropped_reason_others || "",
+        created_at: formatTimestampForCSV(deal.created_at),
+        updated_at: formatTimestampForCSV(deal.updated_at),
+        created_by: deal.created_by || "",
+      }));
+
+      const csvContent = convertToCSV(csvData);
+      const filename = `pipeline_deals_export_${new Date().toISOString().split("T")[0]}.csv`;
+      downloadCSV(csvContent, filename);
+
+      toast({
+        title: "Success!",
+        description: `Exported ${csvData.length} pipeline deals to CSV.`,
+      });
+    } catch (error: any) {
+      console.error("Error exporting pipeline deals:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to export pipeline deals. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingDeals(false);
+    }
+  };
+
   // Fetch deals from database
   const fetchDeals = async () => {
     setLoadingDeals(true);
@@ -277,7 +848,12 @@ export default function Pipeline() {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching deals:", error);
+        throw error;
+      }
+
+      console.log("Fetched deals from database:", data?.length || 0);
 
       // Fetch account names, KAM names, and contact names
       const accountIds = [...new Set((data || []).map((d: any) => d.account_id).filter(Boolean))];
@@ -337,6 +913,7 @@ export default function Pipeline() {
         expectedRevenue: deal.expected_revenue,
       }));
 
+      console.log("Transformed deals:", transformedDeals.length);
       setDeals(transformedDeals);
     } catch (error: any) {
       console.error("Error fetching deals:", error);
@@ -1035,6 +1612,7 @@ export default function Pipeline() {
 
   const filteredDeals = deals.filter((deal) => {
     const matchesSearch =
+      !searchTerm ||
       deal.account?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       deal.kam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       deal.useCase?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -1054,9 +1632,50 @@ export default function Pipeline() {
             Manage your cross-sell opportunities and track deal progress.
           </p>
         </div>
-        <Button onClick={() => setFormDialogOpen(true)}>
-          Add Deal
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExportDeals}
+            disabled={loadingDeals}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadDealTemplate}
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Download Template
+          </Button>
+          <label>
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  handleBulkUploadDeals(file);
+                }
+                e.target.value = "";
+              }}
+            />
+            <Button
+              variant="outline"
+              asChild
+              disabled={loadingDeals}
+            >
+              <span>
+                <Upload className="mr-2 h-4 w-4" />
+                Bulk Upload
+              </span>
+            </Button>
+          </label>
+          <Button onClick={() => setFormDialogOpen(true)}>
+            Add Deal
+          </Button>
+        </div>
       </div>
 
       {/* Add/Edit Deal Form Dialog */}
@@ -1760,13 +2379,22 @@ export default function Pipeline() {
                         </TableCell>
                         <TableCell>{deal.status || "N/A"}</TableCell>
                         <TableCell>
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => handleViewDetails(deal)}
-                          >
-                            View Details
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => handleViewDetails(deal)}
+                            >
+                              View Details
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => handleEditDeal(deal)}
+                            >
+                              Update
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -1787,27 +2415,20 @@ export default function Pipeline() {
       }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle>
-                {selectedDealForView?.sales_module_name || "Deal Details"}
-              </DialogTitle>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => selectedDealForView && handleUpdateStatusFromView(selectedDealForView)}
-                >
-                  Update Status
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => selectedDealForView && handleEditFromView(selectedDealForView)}
-                >
-                  Edit
-                </Button>
+              <div className="flex items-center justify-between">
+                <DialogTitle>
+                  {selectedDealForView?.sales_module_name || "Deal Details"}
+                </DialogTitle>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => selectedDealForView && handleUpdateStatusFromView(selectedDealForView)}
+                  >
+                    Update Status
+                  </Button>
+                </div>
               </div>
-            </div>
           </DialogHeader>
           {selectedDealForView && (
             <div className="space-y-6">
@@ -2494,6 +3115,17 @@ export default function Pipeline() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* CSV Preview Dialog */}
+      <CSVPreviewDialog
+        open={csvPreviewOpen}
+        onOpenChange={setCsvPreviewOpen}
+        rows={csvPreviewRows}
+        onConfirm={handleConfirmUpload}
+        onCancel={handleCancelUpload}
+        loading={loadingDeals}
+        title="Preview Pipeline Deals CSV Upload"
+      />
     </div>
   );
 }

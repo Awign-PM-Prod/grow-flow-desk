@@ -13,7 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2 } from "lucide-react";
+import { Loader2, Download, Upload, FileText } from "lucide-react";
+import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
   Dialog,
   DialogContent,
@@ -55,6 +57,9 @@ export default function Contacts() {
   const [editContactData, setEditContactData] = useState<any>(null);
   const [updatingContact, setUpdatingContact] = useState(false);
   const [editAccountContacts, setEditAccountContacts] = useState<{ id: string; first_name: string; last_name: string }[]>([]);
+  const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
+  const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
 
   const [formData, setFormData] = useState<ContactFormData>({
     accountId: "",
@@ -253,6 +258,386 @@ export default function Contacts() {
     }
   };
 
+  const handleDownloadContactTemplate = () => {
+    const templateHeaders = [
+      { key: "account_name", label: "Account Name" },
+      { key: "first_name", label: "First Name" },
+      { key: "last_name", label: "Last Name" },
+      { key: "email", label: "Email" },
+      { key: "phone_number", label: "Phone Number" },
+      { key: "department", label: "Department" },
+      { key: "kra", label: "KRA" },
+      { key: "title", label: "Title" },
+      { key: "level", label: "Level" },
+      { key: "zone", label: "Zone" },
+      { key: "region", label: "Region" },
+      { key: "reports_to", label: "Reports To" },
+      { key: "positioning", label: "Positioning" },
+      { key: "awign_champion", label: "Awign Champion" },
+    ];
+    downloadCSVTemplate(templateHeaders, "contacts_upload_template.csv");
+    toast({
+      title: "Template Downloaded",
+      description: "CSV template downloaded. Fill in the data and upload it.",
+    });
+  };
+
+  const handleBulkUploadContacts = async (file: File) => {
+    try {
+      const text = await file.text();
+      const csvData = parseCSV(text);
+
+      if (csvData.length === 0) {
+        toast({
+          title: "Error",
+          description: "CSV file is empty or invalid.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate minimum and maximum entries
+      const MIN_ENTRIES = 1;
+      const MAX_ENTRIES = 1000;
+
+      if (csvData.length < MIN_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file must contain at least ${MIN_ENTRIES} entry.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (csvData.length > MAX_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file cannot contain more than ${MAX_ENTRIES} entries. Please split your file into smaller batches.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get account name to ID mapping for validation
+      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("id, name")
+        .in("name", accountNames);
+
+      const accountMap: Record<string, string> = {};
+      accountData?.forEach((acc) => {
+        accountMap[acc.name] = acc.id;
+      });
+
+      // Parse and validate each row
+      const previewRows = csvData.map((row: any, index: number) => {
+        const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
+        const errors: string[] = [];
+        const accountName = row["Account Name"];
+
+        // Validate lookup fields
+        if (accountName && !accountMap[accountName]) {
+          errors.push(`Account "${accountName}" does not exist`);
+        }
+
+        if (!accountName || accountName.trim() === "") {
+          errors.push("Account Name is required");
+        }
+
+        // Validate required fields
+        if (!row["First Name"] || row["First Name"].trim() === "") {
+          errors.push("First Name is required");
+        }
+        if (!row["Last Name"] || row["Last Name"].trim() === "") {
+          errors.push("Last Name is required");
+        }
+        if (!row["Email"] || row["Email"].trim() === "") {
+          errors.push("Email is required");
+        }
+        if (!row["Phone Number"] || row["Phone Number"].trim() === "") {
+          errors.push("Phone Number is required");
+        }
+        if (!row["Department"] || row["Department"].trim() === "") {
+          errors.push("Department is required");
+        }
+        if (!row["Title"] || row["Title"].trim() === "") {
+          errors.push("Title is required");
+        }
+        // Validate Level (must be Lv.1, Lv.2, or Lv.3)
+        if (!row["Level"] || row["Level"].trim() === "") {
+          errors.push("Level is required");
+        } else {
+          const levelValue = row["Level"].trim();
+          const validLevels = ["Lv.1", "Lv.2", "Lv.3", "Lv 1", "Lv 2", "Lv 3", "Level 1", "Level 2", "Level 3", "1", "2", "3"];
+          if (!validLevels.includes(levelValue) && !["Lv.1", "Lv.2", "Lv.3"].includes(levelValue)) {
+            errors.push("Level must be one of: Lv.1, Lv.2, or Lv.3");
+          }
+        }
+
+        // Validate Zone (must be Central or Regional)
+        if (!row["Zone"] || row["Zone"].trim() === "") {
+          errors.push("Zone is required");
+        } else {
+          const zoneValue = row["Zone"].trim();
+          if (!["Central", "Regional"].includes(zoneValue)) {
+            errors.push("Zone must be either 'Central' or 'Regional'");
+          }
+        }
+
+        // Validate Positioning (must be Decision Maker or Influencer)
+        if (!row["Positioning"] || row["Positioning"].trim() === "") {
+          errors.push("Positioning is required");
+        } else {
+          const positioningValue = row["Positioning"].trim();
+          if (!["Decision Maker", "Influencer"].includes(positioningValue)) {
+            errors.push("Positioning must be either 'Decision Maker' or 'Influencer'");
+          }
+        }
+
+        if (!row["Awign Champion"] || row["Awign Champion"].trim() === "") {
+          errors.push("Awign Champion is required");
+        } else {
+          const awignChampionValue = row["Awign Champion"].trim().toUpperCase();
+          if (!["YES", "NO", "Y", "N", "TRUE", "FALSE", "1", "0"].includes(awignChampionValue)) {
+            errors.push("Awign Champion must be YES or NO");
+          }
+        }
+
+        // Validate Zone and Region relationship
+        if (row["Zone"] === "Regional" && (!row["Region"] || row["Region"].trim() === "")) {
+          errors.push("Region is required when Zone is Regional");
+        }
+
+        return {
+          rowNumber,
+          data: row,
+          isValid: errors.length === 0,
+          errors,
+        };
+      });
+
+      // Store preview data and open dialog
+      setCsvPreviewRows(previewRows);
+      setCsvFileToUpload(file);
+      setCsvPreviewOpen(true);
+    } catch (error: any) {
+      console.error("Error parsing CSV:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to parse CSV file. Please check the format.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!csvFileToUpload) return;
+
+    try {
+      setLoadingContacts(true);
+      setCsvPreviewOpen(false);
+
+      const text = await csvFileToUpload.text();
+      const csvData = parseCSV(text);
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error("You must be logged in to upload contacts");
+      }
+
+      // Get account name to ID mapping
+      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("id, name")
+        .in("name", accountNames);
+
+      const accountMap: Record<string, string> = {};
+      accountData?.forEach((acc) => {
+        accountMap[acc.name] = acc.id;
+      });
+
+      // Filter out invalid rows
+      const validRows = csvData.filter((row: any, index: number) => {
+        const previewRow = csvPreviewRows[index];
+        return previewRow?.isValid;
+      });
+
+      // Helper functions to normalize enum values
+      const normalizeLevel = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.trim();
+        // Map common variations to exact enum values
+        if (normalized === "Lv.1" || normalized === "Lv 1" || normalized === "Level 1" || normalized === "1") return "Lv.1";
+        if (normalized === "Lv.2" || normalized === "Lv 2" || normalized === "Level 2" || normalized === "2") return "Lv.2";
+        if (normalized === "Lv.3" || normalized === "Lv 3" || normalized === "Level 3" || normalized === "3") return "Lv.3";
+        // If it matches exactly, return as is
+        if (["Lv.1", "Lv.2", "Lv.3"].includes(normalized)) return normalized;
+        return null;
+      };
+
+      const normalizeZone = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.trim();
+        if (normalized === "Central" || normalized === "Regional") return normalized;
+        return null;
+      };
+
+      const normalizePositioning = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.trim();
+        if (normalized === "Decision Maker" || normalized === "Influencer") return normalized;
+        return null;
+      };
+
+      const contactsToInsert = validRows.map((row: any) => {
+        const normalizedLevel = normalizeLevel(row["Level"]);
+        const normalizedZone = normalizeZone(row["Zone"]);
+        const normalizedPositioning = normalizePositioning(row["Positioning"]);
+
+        if (!normalizedLevel || !normalizedZone || !normalizedPositioning) {
+          throw new Error(`Row has invalid enum values. Level: ${row["Level"]}, Zone: ${row["Zone"]}, Positioning: ${row["Positioning"]}`);
+        }
+
+        return {
+          account_id: accountMap[row["Account Name"]],
+          first_name: row["First Name"],
+          last_name: row["Last Name"],
+          email: row["Email"],
+          phone_number: row["Phone Number"],
+          department: row["Department"],
+          kra: row["KRA"] || null,
+          title: row["Title"],
+          level: normalizedLevel,
+          zone: normalizedZone,
+          region: normalizedZone === "Regional" ? (row["Region"] || null) : null,
+          reports_to: row["Reports To"] || null,
+          positioning: normalizedPositioning,
+          awign_champion: (() => {
+            const value = (row["Awign Champion"] || "").trim().toUpperCase();
+            return value === "YES" || value === "Y" || value === "TRUE" || value === "1";
+          })(),
+          created_by: user.id,
+        };
+      });
+
+      // Insert contacts in batches
+      const batchSize = 50;
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < contactsToInsert.length; i += batchSize) {
+        const batch = contactsToInsert.slice(i, i + batchSize);
+        const { error } = await supabase.from("contacts").insert(batch);
+        
+        if (error) {
+          console.error("Error inserting batch:", error);
+          errorCount += batch.length;
+        } else {
+          successCount += batch.length;
+        }
+      }
+
+      toast({
+        title: "Upload Complete",
+        description: `Successfully uploaded ${successCount} contacts. ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
+      });
+
+      // Reset preview state
+      setCsvPreviewRows([]);
+      setCsvFileToUpload(null);
+
+      // Refresh contacts list
+      fetchContacts();
+    } catch (error: any) {
+      console.error("Error uploading contacts:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload contacts. Please check the CSV format.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    setCsvPreviewOpen(false);
+    setCsvPreviewRows([]);
+    setCsvFileToUpload(null);
+  };
+
+  const handleExportContacts = async () => {
+    try {
+      setLoadingContacts(true);
+      
+      // Fetch all contacts with account names
+      const { data, error } = await supabase
+        .from("contacts")
+        .select(`
+          *,
+          accounts:account_id (
+            id,
+            name
+          )
+        `)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        toast({
+          title: "No data",
+          description: "No contacts found to export.",
+          variant: "default",
+        });
+        return;
+      }
+
+      // Prepare data for CSV with all fields
+      const csvData = data.map((contact: any) => ({
+        id: contact.id || "",
+        account_id: contact.account_id || "",
+        account_name: contact.accounts?.name || "",
+        first_name: contact.first_name || "",
+        last_name: contact.last_name || "",
+        email: contact.email || "",
+        phone_number: contact.phone_number || "",
+        department: contact.department || "",
+        kra: contact.kra || "",
+        title: contact.title || "",
+        level: contact.level || "",
+        zone: contact.zone || "",
+        region: contact.region || "",
+        reports_to: contact.reports_to || "",
+        positioning: contact.positioning || "",
+        awign_champion: contact.awign_champion ? "YES" : "NO",
+        created_at: formatTimestampForCSV(contact.created_at),
+        updated_at: formatTimestampForCSV(contact.updated_at),
+        created_by: contact.created_by || "",
+      }));
+
+      const csvContent = convertToCSV(csvData);
+      const filename = `contacts_export_${new Date().toISOString().split("T")[0]}.csv`;
+      downloadCSV(csvContent, filename);
+
+      toast({
+        title: "Success!",
+        description: `Exported ${csvData.length} contacts to CSV.`,
+      });
+    } catch (error: any) {
+      console.error("Error exporting contacts:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to export contacts. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+
   useEffect(() => {
     if (viewMode === "view") {
       fetchContacts();
@@ -361,9 +746,50 @@ export default function Contacts() {
             Manage your business contacts and relationships.
           </p>
         </div>
-        <Button onClick={() => setFormDialogOpen(true)}>
-          Add Contact
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExportContacts}
+            disabled={loadingContacts}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadContactTemplate}
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Download Template
+          </Button>
+          <label>
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  handleBulkUploadContacts(file);
+                }
+                e.target.value = "";
+              }}
+            />
+            <Button
+              variant="outline"
+              asChild
+              disabled={loadingContacts}
+            >
+              <span>
+                <Upload className="mr-2 h-4 w-4" />
+                Bulk Upload
+              </span>
+            </Button>
+          </label>
+          <Button onClick={() => setFormDialogOpen(true)}>
+            Add Contact
+          </Button>
+        </div>
       </div>
 
       {/* Add Contact Form Dialog */}
@@ -1080,6 +1506,17 @@ export default function Contacts() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* CSV Preview Dialog */}
+      <CSVPreviewDialog
+        open={csvPreviewOpen}
+        onOpenChange={setCsvPreviewOpen}
+        rows={csvPreviewRows}
+        onConfirm={handleConfirmUpload}
+        onCancel={handleCancelUpload}
+        loading={loadingContacts}
+        title="Preview Contacts CSV Upload"
+      />
     </div>
   );
 }

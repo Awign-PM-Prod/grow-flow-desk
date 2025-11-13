@@ -14,7 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2 } from "lucide-react";
+import { Loader2, Download, Upload, FileText } from "lucide-react";
+import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +33,7 @@ interface MandateFormData {
   accountId: string;
   kamId: string;
   lob: string;
+  type: string;
 
   // Handover Info
   newSalesOwner: string;
@@ -117,6 +120,7 @@ export default function Mandates() {
     accountId: "",
     kamId: "",
     lob: "",
+    type: "",
     newSalesOwner: "",
     handoverMonthlyVolume: "",
     handoverCommercialPerHead: "",
@@ -156,6 +160,23 @@ export default function Mandates() {
   const [updatingMandate, setUpdatingMandate] = useState(false);
   const [isMandateCheckerEditMode, setIsMandateCheckerEditMode] = useState(false);
   const [updatingMandateChecker, setUpdatingMandateChecker] = useState(false);
+  const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
+  const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
+  const [updateOptionsDialogOpen, setUpdateOptionsDialogOpen] = useState(false);
+  const [mandateForUpdate, setMandateForUpdate] = useState<any | null>(null);
+  const [monthlyRecordDialogOpen, setMonthlyRecordDialogOpen] = useState(false);
+  const [monthlyRecordForm, setMonthlyRecordForm] = useState({
+    month: "",
+    year: "",
+    plannedMcv: "",
+    achievedMcv: "",
+  });
+  const [savingMonthlyRecord, setSavingMonthlyRecord] = useState(false);
+  const [bulkUpdateMcvDialogOpen, setBulkUpdateMcvDialogOpen] = useState(false);
+  const [mcvCsvPreviewOpen, setMcvCsvPreviewOpen] = useState(false);
+  const [mcvCsvPreviewRows, setMcvCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
+  const [mcvCsvFileToUpload, setMcvCsvFileToUpload] = useState<File | null>(null);
 
   const { toast } = useToast();
 
@@ -512,6 +533,7 @@ export default function Mandates() {
         account_id: formData.accountId || null,
         kam_id: formData.kamId || null,
         lob: formData.lob,
+        type: formData.type || null,
         
         // Handover Info
         new_sales_owner: formData.newSalesOwner || null,
@@ -605,6 +627,846 @@ export default function Mandates() {
   };
 
   // Fetch mandates from database
+  const handleDownloadMandateTemplate = () => {
+    const templateHeaders = [
+      { key: "project_id", label: "Project ID" },
+      { key: "account_name", label: "Account Name" },
+      { key: "kam_name", label: "KAM Name" },
+      { key: "project_name", label: "Project Name" },
+      { key: "lob", label: "LoB (Vertical)" },
+      { key: "type", label: "Type" },
+      { key: "new_sales_owner", label: "New Sales Owner" },
+      { key: "handover_monthly_volume", label: "Handover Monthly Volume" },
+      { key: "handover_commercial_per_head", label: "Handover Commercial per head/task" },
+      { key: "prj_duration_months", label: "PRJ duration in months" },
+      { key: "handover_acv", label: "Handover ACV" },
+      { key: "handover_prj_type", label: "Handover PRJ Type" },
+      { key: "revenue_monthly_volume", label: "Revenue Monthly Volume" },
+      { key: "revenue_commercial_per_head", label: "Revenue Commercial per head/task" },
+      { key: "revenue_acv", label: "Revenue ACV" },
+      { key: "revenue_prj_type", label: "Revenue PRJ Type" },
+      { key: "mandate_health", label: "Mandate Health" },
+      { key: "upsell_constraint", label: "Upsell Constraint" },
+      { key: "upsell_constraint_type", label: "Upsell Constraint Type" },
+      { key: "upsell_constraint_sub", label: "Upsell Constraint Type - Sub" },
+      { key: "upsell_constraint_sub2", label: "Upsell Constraint Type - Sub 2" },
+      { key: "client_budget_trend", label: "Client Budget Trend" },
+      { key: "awign_share_percent", label: "Awign Share %" },
+      { key: "upsell_action_status", label: "Upsell Action Status" },
+    ];
+    downloadCSVTemplate(templateHeaders, "mandates_upload_template.csv");
+    toast({
+      title: "Template Downloaded",
+      description: "CSV template downloaded. Fill in the data and upload it.",
+    });
+  };
+
+  const handleBulkUploadMandates = async (file: File) => {
+    try {
+      const text = await file.text();
+      const csvData = parseCSV(text);
+
+      if (csvData.length === 0) {
+        toast({
+          title: "Error",
+          description: "CSV file is empty or invalid.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate minimum and maximum entries
+      const MIN_ENTRIES = 1;
+      const MAX_ENTRIES = 1000;
+
+      if (csvData.length < MIN_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file must contain at least ${MIN_ENTRIES} entry.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (csvData.length > MAX_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file cannot contain more than ${MAX_ENTRIES} entries. Please split your file into smaller batches.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get account name to ID mapping for validation
+      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("id, name")
+        .in("name", accountNames);
+
+      const accountMap: Record<string, string> = {};
+      accountData?.forEach((acc) => {
+        accountMap[acc.name] = acc.id;
+      });
+
+      // Get KAM name to ID mapping for validation
+      const kamNames = [...new Set(csvData.map((row: any) => row["KAM Name"]).filter(Boolean))];
+      const { data: kamData } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .in("full_name", kamNames);
+
+      const kamMap: Record<string, string> = {};
+      kamData?.forEach((kam) => {
+        kamMap[kam.full_name] = kam.id;
+      });
+
+      // Get existing project codes from database to check for duplicates
+      const projectIds = csvData.map((row: any) => row["Project ID"]).filter(Boolean);
+      const { data: existingMandates } = await supabase
+        .from("mandates")
+        .select("project_code")
+        .in("project_code", projectIds);
+
+      const existingProjectCodes = new Set(existingMandates?.map((m: any) => m.project_code) || []);
+
+      // Helper functions to normalize enum values (needed for validation)
+      const normalizeUpsellConstraintType = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "" || value.trim() === "-") return null;
+        const normalized = value.trim();
+        if (normalized.toLowerCase() === "internal") return "Internal";
+        if (normalized.toLowerCase() === "external") return "External";
+        if (normalized === "Internal" || normalized === "External") return normalized;
+        return null;
+      };
+
+      const normalizeUpsellConstraintSub = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "" || value.trim() === "-") return null;
+        const normalized = value.trim();
+        if (normalized.toLowerCase() === "profitability") return "Profitability";
+        if (normalized.toLowerCase() === "delivery") return "Delivery";
+        if (normalized.toLowerCase() === "others") return "Others";
+        if (normalized === "Profitability" || normalized === "Delivery" || normalized === "Others") return normalized;
+        return null;
+      };
+
+      // Parse and validate each row
+      const previewRows = csvData.map((row: any, index: number) => {
+        const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
+        const errors: string[] = [];
+        const accountName = row["Account Name"];
+        const accountId = accountMap[accountName];
+        const kamName = row["KAM Name"];
+        const kamId = kamMap[kamName];
+
+        // Validate lookup fields
+        if (accountName && !accountId) {
+          errors.push(`Account "${accountName}" does not exist`);
+        }
+        if (kamName && !kamId) {
+          errors.push(`KAM "${kamName}" does not exist`);
+        }
+
+        if (!accountName || accountName.trim() === "") {
+          errors.push("Account Name is required");
+        }
+        if (!kamName || kamName.trim() === "") {
+          errors.push("KAM Name is required");
+        }
+        if (!row["Project ID"] || row["Project ID"].trim() === "") {
+          errors.push("Project ID is required");
+        } else {
+          const projectId = row["Project ID"].trim();
+          // Check for duplicates within the CSV
+          const duplicateCount = csvData.filter((r: any) => r["Project ID"]?.trim() === projectId).length;
+          if (duplicateCount > 1) {
+            errors.push(`Project ID "${projectId}" is duplicated in the CSV file`);
+          }
+          // Check if Project ID already exists in database
+          if (existingProjectCodes.has(projectId)) {
+            errors.push(`Project ID "${projectId}" already exists in the database`);
+          }
+        }
+        if (!row["Project Name"] || row["Project Name"].trim() === "") {
+          errors.push("Project Name is required");
+        }
+        if (!row["LoB (Vertical)"] || row["LoB (Vertical)"].trim() === "") {
+          errors.push("LoB (Vertical) is required");
+        }
+
+        // Validate Type field
+        if (row["Type"] && !["New", "Existing"].includes(row["Type"])) {
+          errors.push("Type must be either 'New' or 'Existing'");
+        }
+
+        // Validate upsell constraint dependent fields
+        const upsellConstraint = row["Upsell Constraint"] === "YES";
+        if (upsellConstraint) {
+          const constraintType = normalizeUpsellConstraintType(row["Upsell Constraint Type"]);
+          const constraintSub = normalizeUpsellConstraintSub(row["Upsell Constraint Type - Sub"]);
+          
+          if (!constraintType) {
+            errors.push("Upsell Constraint Type is required when Upsell Constraint is YES");
+          }
+          if (!constraintSub) {
+            errors.push("Upsell Constraint Type - Sub is required when Upsell Constraint is YES");
+          }
+          
+          // Validate Sub 2 if constraint type and sub are provided
+          if (constraintType && constraintSub) {
+            const validSub2s = getUpsellConstraintSub2s("YES", constraintType, constraintSub);
+            const sub2Value = row["Upsell Constraint Type - Sub 2"];
+            if (validSub2s.length > 0 && sub2Value && !validSub2s.includes(sub2Value)) {
+              errors.push(`Invalid Upsell Constraint Type - Sub 2. Must be one of: ${validSub2s.join(", ")}`);
+            }
+          }
+        }
+
+        return {
+          rowNumber,
+          data: row,
+          isValid: errors.length === 0,
+          errors,
+        };
+      });
+
+      // Store preview data and open dialog
+      setCsvPreviewRows(previewRows);
+      setCsvFileToUpload(file);
+      setCsvPreviewOpen(true);
+    } catch (error: any) {
+      console.error("Error parsing CSV:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to parse CSV file. Please check the format.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!csvFileToUpload) return;
+
+    try {
+      setLoadingMandates(true);
+      setCsvPreviewOpen(false);
+
+      const text = await csvFileToUpload.text();
+      const csvData = parseCSV(text);
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error("You must be logged in to upload mandates");
+      }
+
+      // Get account name to ID mapping
+      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("id, name")
+        .in("name", accountNames);
+
+      const accountMap: Record<string, string> = {};
+      accountData?.forEach((acc) => {
+        accountMap[acc.name] = acc.id;
+      });
+
+      // Get KAM name to ID mapping
+      const kamNames = [...new Set(csvData.map((row: any) => row["KAM Name"]).filter(Boolean))];
+      const { data: kamData } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .in("full_name", kamNames);
+
+      const kamMap: Record<string, string> = {};
+      kamData?.forEach((kam) => {
+        kamMap[kam.full_name] = kam.id;
+      });
+
+      // Filter out invalid rows
+      const validRows = csvData.filter((row: any, index: number) => {
+        const previewRow = csvPreviewRows[index];
+        return previewRow?.isValid;
+      });
+
+      // Helper functions to normalize enum values to match database enum exactly
+      const normalizeUpsellActionStatus = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.trim();
+        // Map common variations to exact enum values
+        if (normalized.toLowerCase() === "not started") return "Not Started";
+        if (normalized.toLowerCase() === "ongoing") return "Ongoing";
+        if (normalized.toLowerCase() === "done") return "Done";
+        // If it matches exactly, return as is
+        if (["Not Started", "Ongoing", "Done"].includes(normalized)) return normalized;
+        return null;
+      };
+
+      const normalizeMandateHealth = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.trim();
+        if (normalized === "Exceeds Expectations" || normalized === "Meets Expectations" || normalized === "Need Improvement") {
+          return normalized;
+        }
+        return null;
+      };
+
+      const normalizePrjType = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.trim();
+        if (normalized.toLowerCase() === "recurring") return "Recurring";
+        if (normalized.toLowerCase() === "one-time" || normalized.toLowerCase() === "onetime") return "One-time";
+        if (normalized === "Recurring" || normalized === "One-time") return normalized;
+        return null;
+      };
+
+      const normalizeUpsellConstraintType = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "" || value.trim() === "-") return null;
+        const normalized = value.trim();
+        if (normalized.toLowerCase() === "internal") return "Internal";
+        if (normalized.toLowerCase() === "external") return "External";
+        if (normalized === "Internal" || normalized === "External") return normalized;
+        return null;
+      };
+
+      const normalizeUpsellConstraintSub = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "" || value.trim() === "-") return null;
+        const normalized = value.trim();
+        if (normalized.toLowerCase() === "profitability") return "Profitability";
+        if (normalized.toLowerCase() === "delivery") return "Delivery";
+        if (normalized.toLowerCase() === "others") return "Others";
+        if (normalized === "Profitability" || normalized === "Delivery" || normalized === "Others") return normalized;
+        return null;
+      };
+
+      const normalizeClientBudgetTrend = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.trim();
+        if (normalized.toLowerCase() === "increase") return "Increase";
+        if (normalized.toLowerCase() === "same") return "Same";
+        if (normalized.toLowerCase() === "decrease") return "Decrease";
+        if (normalized === "Increase" || normalized === "Same" || normalized === "Decrease") return normalized;
+        return null;
+      };
+
+      const normalizeAwignSharePercent = (value: string | null | undefined): string | null => {
+        if (!value || value.trim() === "") return null;
+        const normalized = value.trim();
+        if (normalized === "Below 70%" || normalized === "70% & Above") return normalized;
+        return null;
+      };
+
+      // Helper function to calculate retention type based on decision tree logic
+      const calculateRetentionType = (
+        mandateHealth: string | null,
+        upsellConstraint: boolean | null,
+        clientBudgetTrend: string | null,
+        awignSharePercent: string | null
+      ): string | null => {
+        // Level 1: Check Mandate Health Distribution
+        if (mandateHealth === "Need Improvement") {
+          return "NI";
+        }
+
+        // Level 2: Check Upsell Constraint (only if Mandate Health is "Exceeds/Meets")
+        if (mandateHealth === "Exceeds Expectations" || mandateHealth === "Meets Expectations") {
+          if (upsellConstraint === true) {
+            return "E";
+          }
+
+          // Level 3: Check Current PRJ Status / Client's Budget Trends (only if Upsell Constraint = false)
+          if (upsellConstraint === false && clientBudgetTrend && awignSharePercent) {
+            const isAwignShare70Plus = awignSharePercent === "70% & Above";
+            const isAwignShareBelow70 = awignSharePercent === "Below 70%";
+
+            // Current PRJ Status = "Increase"
+            if (clientBudgetTrend === "Increase") {
+              if (isAwignShare70Plus) return "A";
+              if (isAwignShareBelow70) return "B";
+            }
+
+            // Current PRJ Status = "Same"
+            if (clientBudgetTrend === "Same") {
+              if (isAwignShare70Plus) return "Star";
+              if (isAwignShareBelow70) return "C";
+            }
+
+            // Client's Budget Trends = "Decrease"
+            if (clientBudgetTrend === "Decrease") {
+              // Both cases result in D according to the matrix
+              return "D";
+            }
+          }
+        }
+
+        return null;
+      };
+
+      const mandatesToInsert = validRows.map((row: any, index: number) => {
+        // Use Project ID from CSV
+        const projectCode = row["Project ID"].trim();
+
+        // Calculate MCV values
+        const handoverMonthlyVolume = parseFloat(row["Handover Monthly Volume"]) || 0;
+        const handoverCommercialPerHead = parseFloat(row["Handover Commercial per head/task"]) || 0;
+        const handoverMcv = handoverMonthlyVolume * handoverCommercialPerHead;
+
+        const revenueMonthlyVolume = parseFloat(row["Revenue Monthly Volume"]) || 0;
+        const revenueCommercialPerHead = parseFloat(row["Revenue Commercial per head/task"]) || 0;
+        const revenueMcv = revenueMonthlyVolume * revenueCommercialPerHead;
+
+        // Normalize enum values
+        const mandateHealth = normalizeMandateHealth(row["Mandate Health"]);
+        const upsellConstraint = row["Upsell Constraint"] === "YES";
+        const clientBudgetTrend = normalizeClientBudgetTrend(row["Client Budget Trend"]);
+        const awignSharePercent = normalizeAwignSharePercent(row["Awign Share %"]);
+
+        // Calculate retention type
+        const retentionType = calculateRetentionType(
+          mandateHealth,
+          upsellConstraint,
+          clientBudgetTrend,
+          awignSharePercent
+        );
+
+        // Validate upsell constraint dependent fields
+        const upsellConstraintType = normalizeUpsellConstraintType(row["Upsell Constraint Type"]);
+        const upsellConstraintSub = normalizeUpsellConstraintSub(row["Upsell Constraint Type - Sub"]);
+        
+        // Validate that if upsell constraint is YES, the dependent fields are valid
+        let validatedUpsellConstraintSub2 = row["Upsell Constraint Type - Sub 2"] || null;
+        if (upsellConstraint === true && upsellConstraintType && upsellConstraintSub) {
+          const validSub2s = getUpsellConstraintSub2s("YES", upsellConstraintType, upsellConstraintSub);
+          // If there are valid sub2 options and the provided value is not in the list, set to null
+          if (validSub2s.length > 0 && validatedUpsellConstraintSub2 && !validSub2s.includes(validatedUpsellConstraintSub2)) {
+            validatedUpsellConstraintSub2 = null;
+          }
+          // If there are no valid sub2 options, set to null (it's a free text field)
+          if (validSub2s.length === 0) {
+            // Keep the value as is (free text)
+          }
+        } else if (upsellConstraint === false) {
+          // If upsell constraint is NO, clear dependent fields
+          validatedUpsellConstraintSub2 = null;
+        }
+
+        return {
+          project_code: projectCode,
+          project_name: row["Project Name"],
+          account_id: accountMap[row["Account Name"]],
+          kam_id: kamMap[row["KAM Name"]],
+          lob: row["LoB (Vertical)"],
+          type: row["Type"] && ["New", "Existing"].includes(row["Type"]) ? row["Type"] : null,
+          new_sales_owner: row["New Sales Owner"] || null,
+          handover_monthly_volume: handoverMonthlyVolume || null,
+          handover_commercial_per_head: handoverCommercialPerHead || null,
+          handover_mcv: handoverMcv || null,
+          prj_duration_months: parseInt(row["PRJ duration in months"]) || null,
+          handover_acv: parseFloat(row["Handover ACV"]) || null,
+          handover_prj_type: normalizePrjType(row["Handover PRJ Type"]),
+          revenue_monthly_volume: revenueMonthlyVolume || null,
+          revenue_commercial_per_head: revenueCommercialPerHead || null,
+          revenue_mcv: revenueMcv || null,
+          revenue_acv: parseFloat(row["Revenue ACV"]) || null,
+          revenue_prj_type: normalizePrjType(row["Revenue PRJ Type"]),
+          mandate_health: mandateHealth,
+          upsell_constraint: upsellConstraint,
+          upsell_constraint_type: upsellConstraintType,
+          upsell_constraint_sub: upsellConstraintSub,
+          upsell_constraint_sub2: validatedUpsellConstraintSub2,
+          client_budget_trend: clientBudgetTrend,
+          awign_share_percent: awignSharePercent,
+          retention_type: retentionType,
+          upsell_action_status: normalizeUpsellActionStatus(row["Upsell Action Status"]),
+          created_by: user.id,
+        };
+      });
+
+      // Insert mandates in batches
+      const batchSize = 50;
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < mandatesToInsert.length; i += batchSize) {
+        const batch = mandatesToInsert.slice(i, i + batchSize);
+        const { error } = await supabase.from("mandates").insert(batch);
+        
+        if (error) {
+          console.error("Error inserting batch:", error);
+          errorCount += batch.length;
+        } else {
+          successCount += batch.length;
+        }
+      }
+
+      toast({
+        title: "Upload Complete",
+        description: `Successfully uploaded ${successCount} mandates. ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
+      });
+
+      // Reset preview state
+      setCsvPreviewRows([]);
+      setCsvFileToUpload(null);
+
+      // Close Add Mandate dialog if open
+      setFormDialogOpen(false);
+
+      // Refresh mandates list
+      fetchMandates();
+    } catch (error: any) {
+      console.error("Error uploading mandates:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload mandates. Please check the CSV format.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingMandates(false);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    setCsvPreviewOpen(false);
+    setCsvPreviewRows([]);
+    setCsvFileToUpload(null);
+  };
+
+  const handleBulkUploadMcv = async (file: File) => {
+    try {
+      const text = await file.text();
+      const csvData = parseCSV(text);
+
+      if (csvData.length === 0) {
+        toast({
+          title: "Error",
+          description: "CSV file is empty or invalid.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate minimum and maximum entries
+      const MIN_ENTRIES = 1;
+      const MAX_ENTRIES = 1000;
+
+      if (csvData.length < MIN_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file must contain at least ${MIN_ENTRIES} entry.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (csvData.length > MAX_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file cannot contain more than ${MAX_ENTRIES} entries. Please split your file into smaller batches.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get all project IDs from CSV
+      const projectIds = [...new Set(csvData.map((row: any) => row["Project ID"]).filter(Boolean))];
+      
+      // Fetch existing mandates to validate project IDs
+      const { data: existingMandates } = await supabase
+        .from("mandates")
+        .select("id, project_code, monthly_data")
+        .in("project_code", projectIds);
+
+      const mandateMap: Record<string, any> = {};
+      existingMandates?.forEach((mandate: any) => {
+        mandateMap[mandate.project_code] = mandate;
+      });
+
+      // Parse and validate each row
+      const previewRows = csvData.map((row: any, index: number) => {
+        const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
+        const errors: string[] = [];
+        const projectId = row["Project ID"]?.trim();
+        const month = row["Month"]?.trim();
+        const year = row["Year"]?.trim();
+        const plannedMcv = row["Planned MCV"]?.trim();
+        const achievedMcv = row["Achieved MCV"]?.trim();
+
+        // Validate Project ID
+        if (!projectId || projectId === "") {
+          errors.push("Project ID is required");
+        } else if (!mandateMap[projectId]) {
+          errors.push(`Project ID "${projectId}" does not exist in the database`);
+        }
+
+        // Validate Month
+        if (!month || month === "") {
+          errors.push("Month is required");
+        } else {
+          const monthNum = parseInt(month);
+          if (isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+            errors.push("Month must be a number between 1 and 12");
+          }
+        }
+
+        // Validate Year
+        if (!year || year === "") {
+          errors.push("Year is required");
+        } else {
+          const yearNum = parseInt(year);
+          if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+            errors.push("Year must be a valid year (2000-2100)");
+          }
+        }
+
+        // Validate Planned MCV
+        if (!plannedMcv || plannedMcv === "") {
+          errors.push("Planned MCV is required");
+        } else {
+          const plannedMcvNum = parseFloat(plannedMcv);
+          if (isNaN(plannedMcvNum) || plannedMcvNum < 0) {
+            errors.push("Planned MCV must be a valid number >= 0");
+          }
+        }
+
+        // Validate Achieved MCV
+        if (!achievedMcv || achievedMcv === "") {
+          errors.push("Achieved MCV is required");
+        } else {
+          const achievedMcvNum = parseFloat(achievedMcv);
+          if (isNaN(achievedMcvNum) || achievedMcvNum < 0) {
+            errors.push("Achieved MCV must be a valid number >= 0");
+          }
+        }
+
+        return {
+          rowNumber,
+          data: row,
+          isValid: errors.length === 0,
+          errors,
+        };
+      });
+
+      // Store preview data and open dialog
+      setMcvCsvPreviewRows(previewRows);
+      setMcvCsvFileToUpload(file);
+      setMcvCsvPreviewOpen(true);
+      setBulkUpdateMcvDialogOpen(false);
+    } catch (error: any) {
+      console.error("Error parsing CSV:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to parse CSV file. Please check the format.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmMcvUpload = async () => {
+    if (!mcvCsvFileToUpload) return;
+
+    try {
+      setLoadingMandates(true);
+      setMcvCsvPreviewOpen(false);
+
+      const text = await mcvCsvFileToUpload.text();
+      const csvData = parseCSV(text);
+
+      // Get all project IDs from CSV
+      const projectIds = [...new Set(csvData.map((row: any) => row["Project ID"]).filter(Boolean))];
+      
+      // Fetch existing mandates
+      const { data: existingMandates } = await supabase
+        .from("mandates")
+        .select("id, project_code, monthly_data")
+        .in("project_code", projectIds);
+
+      const mandateMap: Record<string, any> = {};
+      existingMandates?.forEach((mandate: any) => {
+        mandateMap[mandate.project_code] = mandate;
+      });
+
+      // Filter valid rows
+      const validRows = mcvCsvPreviewRows.filter((row) => row.isValid);
+
+      if (validRows.length === 0) {
+        toast({
+          title: "Error",
+          description: "No valid rows to upload.",
+          variant: "destructive",
+        });
+        setLoadingMandates(false);
+        return;
+      }
+
+      // Group updates by mandate ID
+      const updatesByMandate: Record<string, any> = {};
+
+      validRows.forEach((row) => {
+        const projectId = row.data["Project ID"]?.trim();
+        const mandate = mandateMap[projectId];
+        
+        if (!mandate) return;
+
+        const month = parseInt(row.data["Month"]?.trim());
+        const year = parseInt(row.data["Year"]?.trim());
+        const plannedMcv = parseFloat(row.data["Planned MCV"]?.trim());
+        const achievedMcv = parseFloat(row.data["Achieved MCV"]?.trim());
+
+        const monthYear = `${year}-${String(month).padStart(2, '0')}`;
+
+        if (!updatesByMandate[mandate.id]) {
+          // Start with existing monthly_data to preserve existing records
+          updatesByMandate[mandate.id] = {
+            id: mandate.id,
+            monthly_data: mandate.monthly_data ? { ...mandate.monthly_data } : {},
+          };
+        }
+
+        // Add or update monthly_data for this mandate (merge with existing)
+        updatesByMandate[mandate.id].monthly_data[monthYear] = [plannedMcv, achievedMcv];
+      });
+
+      // Update mandates in batches
+      const batchSize = 50;
+      const mandateIds = Object.keys(updatesByMandate);
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < mandateIds.length; i += batchSize) {
+        const batch = mandateIds.slice(i, i + batchSize);
+        
+        for (const mandateId of batch) {
+          const update = updatesByMandate[mandateId];
+          const { error } = await supabase
+            .from("mandates")
+            .update({ monthly_data: update.monthly_data })
+            .eq("id", update.id);
+
+          if (error) {
+            console.error("Error updating mandate:", error);
+            errorCount++;
+          } else {
+            successCount++;
+          }
+        }
+      }
+
+      toast({
+        title: "Upload Complete",
+        description: `Successfully updated ${successCount} mandate(s). ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
+      });
+
+      // Reset preview state
+      setMcvCsvPreviewRows([]);
+      setMcvCsvFileToUpload(null);
+
+      // Close Bulk Update MCV dialog if open
+      setBulkUpdateMcvDialogOpen(false);
+
+      // Refresh mandates list
+      fetchMandates();
+    } catch (error: any) {
+      console.error("Error uploading MCV data:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload MCV data. Please check the CSV format.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingMandates(false);
+    }
+  };
+
+  const handleExportMandates = async () => {
+    try {
+      setLoadingMandates(true);
+      
+      // Fetch all mandates with related data
+      const { data, error } = await supabase
+        .from("mandates")
+        .select(`
+          *,
+          accounts:account_id (
+            id,
+            name
+          ),
+          profiles:kam_id (
+            id,
+            full_name
+          )
+        `)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        toast({
+          title: "No data",
+          description: "No mandates found to export.",
+          variant: "default",
+        });
+        return;
+      }
+
+      // Prepare data for CSV with all fields
+      const csvData = data.map((mandate: any) => ({
+        id: mandate.id || "",
+        project_code: mandate.project_code || "",
+        project_name: mandate.project_name || "",
+        account_id: mandate.account_id || "",
+        account_name: mandate.accounts?.name || "",
+        kam_id: mandate.kam_id || "",
+        kam_name: mandate.profiles?.full_name || "",
+        lob: mandate.lob || "",
+        type: mandate.type || "",
+        new_sales_owner: mandate.new_sales_owner || "",
+        handover_monthly_volume: mandate.handover_monthly_volume || 0,
+        handover_commercial_per_head: mandate.handover_commercial_per_head || 0,
+        handover_mcv: mandate.handover_mcv || 0,
+        prj_duration_months: mandate.prj_duration_months || "",
+        handover_acv: mandate.handover_acv || 0,
+        handover_prj_type: mandate.handover_prj_type || "",
+        revenue_monthly_volume: mandate.revenue_monthly_volume || 0,
+        revenue_commercial_per_head: mandate.revenue_commercial_per_head || 0,
+        revenue_mcv: mandate.revenue_mcv || 0,
+        revenue_acv: mandate.revenue_acv || 0,
+        revenue_prj_type: mandate.revenue_prj_type || "",
+        mandate_health: mandate.mandate_health || "",
+        upsell_constraint: mandate.upsell_constraint ? "YES" : "NO",
+        upsell_constraint_type: mandate.upsell_constraint_type || "",
+        upsell_constraint_sub: mandate.upsell_constraint_sub || "",
+        upsell_constraint_sub2: mandate.upsell_constraint_sub2 || "",
+        client_budget_trend: mandate.client_budget_trend || "",
+        awign_share_percent: mandate.awign_share_percent || "",
+        retention_type: mandate.retention_type || "",
+        upsell_action_status: mandate.upsell_action_status || "",
+        created_at: formatTimestampForCSV(mandate.created_at),
+        updated_at: formatTimestampForCSV(mandate.updated_at),
+        created_by: mandate.created_by || "",
+      }));
+
+      const csvContent = convertToCSV(csvData);
+      const filename = `mandates_export_${new Date().toISOString().split("T")[0]}.csv`;
+      downloadCSV(csvContent, filename);
+
+      toast({
+        title: "Success!",
+        description: `Exported ${csvData.length} mandates to CSV.`,
+      });
+    } catch (error: any) {
+      console.error("Error exporting mandates:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to export mandates. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingMandates(false);
+    }
+  };
+
   const fetchMandates = async () => {
     setLoadingMandates(true);
     try {
@@ -703,6 +1565,7 @@ export default function Mandates() {
       accountId: mandate.account_id || "",
       kamId: mandate.kam_id || "",
       lob: mandate.lob || "",
+      type: mandate.type || "",
       newSalesOwner: mandate.new_sales_owner || "",
       handoverMonthlyVolume: mandate.handover_monthly_volume?.toString() || "",
       handoverCommercialPerHead: mandate.handover_commercial_per_head?.toString() || "",
@@ -741,6 +1604,7 @@ export default function Mandates() {
         account_id: editMandateData.accountId || null,
         kam_id: editMandateData.kamId || null,
         lob: editMandateData.lob || null,
+        type: editMandateData.type || null,
         new_sales_owner: editMandateData.newSalesOwner || null,
         handover_monthly_volume: editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null,
         handover_commercial_per_head: editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null,
@@ -877,9 +1741,25 @@ export default function Mandates() {
             Track and manage client orders and project mandates.
           </p>
         </div>
-        <Button onClick={() => setFormDialogOpen(true)}>
-          Add Mandate
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExportMandates}
+            disabled={loadingMandates}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setBulkUpdateMcvDialogOpen(true)}
+          >
+            Bulk Update MCV
+          </Button>
+          <Button onClick={() => setFormDialogOpen(true)}>
+            Add Mandate
+          </Button>
+        </div>
       </div>
 
       {/* Add Mandate Form Dialog */}
@@ -893,6 +1773,7 @@ export default function Mandates() {
             accountId: "",
             kamId: "",
             lob: "",
+            type: "",
             newSalesOwner: "",
             handoverMonthlyVolume: "",
             handoverCommercialPerHead: "",
@@ -921,6 +1802,41 @@ export default function Mandates() {
           <DialogHeader>
             <DialogTitle>Add Mandate</DialogTitle>
           </DialogHeader>
+          <div className="flex gap-2 mb-4 pb-4 border-b">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleDownloadMandateTemplate}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Download Template
+            </Button>
+            <label>
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleBulkUploadMandates(file);
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                asChild
+                disabled={loadingMandates}
+              >
+                <span>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Bulk Upload
+                </span>
+              </Button>
+            </label>
+          </div>
           <form onSubmit={handleSubmit} className="space-y-6">
               {/* 1st Section: Project Info */}
               <Card className="border-blue-200 bg-blue-50/50">
@@ -1024,6 +1940,24 @@ export default function Mandates() {
                         <SelectItem value="Invigilation & Proctoring">Invigilation & Proctoring</SelectItem>
                         <SelectItem value="Staffing">Staffing</SelectItem>
                         <SelectItem value="Others">Others</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="type">
+                      Type <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.type}
+                      onValueChange={(value) => handleInputChange("type", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="New">New</SelectItem>
+                        <SelectItem value="Existing">Existing</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1583,13 +2517,25 @@ export default function Mandates() {
                             <Badge variant="outline">{mandate.upsellStatus}</Badge>
                           </TableCell>
                           <TableCell>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => handleViewDetails(mandate)}
-                            >
-                              View Details
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => handleViewDetails(mandate)}
+                              >
+                                View Details
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => {
+                                  setMandateForUpdate(mandate);
+                                  setUpdateOptionsDialogOpen(true);
+                                }}
+                              >
+                                Update
+                              </Button>
+                            </div>
                           </TableCell>
                 </TableRow>
                       ))
@@ -1615,37 +2561,7 @@ export default function Mandates() {
             <DialogTitle>{selectedMandate?.project_name || "Mandate Details"}</DialogTitle>
           </DialogHeader>
           <div className="flex items-center justify-end gap-2 mb-4">
-            {!isEditMode && !isMandateCheckerEditMode ? (
-              <>
-                <Button variant="outline" onClick={() => setIsEditMode(true)}>
-                  Edit
-                </Button>
-                <Button variant="outline" onClick={() => {
-                  // Ensure editMandateData has current values for Mandate Checker fields
-                  setEditMandateData((prev: any) => ({
-                    ...prev,
-                    mandateHealth: selectedMandate.mandate_health || "",
-                    upsellConstraint: selectedMandate.upsell_constraint ? "YES" : "NO",
-                    upsellConstraintType: selectedMandate.upsell_constraint_type || "",
-                    upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
-                    upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
-                    clientBudgetTrend: selectedMandate.client_budget_trend || "",
-                    awignSharePercent: selectedMandate.awign_share_percent || "",
-                    retentionType: selectedMandate.retention_type || "",
-                  }));
-                  setIsMandateCheckerEditMode(true);
-                  // Scroll to Mandate Checker section after a brief delay to allow state update
-                  setTimeout(() => {
-                    const mandateCheckerCard = document.getElementById('mandate-checker-section');
-                    if (mandateCheckerCard) {
-                      mandateCheckerCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-                  }, 100);
-                }}>
-                  Update
-                </Button>
-              </>
-            ) : isEditMode ? (
+            {isEditMode ? (
               <>
                 <Button variant="outline" onClick={() => {
                   setIsEditMode(false);
@@ -1789,6 +2705,25 @@ export default function Mandates() {
                         </Select>
                       ) : (
                         <p className="mt-1">{selectedMandate.lob || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Type:</Label>
+                      {isEditMode ? (
+                        <Select
+                          value={editMandateData.type}
+                          onValueChange={(value) => setEditMandateData({ ...editMandateData, type: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="New">New</SelectItem>
+                            <SelectItem value="Existing">Existing</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="mt-1">{selectedMandate.type || "N/A"}</p>
                       )}
                     </div>
                   </div>
@@ -2279,10 +3214,375 @@ export default function Mandates() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* 5th Section: Monthly Records */}
+              {selectedMandate?.monthly_data && Object.keys(selectedMandate.monthly_data).length > 0 && (
+                <Card className="border-purple-200 bg-purple-50/50">
+                  <CardContent className="pt-6">
+                    <h3 className="font-semibold text-lg mb-4 text-purple-900">Monthly Records</h3>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Month/Year</TableHead>
+                            <TableHead>Planned MCV</TableHead>
+                            <TableHead>Achieved MCV</TableHead>
+                            <TableHead>Percentage Achieved</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {Object.entries(selectedMandate.monthly_data)
+                            .sort(([a], [b]) => a.localeCompare(b)) // Sort ascending by date (oldest first)
+                            .map(([monthYear, values]: [string, any]) => {
+                              const [plannedMcv, achievedMcv] = Array.isArray(values) ? values : [0, 0];
+                              const percentage = plannedMcv > 0 
+                                ? ((achievedMcv / plannedMcv) * 100).toFixed(2) 
+                                : "0.00";
+                              
+                              // Parse month_year to display format
+                              const [year, month] = monthYear.split('-');
+                              const monthName = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'long' });
+                              
+                              return (
+                                <TableRow key={monthYear}>
+                                  <TableCell className="font-medium">
+                                    {monthName} {year}
+                                  </TableCell>
+                                  <TableCell>
+                                    {plannedMcv ? plannedMcv.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}
+                                  </TableCell>
+                                  <TableCell>
+                                    {achievedMcv ? achievedMcv.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant={parseFloat(percentage) >= 100 ? "default" : parseFloat(percentage) >= 80 ? "secondary" : "destructive"}>
+                                      {percentage}%
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* CSV Preview Dialog */}
+      <CSVPreviewDialog
+        open={csvPreviewOpen}
+        onOpenChange={setCsvPreviewOpen}
+        rows={csvPreviewRows}
+        onConfirm={handleConfirmUpload}
+        onCancel={handleCancelUpload}
+        loading={loadingMandates}
+        title="Preview Mandates CSV Upload"
+      />
+
+      {/* Update Options Dialog */}
+      <Dialog open={updateOptionsDialogOpen} onOpenChange={setUpdateOptionsDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Select Update Option</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Button
+              variant="outline"
+              className="w-full justify-start h-auto py-6"
+              onClick={() => {
+                if (mandateForUpdate) {
+                  handleViewDetails(mandateForUpdate);
+                  setUpdateOptionsDialogOpen(false);
+                  setDetailsModalOpen(true);
+                  // Scroll to mandate checker section after dialog opens
+                  setTimeout(() => {
+                    const mandateCheckerCard = document.getElementById('mandate-checker-section');
+                    if (mandateCheckerCard) {
+                      mandateCheckerCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }, 300);
+                }
+              }}
+            >
+              <div className="text-left">
+                <div className="font-semibold">Mandate Checker</div>
+                <div className="text-sm text-muted-foreground">Update mandate checker information</div>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start h-auto py-6"
+              onClick={() => {
+                setUpdateOptionsDialogOpen(false);
+                setMonthlyRecordDialogOpen(true);
+              }}
+            >
+              <div className="text-left">
+                <div className="font-semibold">Mandate Monthly Record</div>
+                <div className="text-sm text-muted-foreground">Add or update monthly MCV records</div>
+              </div>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Monthly Record Dialog */}
+      <Dialog open={monthlyRecordDialogOpen} onOpenChange={(open) => {
+        setMonthlyRecordDialogOpen(open);
+        if (!open) {
+          setMonthlyRecordForm({
+            month: "",
+            year: "",
+            plannedMcv: "",
+            achievedMcv: "",
+          });
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Monthly Record</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            if (!mandateForUpdate) return;
+
+            setSavingMonthlyRecord(true);
+            try {
+              const month = parseInt(monthlyRecordForm.month);
+              const year = parseInt(monthlyRecordForm.year);
+              const plannedMcv = parseFloat(monthlyRecordForm.plannedMcv);
+              const achievedMcv = parseFloat(monthlyRecordForm.achievedMcv);
+
+              if (!month || !year || isNaN(plannedMcv) || isNaN(achievedMcv)) {
+                toast({
+                  title: "Validation Error",
+                  description: "Please fill in all fields with valid values.",
+                  variant: "destructive",
+                });
+                setSavingMonthlyRecord(false);
+                return;
+              }
+
+              const monthYear = `${year}-${String(month).padStart(2, '0')}`;
+              
+              // Fetch current monthly_data
+              const { data: currentMandate, error: fetchError } = await supabase
+                .from("mandates")
+                .select("monthly_data")
+                .eq("id", mandateForUpdate.id)
+                .single();
+
+              if (fetchError) throw fetchError;
+
+              // Update or create monthly_data
+              const currentData = currentMandate?.monthly_data || {};
+              const updatedData = {
+                ...currentData,
+                [monthYear]: [plannedMcv, achievedMcv],
+              };
+
+              const { error: updateError } = await supabase
+                .from("mandates")
+                .update({ monthly_data: updatedData })
+                .eq("id", mandateForUpdate.id);
+
+              if (updateError) throw updateError;
+
+              toast({
+                title: "Success!",
+                description: "Monthly record saved successfully.",
+              });
+
+              setMonthlyRecordDialogOpen(false);
+              setMonthlyRecordForm({
+                month: "",
+                year: "",
+                plannedMcv: "",
+                achievedMcv: "",
+              });
+              
+              // Refresh mandates list
+              fetchMandates();
+              
+              // If view details is open, refresh it
+              if (selectedMandate?.id === mandateForUpdate.id) {
+                const { data: updatedMandate } = await supabase
+                  .from("mandates")
+                  .select("*")
+                  .eq("id", mandateForUpdate.id)
+                  .single();
+                if (updatedMandate) {
+                  setSelectedMandate(updatedMandate);
+                }
+              }
+            } catch (error: any) {
+              console.error("Error saving monthly record:", error);
+              toast({
+                title: "Error",
+                description: error.message || "Failed to save monthly record. Please try again.",
+                variant: "destructive",
+              });
+            } finally {
+              setSavingMonthlyRecord(false);
+            }
+          }} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="month">Month <span className="text-destructive">*</span></Label>
+              <Select
+                value={monthlyRecordForm.month}
+                onValueChange={(value) => setMonthlyRecordForm({ ...monthlyRecordForm, month: value })}
+                required
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select month" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <SelectItem key={m} value={String(m)}>
+                      {new Date(2000, m - 1, 1).toLocaleString('default', { month: 'long' })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="year">Year <span className="text-destructive">*</span></Label>
+              <Input
+                id="year"
+                type="number"
+                min="2000"
+                max="2100"
+                value={monthlyRecordForm.year}
+                onChange={(e) => setMonthlyRecordForm({ ...monthlyRecordForm, year: e.target.value })}
+                placeholder="e.g., 2025"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="plannedMcv">Planned MCV <span className="text-destructive">*</span></Label>
+              <Input
+                id="plannedMcv"
+                type="number"
+                step="0.01"
+                min="0"
+                value={monthlyRecordForm.plannedMcv}
+                onChange={(e) => setMonthlyRecordForm({ ...monthlyRecordForm, plannedMcv: e.target.value })}
+                placeholder="Enter planned MCV"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="achievedMcv">Achieved MCV <span className="text-destructive">*</span></Label>
+              <Input
+                id="achievedMcv"
+                type="number"
+                step="0.01"
+                min="0"
+                value={monthlyRecordForm.achievedMcv}
+                onChange={(e) => setMonthlyRecordForm({ ...monthlyRecordForm, achievedMcv: e.target.value })}
+                placeholder="Enter achieved MCV"
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setMonthlyRecordDialogOpen(false)}
+                disabled={savingMonthlyRecord}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingMonthlyRecord}>
+                {savingMonthlyRecord ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save"
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Update MCV Dialog */}
+      <Dialog open={bulkUpdateMcvDialogOpen} onOpenChange={setBulkUpdateMcvDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Update MCV</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                const templateHeaders = [
+                  { key: "project_id", label: "Project ID" },
+                  { key: "month", label: "Month" },
+                  { key: "year", label: "Year" },
+                  { key: "planned_mcv", label: "Planned MCV" },
+                  { key: "achieved_mcv", label: "Achieved MCV" },
+                ];
+                downloadCSVTemplate(templateHeaders, "bulk_mcv_update_template.csv");
+                toast({
+                  title: "Template Downloaded",
+                  description: "CSV template for bulk MCV update downloaded. Fill in the data and upload it.",
+                });
+              }}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Download Template for Bulk MCV
+            </Button>
+            <label className="block w-full">
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleBulkUploadMcv(file);
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="outline"
+                className="w-full"
+                asChild
+              >
+                <span>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload CSV File
+                </span>
+              </Button>
+            </label>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* MCV CSV Preview Dialog */}
+      <CSVPreviewDialog
+        open={mcvCsvPreviewOpen}
+        onOpenChange={setMcvCsvPreviewOpen}
+        rows={mcvCsvPreviewRows}
+        onConfirm={handleConfirmMcvUpload}
+        onCancel={() => {
+          setMcvCsvPreviewRows([]);
+          setMcvCsvFileToUpload(null);
+          setMcvCsvPreviewOpen(false);
+        }}
+        loading={loadingMandates}
+        title="Preview MCV Update CSV"
+      />
     </div>
   );
 }

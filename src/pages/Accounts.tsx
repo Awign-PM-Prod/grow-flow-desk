@@ -10,10 +10,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2 } from "lucide-react";
+import { Loader2, Download, Upload, FileText } from "lucide-react";
+import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
   Dialog,
   DialogContent,
@@ -67,6 +70,13 @@ export default function Accounts() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editAccountData, setEditAccountData] = useState<any>(null);
   const [updatingAccount, setUpdatingAccount] = useState(false);
+  const [retentionTypes, setRetentionTypes] = useState<Array<{ retention_type: string | null; count: number }>>([]);
+  const [pipelineDeals, setPipelineDeals] = useState<any[]>([]);
+  const [loadingRetentionData, setLoadingRetentionData] = useState(false);
+  const [loadingPipelineData, setLoadingPipelineData] = useState(false);
+  const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
+  const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
   
   const [formData, setFormData] = useState<AccountFormData>({
     name: "",
@@ -351,6 +361,348 @@ export default function Accounts() {
     });
     setIsEditMode(false);
     setDetailsModalOpen(true);
+    
+    // Fetch retention types and pipeline deals for this account
+    if (account.id) {
+      fetchRetentionTypes(account.id);
+      fetchPipelineDeals(account.id);
+    }
+  };
+
+  const fetchRetentionTypes = async (accountId: string) => {
+    setLoadingRetentionData(true);
+    try {
+      const { data, error } = await supabase
+        .from("mandates")
+        .select("retention_type")
+        .eq("account_id", accountId);
+
+      if (error) {
+        console.error("Error fetching retention types:", error);
+        setRetentionTypes([]);
+        return;
+      }
+
+      // Group by retention_type and count (treat null as "NI")
+      const grouped = (data || []).reduce((acc: Record<string, number>, mandate: any) => {
+        const type = mandate.retention_type || "NI";
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      }, {});
+
+      // Convert to array and sort
+      const retentionArray = Object.entries(grouped).map(([retention_type, count]) => ({
+        retention_type,
+        count: count as number,
+      }));
+
+      // Sort by retention type (STAR, A, B, C, D, E, NI)
+      const order = ["STAR", "A", "B", "C", "D", "E", "NI"];
+      retentionArray.sort((a, b) => {
+        const aIndex = order.indexOf(a.retention_type);
+        const bIndex = order.indexOf(b.retention_type);
+        if (aIndex === -1 && bIndex === -1) return a.retention_type.localeCompare(b.retention_type);
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+      });
+
+      setRetentionTypes(retentionArray);
+    } catch (error) {
+      console.error("Error fetching retention types:", error);
+      setRetentionTypes([]);
+    } finally {
+      setLoadingRetentionData(false);
+    }
+  };
+
+  const fetchPipelineDeals = async (accountId: string) => {
+    setLoadingPipelineData(true);
+    try {
+      const { data, error } = await supabase
+        .from("pipeline_deals")
+        .select("*")
+        .eq("account_id", accountId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching pipeline deals:", error);
+        setPipelineDeals([]);
+        return;
+      }
+
+      setPipelineDeals(data || []);
+    } catch (error) {
+      console.error("Error fetching pipeline deals:", error);
+      setPipelineDeals([]);
+    } finally {
+      setLoadingPipelineData(false);
+    }
+  };
+
+  const handleDownloadAccountTemplate = () => {
+    // Exclude auto-calculated fields: total_acv, total_mcv, mcv_tier, company_size_tier
+    const templateHeaders = [
+      { key: "name", label: "Account Name" },
+      { key: "website", label: "Website" },
+      { key: "address", label: "Address" },
+      { key: "city", label: "City" },
+      { key: "state", label: "State" },
+      { key: "country", label: "Country" },
+      { key: "founded_year", label: "Founded Year" },
+      { key: "industry", label: "Industry" },
+      { key: "sub_category", label: "Sub Category" },
+      { key: "revenue_range", label: "Revenue Range" },
+    ];
+    downloadCSVTemplate(templateHeaders, "accounts_upload_template.csv");
+    toast({
+      title: "Template Downloaded",
+      description: "CSV template downloaded. Fill in the data and upload it.",
+    });
+  };
+
+  const handleBulkUploadAccounts = async (file: File) => {
+    try {
+      const text = await file.text();
+      const csvData = parseCSV(text);
+
+      if (csvData.length === 0) {
+        toast({
+          title: "Error",
+          description: "CSV file is empty or invalid.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate minimum and maximum entries
+      const MIN_ENTRIES = 1;
+      const MAX_ENTRIES = 1000;
+
+      if (csvData.length < MIN_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file must contain at least ${MIN_ENTRIES} entry.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (csvData.length > MAX_ENTRIES) {
+        toast({
+          title: "Validation Error",
+          description: `CSV file cannot contain more than ${MAX_ENTRIES} entries. Please split your file into smaller batches.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Parse and validate each row
+      const previewRows = csvData.map((row: any, index: number) => {
+        const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
+        const errors: string[] = [];
+
+        // Validate required fields
+        if (!row["Account Name"] || row["Account Name"].trim() === "") {
+          errors.push("Account Name is required");
+        }
+        if (!row["Website"] || row["Website"].trim() === "") {
+          errors.push("Website is required");
+        }
+        if (!row["Address"] || row["Address"].trim() === "") {
+          errors.push("Address is required");
+        }
+        if (!row["Founded Year"] || isNaN(parseInt(row["Founded Year"]))) {
+          errors.push("Founded Year must be a valid number");
+        }
+        if (!row["Industry"] || row["Industry"].trim() === "") {
+          errors.push("Industry is required");
+        }
+        if (!row["Sub Category"] || row["Sub Category"].trim() === "") {
+          errors.push("Sub Category is required");
+        }
+        if (!row["Revenue Range"] || row["Revenue Range"].trim() === "") {
+          errors.push("Revenue Range is required");
+        }
+
+        return {
+          rowNumber,
+          data: row,
+          isValid: errors.length === 0,
+          errors,
+        };
+      });
+
+      // Store preview data and open dialog
+      setCsvPreviewRows(previewRows);
+      setCsvFileToUpload(file);
+      setCsvPreviewOpen(true);
+    } catch (error: any) {
+      console.error("Error parsing CSV:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to parse CSV file. Please check the format.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!csvFileToUpload) return;
+
+    try {
+      setLoadingAccounts(true);
+      setCsvPreviewOpen(false);
+
+      const text = await csvFileToUpload.text();
+      const csvData = parseCSV(text);
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error("You must be logged in to upload accounts");
+      }
+
+      // Filter out invalid rows
+      const validRows = csvData.filter((row: any, index: number) => {
+        const previewRow = csvPreviewRows[index];
+        return previewRow?.isValid;
+      });
+
+      const accountsToInsert = validRows.map((row: any) => {
+        // Auto-calculate company_size_tier from revenue_range
+        let companySizeTier = null;
+        if (row["Revenue Range"]) {
+          const revenueRange = row["Revenue Range"];
+          const isTier1 = revenueRange.includes("500CR") || revenueRange.includes("100~500CR");
+          companySizeTier = isTier1 ? "Tier 1" : "Tier 2";
+        }
+
+        return {
+          name: row["Account Name"] || "",
+          website: row["Website"] || "",
+          address: row["Address"] || "",
+          city: row["City"] || "",
+          state: row["State"] || "",
+          country: row["Country"] || "",
+          founded_year: parseInt(row["Founded Year"]) || null,
+          industry: row["Industry"] || "",
+          sub_category: row["Sub Category"] || "",
+          revenue_range: row["Revenue Range"] || "",
+          total_acv: 0, // Will be calculated from mandates
+          total_mcv: 0, // Will be calculated from mandates
+          mcv_tier: null, // Will be calculated from mandates
+          company_size_tier: companySizeTier,
+          created_by: user.id,
+        };
+      });
+
+      // Insert accounts in batches
+      const batchSize = 50;
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < accountsToInsert.length; i += batchSize) {
+        const batch = accountsToInsert.slice(i, i + batchSize);
+        const { error } = await supabase.from("accounts").insert(batch);
+        
+        if (error) {
+          console.error("Error inserting batch:", error);
+          errorCount += batch.length;
+        } else {
+          successCount += batch.length;
+        }
+      }
+
+      toast({
+        title: "Upload Complete",
+        description: `Successfully uploaded ${successCount} accounts. ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
+      });
+
+      // Reset preview state
+      setCsvPreviewRows([]);
+      setCsvFileToUpload(null);
+
+      // Refresh accounts list
+      fetchAccounts();
+    } catch (error: any) {
+      console.error("Error uploading accounts:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload accounts. Please check the CSV format.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    setCsvPreviewOpen(false);
+    setCsvPreviewRows([]);
+    setCsvFileToUpload(null);
+  };
+
+  const handleExportAccounts = async () => {
+    try {
+      setLoadingAccounts(true);
+      
+      // Fetch all accounts (not just filtered ones)
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        toast({
+          title: "No data",
+          description: "No accounts found to export.",
+          variant: "default",
+        });
+        return;
+      }
+
+      // Prepare data for CSV with all fields
+      const csvData = data.map((account) => ({
+        id: account.id,
+        name: account.name || "",
+        website: account.website || "",
+        address: account.address || "",
+        city: account.city || "",
+        state: account.state || "",
+        country: account.country || "",
+        founded_year: account.founded_year || "",
+        industry: account.industry || "",
+        sub_category: account.sub_category || "",
+        revenue_range: account.revenue_range || "",
+        total_acv: account.total_acv || 0,
+        total_mcv: account.total_mcv || 0,
+        mcv_tier: account.mcv_tier || "",
+        company_size_tier: account.company_size_tier || "",
+        created_at: formatTimestampForCSV(account.created_at),
+        updated_at: formatTimestampForCSV(account.updated_at),
+        created_by: account.created_by || "",
+      }));
+
+      const csvContent = convertToCSV(csvData);
+      const filename = `accounts_export_${new Date().toISOString().split("T")[0]}.csv`;
+      downloadCSV(csvContent, filename);
+
+      toast({
+        title: "Success!",
+        description: `Exported ${csvData.length} accounts to CSV.`,
+      });
+    } catch (error: any) {
+      console.error("Error exporting accounts:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to export accounts. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingAccounts(false);
+    }
   };
 
   const handleUpdateAccount = async () => {
@@ -437,9 +789,51 @@ export default function Accounts() {
             Manage your customer accounts and relationships.
           </p>
         </div>
-        <Button onClick={() => setFormDialogOpen(true)}>
-          Add Account
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExportAccounts}
+            disabled={loadingAccounts}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadAccountTemplate}
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Download Template
+          </Button>
+          <label>
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  handleBulkUploadAccounts(file);
+                }
+                // Reset input
+                e.target.value = "";
+              }}
+            />
+            <Button
+              variant="outline"
+              asChild
+              disabled={loadingAccounts}
+            >
+              <span>
+                <Upload className="mr-2 h-4 w-4" />
+                Bulk Upload
+              </span>
+            </Button>
+          </label>
+          <Button onClick={() => setFormDialogOpen(true)}>
+            Add Account
+          </Button>
+        </div>
       </div>
 
       {/* Add / Edit Form Dialog */}
@@ -856,6 +1250,8 @@ export default function Accounts() {
         setDetailsModalOpen(open);
         if (!open) {
           setIsEditMode(false);
+          setRetentionTypes([]);
+          setPipelineDeals([]);
         }
       }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1096,10 +1492,151 @@ export default function Accounts() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* 4th Section: Mandates per Retention Type */}
+              <Card className="border-orange-200 bg-orange-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-orange-900">Mandates per Retention Type</h3>
+                  <div className="overflow-x-auto">
+                    {loadingRetentionData ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span className="text-muted-foreground">Loading retention data...</span>
+                      </div>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Retention Type</TableHead>
+                            <TableHead>Count</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {retentionTypes.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={2} className="text-center text-muted-foreground py-4">
+                                No retention data available
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            retentionTypes.map((item, index) => (
+                              <TableRow key={index}>
+                                <TableCell className="font-medium">{item.retention_type || "NI"}</TableCell>
+                                <TableCell>{item.count}</TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    (Linked to mandates; will populate when mandate data source is connected.)
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* 5th Section: Cross Sell Deals */}
+              <Card className="border-teal-200 bg-teal-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-teal-900">Cross Sell Deals</h3>
+                  <div className="overflow-x-auto">
+                    {loadingPipelineData ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span className="text-muted-foreground">Loading pipeline deals...</span>
+                      </div>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Vertical</TableHead>
+                            <TableHead>Line of Business</TableHead>
+                            <TableHead>Use Case</TableHead>
+                            <TableHead>Sub Use Case</TableHead>
+                            <TableHead>Expected Revenue</TableHead>
+                            <TableHead>MPV</TableHead>
+                            <TableHead>Max MPV</TableHead>
+                            <TableHead>Monthly Volume</TableHead>
+                            <TableHead>Max Monthly Volume</TableHead>
+                            <TableHead>Commercial / head-task</TableHead>
+                            <TableHead>PRJ months</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {pipelineDeals.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={12} className="text-center text-muted-foreground py-4">
+                                No pipeline deals found
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            pipelineDeals.map((deal) => (
+                              <TableRow key={deal.id}>
+                                <TableCell>N/A</TableCell>
+                                <TableCell>{deal.lob || "N/A"}</TableCell>
+                                <TableCell>{deal.use_case || "N/A"}</TableCell>
+                                <TableCell>{deal.sub_use_case || "N/A"}</TableCell>
+                                <TableCell>
+                                  {deal.expected_revenue
+                                    ? parseFloat(String(deal.expected_revenue)).toLocaleString("en-IN")
+                                    : "0"}
+                                </TableCell>
+                                <TableCell>
+                                  {deal.mpv ? parseFloat(String(deal.mpv)).toLocaleString("en-IN") : "0"}
+                                </TableCell>
+                                <TableCell>
+                                  {deal.max_mpv
+                                    ? parseFloat(String(deal.max_mpv)).toLocaleString("en-IN")
+                                    : "0"}
+                                </TableCell>
+                                <TableCell>
+                                  {deal.monthly_volume
+                                    ? parseFloat(String(deal.monthly_volume)).toLocaleString("en-IN")
+                                    : "0"}
+                                </TableCell>
+                                <TableCell>
+                                  {deal.max_monthly_volume
+                                    ? parseFloat(String(deal.max_monthly_volume)).toLocaleString("en-IN")
+                                    : "0"}
+                                </TableCell>
+                                <TableCell>
+                                  {deal.commercial_per_head
+                                    ? parseFloat(String(deal.commercial_per_head)).toLocaleString("en-IN")
+                                    : "0"}
+                                </TableCell>
+                                <TableCell>{deal.prj_duration_months || "N/A"}</TableCell>
+                                <TableCell>
+                                  <Badge variant="outline">{deal.status || "N/A"}</Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Totals above are auto-calculated: ACV = Σ(Expected Revenue), MCV = Σ(MPV).
+                  </p>
+                </CardContent>
+              </Card>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* CSV Preview Dialog */}
+      <CSVPreviewDialog
+        open={csvPreviewOpen}
+        onOpenChange={setCsvPreviewOpen}
+        rows={csvPreviewRows}
+        onConfirm={handleConfirmUpload}
+        onCancel={handleCancelUpload}
+        loading={loadingAccounts}
+        title="Preview Accounts CSV Upload"
+      />
     </div>
   );
 }
