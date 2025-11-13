@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cross Sell Pipeline</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div class="max-w-7xl mx-auto p-4 sm:p-6">
+    <header class="mb-6 flex items-center justify-between">
+      <h1 class="text-2xl sm:text-3xl font-bold">Cross Sell Pipeline</h1>
+      <nav class="inline-flex rounded-xl bg-white shadow-sm border">
+        <button id="tabCrossAdd" class="px-4 py-2 rounded-l-xl text-sm font-medium bg-blue-600 text-white">Add Deal</button>
+        <button id="tabCrossView" class="px-4 py-2 rounded-r-xl text-sm font-medium">View / Edit Deals</button>
+      </nav>
+    </header>
+
+    <!-- ADD DEAL FORM -->
+    <section id="pageCrossAdd" class="space-y-6">
+      <div class="bg-white rounded-2xl shadow p-4 border space-y-6">
+
+        <h3 class="font-semibold text-lg">Sales Module</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="block text-sm font-medium mb-1">Sales Module Name *</label><input type="text" placeholder="Auto" readonly class="w-full rounded-lg border px-3 py-2 bg-slate-50"/></div>
+          <div><label class="block text-sm font-medium mb-1">KAM *</label><select class="w-full rounded-lg border px-3 py-2"><option>John KAM</option></select></div>
+        </div>
+
+        <h3 class="font-semibold text-lg">Deal Details</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="block text-sm font-medium mb-1">Account *</label><select class="w-full rounded-lg border px-3 py-2"><option>Dummy Corp</option></select></div>
+          <div><label class="block text-sm font-medium mb-1">SPOC *</label><select class="w-full rounded-lg border px-3 py-2"><option>Person A</option></select></div>
+          <div><label class="block text-sm font-medium mb-1">SPOC 2</label><select class="w-full rounded-lg border px-3 py-2"><option>-</option></select></div>
+          <div><label class="block text-sm font-medium mb-1">SPOC 3</label><select class="w-full rounded-lg border px-3 py-2"><option>-</option></select></div>
+          <div><label class="block text-sm font-medium mb-1">LoB *</label><select class="w-full rounded-lg border px-3 py-2"><option>Audit</option></select></div>
+          <div><label class="block text-sm font-medium mb-1">Use Case *</label><input type="text" class="w-full rounded-lg border px-3 py-2"/></div>
+          <div><label class="block text-sm font-medium mb-1">Sub Use Case *</label><input type="text" class="w-full rounded-lg border px-3 py-2"/></div>
+
+          <div><label class="block text-sm font-medium mb-1">Monthly Volume *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+          <div><label class="block text-sm font-medium mb-1">Maximum Monthly Volume *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+          <div><label class="block text-sm font-medium mb-1">Commercial per head/task *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+
+          <div><label class="block text-sm font-medium mb-1">Expected Revenue *</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+          <div><label class="block text-sm font-medium mb-1">MPV *</label><input type="text" placeholder="Auto" readonly class="w-full rounded-lg border px-3 py-2 bg-slate-50"/></div>
+          <div><label class="block text-sm font-medium mb-1">Max MPV *</label><input type="text" placeholder="Auto" readonly class="w-full rounded-lg border px-3 py-2 bg-slate-50"/></div>
+          
+          <div><label class="block text-sm font-medium mb-1">PRJ duration (months) *</label><select class="w-full rounded-lg border px-3 py-2"><option>1</option><option>6</option><option>12</option></select></div>
+          <div><label class="block text-sm font-medium mb-1">GM Threshold</label><input type="number" class="w-full rounded-lg border px-3 py-2"/></div>
+
+          <div><label class="block text-sm font-medium mb-1">PRJ Frequency *</label><select class="w-full rounded-lg border px-3 py-2"><option>One-Time</option><option>Recurring</option></select></div>
+          <div><label class="block text-sm font-medium mb-1">STATUS *</label><select class="w-full rounded-lg border px-3 py-2"><option>0. Listed</option><option>1. Pre-Appointment Prep Done</option><option>2. Discovery Meeting Done</option><option>3. Requirement Gathering Done</option><option>4. Solution Proposal Made</option><option>5. SOW Handshake Done</option><option>6. Final Proposal Done</option><option>7. Commercial Agreed</option><option>Closed Won</option><option>Dropped</option></select></div>
+          <div><label class="block text-sm font-medium mb-1">PRJ Start Date *</label><input type="date" class="w-full rounded-lg border px-3 py-2"/></div>
+          <div><label class="block text-sm font-medium mb-1">Probability (Auto)</label><input type="text" readonly placeholder="Auto" class="w-full rounded-lg border px-3 py-2 bg-slate-50"/></div>
+        </div>
+
+        <!-- STATUS based dynamic blocks (UI only placeholder) -->
+        <h3 class="font-semibold text-lg">Status Based Details</h3>
+        <div id="statusBlocks" class="space-y-6 text-sm text-slate-700">
+  <!-- Block A: Proposal Stage (Solution Proposal Made / Final Proposal Done) -->
+  <div id="status_block_A" class="hidden border rounded-xl p-4 bg-slate-50 space-y-3">
+    <h4 class="font-semibold">Proposal Stage Files</h4>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div><label class="block text-sm font-medium mb-1">Solution Proposal Slides *</label><input type="text" placeholder="URL" class="w-full rounded-lg border px-3 py-2"/></div>
+      <div><label class="block text-sm font-medium mb-1">Gantt Chart URL (optional)</label><input type="text" placeholder="URL" class="w-full rounded-lg border px-3 py-2"/></div>
+      <div><label class="block text-sm font-medium mb-1">Expected Contract Sign Date *</label><input type="date" class="w-full rounded-lg border px-3 py-2"/></div>
+    </div>
+  </div>
+
+  <!-- Block B: Closed Won -->
+  <div id="status_block_B" class="hidden border rounded-xl p-4 bg-green-50 space-y-3">
+    <h4 class="font-semibold">Closed Won Details</h4>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div><label class="block text-sm font-medium mb-1">Contract Sign Date *</label><input type="date" class="w-full rounded-lg border px-3 py-2"/></div>
+      <div><label class="block text-sm font-medium mb-1">Signed Contract Link *</label><input type="text" placeholder="URL" class="w-full rounded-lg border px-3 py-2"/></div>
+    </div>
+  </div>
+
+  <!-- Block C: Dropped -->
+  <div id="status_block_C" class="hidden border rounded-xl p-4 bg-rose-50 space-y-3">
+    <h4 class="font-semibold">Dropped Reason</h4>
+    <div class="space-y-3">
+      <div>
+        <label class="block text-sm font-medium mb-1">Reason *</label>
+        <select class="w-full rounded-lg border px-3 py-2">
+          <option>Client Unresponsive</option>
+          <option>Requirement not feasible</option>
+          <option>Commercials above Client's Threshold</option>
+          <option>Others (put details below)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Reason - Others</label>
+        <input type="text" class="w-full rounded-lg border px-3 py-2"/>
+      </div>
+    </div>
+  </div>
+</div>
+        </div>
+
+        <div class="flex justify-end"><button class="px-4 py-2 rounded-lg bg-blue-600 text-white">Save Deal</button></div>
+      </div>
+    </section>
+
+    <!-- VIEW DEALS -->
+    <section id="pageCrossView" class="space-y-6 hidden">
+      <div class="bg-white rounded-2xl shadow p-4 border space-y-4">
+        <h3 class="font-semibold text-lg">Filters</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input type="text" class="rounded-lg border px-3 py-2" placeholder="Search by Account / KAM / Use Case" />
+          <select class="rounded-lg border px-3 py-2"><option>All LoB</option><option>Audit</option></select>
+          <select class="rounded-lg border px-3 py-2"><option>All Status</option><option>Open</option><option>Closed Won</option><option>Lost</option></select>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow p-4 border">
+        <table class="w-full text-sm">
+          <thead><tr class="border-b"><th class="py-2 pr-2">Account</th><th class="py-2 pr-2">KAM</th><th class="py-2 pr-2">LoB</th><th class="py-2 pr-2">Expected Revenue</th><th class="py-2 pr-2">Status</th><th class="py-2 pr-2">Action</th></tr></thead>
+          <tbody>
+            <tr class="border-b"><td class="py-2 pr-2">Dummy Corp</td><td class="py-2 pr-2">John KAM</td><td class="py-2 pr-2">Audit</td><td class="py-2 pr-2">₹18,00,000</td><td class="py-2 pr-2">Open</td><td class="py-2 pr-2"><button class="px-2 py-1 rounded border hover:bg-slate-100">Edit</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+<script>
+  const tabCrossAdd=document.getElementById('tabCrossAdd');
+  const tabCrossView=document.getElementById('tabCrossView');
+  const pageCrossAdd=document.getElementById('pageCrossAdd');
+  const pageCrossView=document.getElementById('pageCrossView');
+
+  function showCrossAdd(){
+    pageCrossAdd.classList.remove('hidden');
+    pageCrossView.classList.add('hidden');
+    tabCrossAdd.classList.add('bg-blue-600','text-white');
+    tabCrossView.classList.remove('bg-blue-600','text-white');
+  }
+  function showCrossView(){
+    pageCrossView.classList.remove('hidden');
+    pageCrossAdd.classList.add('hidden');
+    tabCrossView.classList.add('bg-blue-600','text-white');
+    tabCrossAdd.classList.remove('bg-blue-600','text-white');
+  }
+  tabCrossAdd.addEventListener('click',showCrossAdd);
+  tabCrossView.addEventListener('click',showCrossView);
+  showCrossAdd();
+
+  const status_block_A = document.getElementById('status_block_A');
+  const status_block_B = document.getElementById('status_block_B');
+  const status_block_C = document.getElementById('status_block_C');
+
+  const statusSelect = [...document.querySelectorAll('label')].find(l=>l.innerText.trim()==='STATUS *').nextElementSibling;
+  function refreshStatusBlocks(){
+    const v = statusSelect.value;
+    status_block_A.classList.add('hidden');
+    status_block_B.classList.add('hidden');
+    status_block_C.classList.add('hidden');
+    if(v.includes('4.')||v.includes('5.')||v.includes('6.')) status_block_A.classList.remove('hidden');
+    else if(v==='Closed Won') status_block_B.classList.remove('hidden');
+    else if(v==='Dropped') status_block_C.classList.remove('hidden');
+  }
+  statusSelect.addEventListener('change',refreshStatusBlocks);
+  refreshStatusBlocks();
+</script>
+</body>
+</html>
+</html>
