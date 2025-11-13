@@ -97,3 +97,5 @@ CREATE INDEX idx_pipeline_deals_created_at ON public.pipeline_deals(created_at D
 
 
 
+
+

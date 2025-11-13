@@ -184,23 +184,61 @@ export default function Mandates() {
     }
   }, [formData.revenueMonthlyVolume, formData.revenueCommercialPerHead]);
 
-  // Auto-calculate Retention Type (simplified logic - can be enhanced) for form
+  // Auto-calculate Retention Type based on decision tree logic
   useEffect(() => {
-    if (formData.awignSharePercent && formData.mandateHealth) {
-      let retentionType = "";
-      if (formData.awignSharePercent === "70% & Above" && formData.mandateHealth === "Exceeds Expectations") {
-        retentionType = "Star";
-      } else if (formData.mandateHealth === "Meets Expectations") {
-        retentionType = "Standard";
-      } else {
-        retentionType = "Needs Attention";
+    const calculateRetentionType = (): string => {
+      // Level 1: Check Mandate Health Distribution
+      if (formData.mandateHealth === "Need Improvement") {
+        return "NI";
       }
+
+      // Level 2: Check Upsell Constraint (only if Mandate Health is "Exceeds/Meets")
+      if (formData.mandateHealth === "Exceeds Expectations" || formData.mandateHealth === "Meets Expectations") {
+        if (formData.upsellConstraint === "YES") {
+          return "E";
+        }
+
+        // Level 3: Check Current PRJ Status / Client's Budget Trends (only if Upsell Constraint = "NO")
+        if (formData.upsellConstraint === "NO" && formData.clientBudgetTrend && formData.awignSharePercent) {
+          const isAwignShare70Plus = formData.awignSharePercent === "70% & Above";
+          const isAwignShareBelow70 = formData.awignSharePercent === "Below 70%";
+
+          // Current PRJ Status = "Increase"
+          if (formData.clientBudgetTrend === "Increase") {
+            if (isAwignShare70Plus) return "A";
+            if (isAwignShareBelow70) return "B";
+          }
+
+          // Current PRJ Status = "Same"
+          if (formData.clientBudgetTrend === "Same") {
+            if (isAwignShare70Plus) return "Star";
+            if (isAwignShareBelow70) return "C";
+          }
+
+          // Client's Budget Trends = "Decrease"
+          if (formData.clientBudgetTrend === "Decrease") {
+            // Both cases result in D according to the matrix
+            return "D";
+          }
+        }
+      }
+
+      return "";
+    };
+
+    const retentionType = calculateRetentionType();
+    if (retentionType !== formData.retentionType) {
       setFormData((prev) => ({
         ...prev,
         retentionType,
       }));
     }
-  }, [formData.awignSharePercent, formData.mandateHealth]);
+  }, [
+    formData.mandateHealth,
+    formData.upsellConstraint,
+    formData.clientBudgetTrend,
+    formData.awignSharePercent,
+  ]);
 
   // Auto-calculate MCV for edit mode
   useEffect(() => {
@@ -233,21 +271,61 @@ export default function Mandates() {
 
   // Auto-calculate Retention Type for edit mode
   useEffect(() => {
-    if (editMandateData && editMandateData.awignSharePercent && editMandateData.mandateHealth) {
-      let retentionType = "";
-      if (editMandateData.awignSharePercent === "70% & Above" && editMandateData.mandateHealth === "Exceeds Expectations") {
-        retentionType = "Star";
-      } else if (editMandateData.mandateHealth === "Meets Expectations") {
-        retentionType = "Standard";
-      } else {
-        retentionType = "Needs Attention";
+    if (editMandateData) {
+      const calculateRetentionType = (): string => {
+        // Level 1: Check Mandate Health Distribution
+        if (editMandateData.mandateHealth === "Need Improvement") {
+          return "NI";
+        }
+
+        // Level 2: Check Upsell Constraint (only if Mandate Health is "Exceeds/Meets")
+        if (editMandateData.mandateHealth === "Exceeds Expectations" || editMandateData.mandateHealth === "Meets Expectations") {
+          if (editMandateData.upsellConstraint === "YES") {
+            return "E";
+          }
+
+          // Level 3: Check Current PRJ Status / Client's Budget Trends (only if Upsell Constraint = "NO")
+          if (editMandateData.upsellConstraint === "NO" && editMandateData.clientBudgetTrend && editMandateData.awignSharePercent) {
+            const isAwignShare70Plus = editMandateData.awignSharePercent === "70% & Above";
+            const isAwignShareBelow70 = editMandateData.awignSharePercent === "Below 70%";
+
+            // Current PRJ Status = "Increase"
+            if (editMandateData.clientBudgetTrend === "Increase") {
+              if (isAwignShare70Plus) return "A";
+              if (isAwignShareBelow70) return "B";
+            }
+
+            // Current PRJ Status = "Same"
+            if (editMandateData.clientBudgetTrend === "Same") {
+              if (isAwignShare70Plus) return "Star";
+              if (isAwignShareBelow70) return "C";
+            }
+
+            // Client's Budget Trends = "Decrease"
+            if (editMandateData.clientBudgetTrend === "Decrease") {
+              // Both cases result in D according to the matrix
+              return "D";
+            }
+          }
+        }
+
+        return "";
+      };
+
+      const retentionType = calculateRetentionType();
+      if (retentionType !== editMandateData.retentionType) {
+        setEditMandateData((prev: any) => ({
+          ...prev,
+          retentionType,
+        }));
       }
-      setEditMandateData((prev: any) => ({
-        ...prev,
-        retentionType,
-      }));
     }
-  }, [editMandateData?.awignSharePercent, editMandateData?.mandateHealth]);
+  }, [
+    editMandateData?.mandateHealth,
+    editMandateData?.upsellConstraint,
+    editMandateData?.clientBudgetTrend,
+    editMandateData?.awignSharePercent,
+  ]);
 
   const handleInputChange = (field: keyof MandateFormData, value: string) => {
     setFormData((prev) => ({
