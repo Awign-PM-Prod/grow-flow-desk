@@ -3442,6 +3442,8 @@ export default function Mandates() {
                   handleViewDetails(mandateForUpdate);
                   setUpdateOptionsDialogOpen(false);
                   setDetailsModalOpen(true);
+                  // Enable edit mode for mandate checker
+                  setIsMandateCheckerEditMode(true);
                   // Scroll to mandate checker section after dialog opens
                   setTimeout(() => {
                     const mandateCheckerCard = document.getElementById('mandate-checker-section');
