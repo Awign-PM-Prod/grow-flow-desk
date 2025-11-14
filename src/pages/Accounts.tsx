@@ -596,26 +596,83 @@ export default function Accounts() {
         };
       });
 
-      // Insert accounts in batches
+      // Upsert accounts in batches (update if name + industry exists, insert if new)
       const batchSize = 50;
       let successCount = 0;
+      let updateCount = 0;
+      let insertCount = 0;
       let errorCount = 0;
+
+      // Get all account names and industries to check which ones exist
+      const accountNameIndustryPairs = accountsToInsert.map((a: any) => ({
+        name: a.name,
+        industry: a.industry,
+      }));
+
+      // Fetch existing accounts with matching name and industry
+      const { data: existingAccounts } = await supabase
+        .from("accounts")
+        .select("id, name, industry");
+
+      const existingAccountMap: Record<string, string> = {};
+      existingAccounts?.forEach((acc: any) => {
+        const key = `${acc.name}|||${acc.industry}`;
+        existingAccountMap[key] = acc.id;
+      });
 
       for (let i = 0; i < accountsToInsert.length; i += batchSize) {
         const batch = accountsToInsert.slice(i, i + batchSize);
-        const { error } = await supabase.from("accounts").insert(batch);
         
-        if (error) {
-          console.error("Error inserting batch:", error);
-          errorCount += batch.length;
-        } else {
-          successCount += batch.length;
+        // Separate into updates and inserts
+        const toUpdate: any[] = [];
+        const toInsert: any[] = [];
+
+        batch.forEach((account: any) => {
+          const key = `${account.name}|||${account.industry}`;
+          const existingId = existingAccountMap[key];
+          if (existingId) {
+            // Update existing
+            toUpdate.push({ ...account, id: existingId });
+          } else {
+            // Insert new
+            toInsert.push(account);
+          }
+        });
+
+        // Update existing accounts
+        for (const account of toUpdate) {
+          const { id, ...updateData } = account;
+          const { error } = await supabase
+            .from("accounts")
+            .update(updateData)
+            .eq("id", id);
+          
+          if (error) {
+            console.error("Error updating account:", error);
+            errorCount++;
+          } else {
+            updateCount++;
+            successCount++;
+          }
+        }
+
+        // Insert new accounts
+        if (toInsert.length > 0) {
+          const { error } = await supabase.from("accounts").insert(toInsert);
+          
+          if (error) {
+            console.error("Error inserting batch:", error);
+            errorCount += toInsert.length;
+          } else {
+            insertCount += toInsert.length;
+            successCount += toInsert.length;
+          }
         }
       }
 
       toast({
         title: "Upload Complete",
-        description: `Successfully uploaded ${successCount} accounts. ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
+        description: `Successfully processed ${successCount} accounts (${insertCount} inserted, ${updateCount} updated). ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
       });
 
       // Reset preview state

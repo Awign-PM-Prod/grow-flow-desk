@@ -783,10 +783,7 @@ export default function Mandates() {
           if (duplicateCount > 1) {
             errors.push(`Project ID "${projectId}" is duplicated in the CSV file`);
           }
-          // Check if Project ID already exists in database
-          if (existingProjectCodes.has(projectId)) {
-            errors.push(`Project ID "${projectId}" already exists in the database`);
-          }
+          // Note: Existing Project IDs are allowed - they will be updated instead of creating new records
         }
         if (!row["Project Name"] || row["Project Name"].trim() === "") {
           errors.push("Project Name is required");
@@ -1084,26 +1081,77 @@ export default function Mandates() {
         };
       });
 
-      // Insert mandates in batches
+      // Upsert mandates in batches (update if exists, insert if new)
       const batchSize = 50;
       let successCount = 0;
+      let updateCount = 0;
+      let insertCount = 0;
       let errorCount = 0;
+
+      // Get all project codes to check which ones exist
+      const projectCodes = mandatesToInsert.map((m: any) => m.project_code);
+      const { data: existingMandates } = await supabase
+        .from("mandates")
+        .select("id, project_code")
+        .in("project_code", projectCodes);
+
+      const existingMandateMap: Record<string, string> = {};
+      existingMandates?.forEach((m: any) => {
+        existingMandateMap[m.project_code] = m.id;
+      });
 
       for (let i = 0; i < mandatesToInsert.length; i += batchSize) {
         const batch = mandatesToInsert.slice(i, i + batchSize);
-        const { error } = await supabase.from("mandates").insert(batch);
         
-        if (error) {
-          console.error("Error inserting batch:", error);
-          errorCount += batch.length;
-        } else {
-          successCount += batch.length;
+        // Separate into updates and inserts
+        const toUpdate: any[] = [];
+        const toInsert: any[] = [];
+
+        batch.forEach((mandate: any) => {
+          const existingId = existingMandateMap[mandate.project_code];
+          if (existingId) {
+            // Update existing
+            toUpdate.push({ ...mandate, id: existingId });
+          } else {
+            // Insert new
+            toInsert.push(mandate);
+          }
+        });
+
+        // Update existing mandates
+        for (const mandate of toUpdate) {
+          const { id, ...updateData } = mandate;
+          const { error } = await supabase
+            .from("mandates")
+            .update(updateData)
+            .eq("id", id);
+          
+          if (error) {
+            console.error("Error updating mandate:", error);
+            errorCount++;
+          } else {
+            updateCount++;
+            successCount++;
+          }
+        }
+
+        // Insert new mandates
+        if (toInsert.length > 0) {
+          const { error } = await supabase.from("mandates").insert(toInsert);
+          
+          if (error) {
+            console.error("Error inserting batch:", error);
+            errorCount += toInsert.length;
+          } else {
+            insertCount += toInsert.length;
+            successCount += toInsert.length;
+          }
         }
       }
 
       toast({
         title: "Upload Complete",
-        description: `Successfully uploaded ${successCount} mandates. ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
+        description: `Successfully processed ${successCount} mandates (${insertCount} inserted, ${updateCount} updated). ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
       });
 
       // Reset preview state

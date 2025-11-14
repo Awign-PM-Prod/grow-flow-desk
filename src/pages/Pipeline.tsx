@@ -662,40 +662,88 @@ export default function Pipeline() {
         };
       });
 
-      // Insert deals in batches
+      // Upsert deals in batches (update if sales_module_name exists, insert if new)
       const batchSize = 50;
       let successCount = 0;
+      let updateCount = 0;
+      let insertCount = 0;
       let errorCount = 0;
       const errors: string[] = [];
 
-      console.log("Deals to insert:", dealsToInsert.length);
-      console.log("Sample deal:", JSON.stringify(dealsToInsert[0], null, 2));
+      // Get all sales module names to check which ones exist
+      const salesModuleNames = dealsToInsert.map((d: any) => d.sales_module_name);
+      const { data: existingDeals } = await supabase
+        .from("pipeline_deals")
+        .select("id, sales_module_name")
+        .in("sales_module_name", salesModuleNames);
+
+      const existingDealMap: Record<string, string> = {};
+      existingDeals?.forEach((deal: any) => {
+        existingDealMap[deal.sales_module_name] = deal.id;
+      });
 
       for (let i = 0; i < dealsToInsert.length; i += batchSize) {
         const batch = dealsToInsert.slice(i, i + batchSize);
-        const { data, error } = await supabase.from("pipeline_deals").insert(batch).select();
         
-        if (error) {
-          console.error("Error inserting batch:", error);
-          console.error("Error details:", JSON.stringify(error, null, 2));
-          errors.push(`Batch ${i / batchSize + 1}: ${error.message}`);
-          errorCount += batch.length;
-        } else {
-          console.log(`Successfully inserted batch ${i / batchSize + 1}:`, data?.length || 0, "deals");
-          successCount += (data?.length || 0);
+        // Separate into updates and inserts
+        const toUpdate: any[] = [];
+        const toInsert: any[] = [];
+
+        batch.forEach((deal: any) => {
+          const existingId = existingDealMap[deal.sales_module_name];
+          if (existingId) {
+            // Update existing
+            toUpdate.push({ ...deal, id: existingId });
+          } else {
+            // Insert new
+            toInsert.push(deal);
+          }
+        });
+
+        // Update existing deals
+        for (const deal of toUpdate) {
+          const { id, ...updateData } = deal;
+          const { error } = await supabase
+            .from("pipeline_deals")
+            .update(updateData)
+            .eq("id", id);
+          
+          if (error) {
+            console.error("Error updating deal:", error);
+            errors.push(`Update failed for ${deal.sales_module_name}: ${error.message}`);
+            errorCount++;
+          } else {
+            updateCount++;
+            successCount++;
+          }
+        }
+
+        // Insert new deals
+        if (toInsert.length > 0) {
+          const { data, error } = await supabase.from("pipeline_deals").insert(toInsert).select();
+          
+          if (error) {
+            console.error("Error inserting batch:", error);
+            console.error("Error details:", JSON.stringify(error, null, 2));
+            errors.push(`Batch ${i / batchSize + 1}: ${error.message}`);
+            errorCount += toInsert.length;
+          } else {
+            insertCount += (data?.length || 0);
+            successCount += (data?.length || 0);
+          }
         }
       }
 
       if (errorCount > 0) {
         toast({
           title: "Upload Partially Failed",
-          description: `Successfully uploaded ${successCount} deals. ${errorCount} failed. ${errors.length > 0 ? `Errors: ${errors.join("; ")}` : ""}`,
+          description: `Successfully processed ${successCount} deals (${insertCount} inserted, ${updateCount} updated). ${errorCount} failed. ${errors.length > 0 ? `Errors: ${errors.join("; ")}` : ""}`,
           variant: "destructive",
         });
       } else {
         toast({
           title: "Upload Complete",
-          description: `Successfully uploaded ${successCount} deals.`,
+          description: `Successfully processed ${successCount} deals (${insertCount} inserted, ${updateCount} updated).`,
         });
       }
 

@@ -522,26 +522,77 @@ export default function Contacts() {
         };
       });
 
-      // Insert contacts in batches
+      // Upsert contacts in batches (update if phone number exists, insert if new)
       const batchSize = 50;
       let successCount = 0;
+      let updateCount = 0;
+      let insertCount = 0;
       let errorCount = 0;
+
+      // Get all phone numbers to check which ones exist
+      const phoneNumbers = contactsToInsert.map((c: any) => c.phone_number);
+      const { data: existingContacts } = await supabase
+        .from("contacts")
+        .select("id, phone_number")
+        .in("phone_number", phoneNumbers);
+
+      const existingContactMap: Record<string, string> = {};
+      existingContacts?.forEach((c: any) => {
+        existingContactMap[c.phone_number] = c.id;
+      });
 
       for (let i = 0; i < contactsToInsert.length; i += batchSize) {
         const batch = contactsToInsert.slice(i, i + batchSize);
-        const { error } = await supabase.from("contacts").insert(batch);
         
-        if (error) {
-          console.error("Error inserting batch:", error);
-          errorCount += batch.length;
-        } else {
-          successCount += batch.length;
+        // Separate into updates and inserts
+        const toUpdate: any[] = [];
+        const toInsert: any[] = [];
+
+        batch.forEach((contact: any) => {
+          const existingId = existingContactMap[contact.phone_number];
+          if (existingId) {
+            // Update existing
+            toUpdate.push({ ...contact, id: existingId });
+          } else {
+            // Insert new
+            toInsert.push(contact);
+          }
+        });
+
+        // Update existing contacts
+        for (const contact of toUpdate) {
+          const { id, ...updateData } = contact;
+          const { error } = await supabase
+            .from("contacts")
+            .update(updateData)
+            .eq("id", id);
+          
+          if (error) {
+            console.error("Error updating contact:", error);
+            errorCount++;
+          } else {
+            updateCount++;
+            successCount++;
+          }
+        }
+
+        // Insert new contacts
+        if (toInsert.length > 0) {
+          const { error } = await supabase.from("contacts").insert(toInsert);
+          
+          if (error) {
+            console.error("Error inserting batch:", error);
+            errorCount += toInsert.length;
+          } else {
+            insertCount += toInsert.length;
+            successCount += toInsert.length;
+          }
         }
       }
 
       toast({
         title: "Upload Complete",
-        description: `Successfully uploaded ${successCount} contacts. ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
+        description: `Successfully processed ${successCount} contacts (${insertCount} inserted, ${updateCount} updated). ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
       });
 
       // Reset preview state
