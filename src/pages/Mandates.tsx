@@ -645,7 +645,7 @@ export default function Mandates() {
   // Fetch mandates from database
   const handleDownloadMandateTemplate = () => {
     const templateHeaders = [
-      { key: "project_id", label: "Project ID" },
+      { key: "project_id", label: "Project Code" },
       { key: "account_name", label: "Account Name" },
       { key: "kam_name", label: "KAM Name" },
       { key: "project_name", label: "Project Name" },
@@ -739,7 +739,7 @@ export default function Mandates() {
       });
 
       // Get existing project codes from database to check for duplicates
-      const projectIds = csvData.map((row: any) => row["Project ID"]).filter(Boolean);
+      const projectIds = csvData.map((row: any) => row["Project Code"]).filter(Boolean);
       const { data: existingMandates } = await supabase
         .from("mandates")
         .select("project_code")
@@ -790,16 +790,16 @@ export default function Mandates() {
         if (!kamName || kamName.trim() === "") {
           errors.push("KAM Name is required");
         }
-        if (!row["Project ID"] || row["Project ID"].trim() === "") {
-          errors.push("Project ID is required");
+        if (!row["Project Code"] || row["Project Code"].trim() === "") {
+          errors.push("Project Code is required");
         } else {
-          const projectId = row["Project ID"].trim();
+          const projectId = row["Project Code"].trim();
           // Check for duplicates within the CSV
-          const duplicateCount = csvData.filter((r: any) => r["Project ID"]?.trim() === projectId).length;
+          const duplicateCount = csvData.filter((r: any) => r["Project Code"]?.trim() === projectId).length;
           if (duplicateCount > 1) {
-            errors.push(`Project ID "${projectId}" is duplicated in the CSV file`);
+            errors.push(`Project Code "${projectId}" is duplicated in the CSV file`);
           }
-          // Note: Existing Project IDs are allowed - they will be updated instead of creating new records
+          // Note: Existing Project Codes are allowed - they will be updated instead of creating new records
         }
         if (!row["Project Name"] || row["Project Name"].trim() === "") {
           errors.push("Project Name is required");
@@ -1018,8 +1018,8 @@ export default function Mandates() {
       };
 
       const mandatesToInsert = validRows.map((row: any, index: number) => {
-        // Use Project ID from CSV
-        const projectCode = row["Project ID"].trim();
+        // Use Project Code from CSV
+        const projectCode = row["Project Code"].trim();
 
         // Calculate MCV values
         const handoverMonthlyVolume = parseFloat(row["Handover Monthly Volume"]) || 0;
@@ -1233,8 +1233,8 @@ export default function Mandates() {
         return;
       }
 
-      // Get all project IDs from CSV
-      const projectIds = [...new Set(csvData.map((row: any) => row["Project ID"]).filter(Boolean))];
+      // Get all project codes from CSV
+      const projectIds = [...new Set(csvData.map((row: any) => row["Project Code"]).filter(Boolean))];
       
       // Fetch existing mandates to validate project IDs
       const { data: existingMandates } = await supabase
@@ -1251,17 +1251,17 @@ export default function Mandates() {
       const previewRows = csvData.map((row: any, index: number) => {
         const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
         const errors: string[] = [];
-        const projectId = row["Project ID"]?.trim();
+        const projectId = row["Project Code"]?.trim();
         const month = row["Month"]?.trim();
         const year = row["Year"]?.trim();
         const plannedMcv = row["Planned MCV"]?.trim();
         const achievedMcv = row["Achieved MCV"]?.trim();
 
-        // Validate Project ID
+        // Validate Project Code
         if (!projectId || projectId === "") {
-          errors.push("Project ID is required");
+          errors.push("Project Code is required");
         } else if (!mandateMap[projectId]) {
-          errors.push(`Project ID "${projectId}" does not exist in the database`);
+          errors.push(`Project Code "${projectId}" does not exist in the database`);
         }
 
         // Validate Month
@@ -1337,8 +1337,8 @@ export default function Mandates() {
       const text = await mcvCsvFileToUpload.text();
       const csvData = parseCSV(text);
 
-      // Get all project IDs from CSV
-      const projectIds = [...new Set(csvData.map((row: any) => row["Project ID"]).filter(Boolean))];
+      // Get all project codes from CSV
+      const projectIds = [...new Set(csvData.map((row: any) => row["Project Code"]).filter(Boolean))];
       
       // Fetch existing mandates
       const { data: existingMandates } = await supabase
@@ -1368,7 +1368,7 @@ export default function Mandates() {
       const updatesByMandate: Record<string, any> = {};
 
       validRows.forEach((row) => {
-        const projectId = row.data["Project ID"]?.trim();
+        const projectId = row.data["Project Code"]?.trim();
         const mandate = mandateMap[projectId];
         
         if (!mandate) return;
@@ -3668,7 +3668,7 @@ export default function Mandates() {
               className="w-full"
               onClick={() => {
                 const templateHeaders = [
-                  { key: "project_id", label: "Project ID" },
+                  { key: "project_id", label: "Project Code" },
                   { key: "month", label: "Month" },
                   { key: "year", label: "Year" },
                   { key: "planned_mcv", label: "Planned MCV" },
