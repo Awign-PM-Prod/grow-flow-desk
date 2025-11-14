@@ -23,6 +23,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Trash2 } from "lucide-react";
 
 type ViewMode = "form" | "view";
 
@@ -146,6 +157,8 @@ export default function Mandates() {
 
   // Filters for view mode
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterAccount, setFilterAccount] = useState("all");
+  const [filterKam, setFilterKam] = useState("all");
   const [filterLob, setFilterLob] = useState("all");
   const [filterMandateHealth, setFilterMandateHealth] = useState("all");
   const [filterUpsellStatus, setFilterUpsellStatus] = useState("all");
@@ -160,6 +173,9 @@ export default function Mandates() {
   const [updatingMandate, setUpdatingMandate] = useState(false);
   const [isMandateCheckerEditMode, setIsMandateCheckerEditMode] = useState(false);
   const [updatingMandateChecker, setUpdatingMandateChecker] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [mandateToDelete, setMandateToDelete] = useState<any | null>(null);
+  const [deletingMandate, setDeletingMandate] = useState(false);
   const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
   const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
   const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
@@ -1600,6 +1616,8 @@ export default function Mandates() {
 
   const clearFilters = () => {
     setSearchTerm("");
+    setFilterAccount("all");
+    setFilterKam("all");
     setFilterLob("all");
     setFilterMandateHealth("all");
     setFilterUpsellStatus("all");
@@ -1639,6 +1657,41 @@ export default function Mandates() {
     setIsEditMode(false);
     setIsMandateCheckerEditMode(false);
     setDetailsModalOpen(true);
+  };
+
+  const handleDeleteMandate = async () => {
+    if (!mandateToDelete?.id) return;
+
+    setDeletingMandate(true);
+    try {
+      const { error } = await supabase
+        .from("mandates")
+        .delete()
+        .eq("id", mandateToDelete.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: "Mandate deleted successfully",
+      });
+
+      // Refresh mandates list
+      fetchMandates();
+      setDeleteDialogOpen(false);
+      setMandateToDelete(null);
+    } catch (error: any) {
+      console.error("Error deleting mandate:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete mandate",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingMandate(false);
+    }
   };
 
   const handleUpdateMandate = async () => {
@@ -1768,15 +1821,16 @@ export default function Mandates() {
 
   const filteredMandates = mandates.filter((mandate) => {
     const matchesSearch =
+      !searchTerm ||
       mandate.projectCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mandate.projectName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mandate.account.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mandate.kam.toLowerCase().includes(searchTerm.toLowerCase());
+      mandate.projectName.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesAccount = filterAccount === "all" || mandate.account_id === filterAccount;
+    const matchesKam = filterKam === "all" || mandate.kam_id === filterKam;
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
     const matchesHealth = filterMandateHealth === "all" || mandate.mandateHealth === filterMandateHealth;
     const matchesStatus = filterUpsellStatus === "all" || mandate.upsellStatus === filterUpsellStatus;
 
-    return matchesSearch && matchesLob && matchesHealth && matchesStatus;
+    return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesHealth && matchesStatus;
   });
 
   return (
@@ -2455,12 +2509,38 @@ export default function Mandates() {
       <Card>
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
               <Input
-                  placeholder="Search by Project / Account / KAM"
+                  placeholder="Search by Project"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
+                <Select value={filterAccount} onValueChange={setFilterAccount}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Accounts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Accounts</SelectItem>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterKam} onValueChange={setFilterKam}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All KAMs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All KAMs</SelectItem>
+                    {kams.map((kam) => (
+                      <SelectItem key={kam.id} value={kam.id}>
+                        {kam.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select value={filterLob} onValueChange={setFilterLob}>
                   <SelectTrigger>
                     <SelectValue placeholder="All LoB" />
@@ -2582,6 +2662,17 @@ export default function Mandates() {
                                 }}
                               >
                                 Update
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setMandateToDelete(mandate);
+                                  setDeleteDialogOpen(true);
+                                }}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
                           </TableCell>
@@ -3631,6 +3722,35 @@ export default function Mandates() {
         loading={loadingMandates}
         title="Preview MCV Update CSV"
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Mandate</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the mandate "{mandateToDelete?.project_name || mandateToDelete?.projectCode}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingMandate}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteMandate}
+              disabled={deletingMandate}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingMandate ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

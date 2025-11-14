@@ -1,4 +1,4 @@
-import { Building2, Users, FileText, TrendingUp, LayoutDashboard, UserCog } from "lucide-react";
+import { Building2, Users, FileText, TrendingUp, LayoutDashboard, UserCog, Target } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
   Sidebar,
@@ -48,6 +48,12 @@ export function AppSidebar() {
       url: "/pipeline",
       icon: TrendingUp,
       roles: ["kam", "manager", "leadership", "superadmin"],
+    },
+    {
+      title: "Targets",
+      url: "/targets",
+      icon: Target,
+      roles: ["manager", "leadership", "superadmin"],
     },
   ];
 

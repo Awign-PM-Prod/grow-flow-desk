@@ -23,6 +23,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Trash2 } from "lucide-react";
 
 type ViewMode = "form" | "view";
 
@@ -77,6 +88,9 @@ export default function Accounts() {
   const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
   const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
   const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [accountToDelete, setAccountToDelete] = useState<any | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   
   const [formData, setFormData] = useState<AccountFormData>({
     name: "",
@@ -97,12 +111,17 @@ export default function Accounts() {
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterKam, setFilterKam] = useState("all");
   const [filterIndustry, setFilterIndustry] = useState("");
   const [filterRevenue, setFilterRevenue] = useState("");
   const [filterMCVTier, setFilterMCVTier] = useState("");
   const [filterCompanyTier, setFilterCompanyTier] = useState("");
   const [filterYearMin, setFilterYearMin] = useState("");
   const [filterYearMax, setFilterYearMax] = useState("");
+  
+  // KAMs for filter
+  const [kams, setKams] = useState<{ id: string; full_name: string }[]>([]);
+  const [accountKamMap, setAccountKamMap] = useState<Record<string, string[]>>({});
 
   const { toast } = useToast();
 
@@ -295,6 +314,9 @@ export default function Accounts() {
       }
 
       setAccounts(accountsWithTotals);
+      
+      // Fetch KAMs and build account-KAM mapping
+      await fetchKamsAndMapping(accountsWithTotals.map((a: any) => a.id));
     } catch (error: any) {
       console.error("Error fetching accounts:", error);
       setAccounts([]);
@@ -308,6 +330,74 @@ export default function Accounts() {
     }
   };
 
+  const fetchKamsAndMapping = async (accountIds: string[]) => {
+    try {
+      // Fetch all KAMs
+      const { data: kamData, error: kamError } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .order("full_name");
+
+      if (kamError) {
+        console.error("Error fetching KAMs:", kamError);
+        return;
+      }
+
+      if (kamData) {
+        setKams(kamData);
+      }
+
+      // Build account-KAM mapping from mandates and deals
+      const mapping: Record<string, string[]> = {};
+      
+      // Get KAMs from mandates
+      if (accountIds.length > 0) {
+        const { data: mandatesData } = await supabase
+          .from("mandates")
+          .select("account_id, kam_id")
+          .in("account_id", accountIds)
+          .not("kam_id", "is", null);
+
+        if (mandatesData) {
+          mandatesData.forEach((mandate: any) => {
+            if (mandate.account_id && mandate.kam_id) {
+              if (!mapping[mandate.account_id]) {
+                mapping[mandate.account_id] = [];
+              }
+              if (!mapping[mandate.account_id].includes(mandate.kam_id)) {
+                mapping[mandate.account_id].push(mandate.kam_id);
+              }
+            }
+          });
+        }
+
+        // Get KAMs from pipeline deals
+        const { data: dealsData } = await supabase
+          .from("pipeline_deals")
+          .select("account_id, kam_id")
+          .in("account_id", accountIds)
+          .not("kam_id", "is", null);
+
+        if (dealsData) {
+          dealsData.forEach((deal: any) => {
+            if (deal.account_id && deal.kam_id) {
+              if (!mapping[deal.account_id]) {
+                mapping[deal.account_id] = [];
+              }
+              if (!mapping[deal.account_id].includes(deal.kam_id)) {
+                mapping[deal.account_id].push(deal.kam_id);
+              }
+            }
+          });
+        }
+      }
+
+      setAccountKamMap(mapping);
+    } catch (error) {
+      console.error("Error fetching KAMs and mapping:", error);
+    }
+  };
+
   useEffect(() => {
     if (viewMode === "view") {
       console.log("View mode changed to 'view', fetching accounts...");
@@ -317,6 +407,7 @@ export default function Accounts() {
 
   const clearFilters = () => {
     setSearchTerm("");
+    setFilterKam("all");
     setFilterIndustry("");
     setFilterRevenue("");
     setFilterMCVTier("");
@@ -328,13 +419,8 @@ export default function Accounts() {
   const filteredAccounts = (accounts || []).filter((account) => {
     if (!account) return false;
     
-    const matchesSearch =
-      account.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      account.website?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      account.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      account.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      account.state?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      account.country?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = !searchTerm || account.address?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesKam = filterKam === "all" || (accountKamMap[account.id]?.includes(filterKam) ?? false);
     const matchesIndustry = !filterIndustry || account.industry === filterIndustry;
     const matchesRevenue = !filterRevenue || account.revenue_range === filterRevenue;
     const matchesMCVTier = !filterMCVTier || account.mcv_tier === filterMCVTier;
@@ -342,7 +428,7 @@ export default function Accounts() {
     const matchesYearMin = !filterYearMin || (account.founded_year && account.founded_year >= parseInt(filterYearMin));
     const matchesYearMax = !filterYearMax || (account.founded_year && account.founded_year <= parseInt(filterYearMax));
 
-    return matchesSearch && matchesIndustry && matchesRevenue && matchesMCVTier && matchesCompanyTier && matchesYearMin && matchesYearMax;
+    return matchesSearch && matchesKam && matchesIndustry && matchesRevenue && matchesMCVTier && matchesCompanyTier && matchesYearMin && matchesYearMax;
   });
 
   const handleViewDetails = async (account: any) => {
@@ -366,6 +452,41 @@ export default function Accounts() {
     if (account.id) {
       fetchRetentionTypes(account.id);
       fetchPipelineDeals(account.id);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!accountToDelete?.id) return;
+
+    setDeletingAccount(true);
+    try {
+      const { error } = await supabase
+        .from("accounts")
+        .delete()
+        .eq("id", accountToDelete.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: "Account deleted successfully",
+      });
+
+      // Refresh accounts list
+      fetchAccounts();
+      setDeleteDialogOpen(false);
+      setAccountToDelete(null);
+    } catch (error: any) {
+      console.error("Error deleting account:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete account",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -1141,12 +1262,25 @@ export default function Accounts() {
           <Card>
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 <Input
-                  placeholder="Search by Account Name / Website / Address / City / State / Country"
+                  placeholder="Search by Address"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
+                <Select value={filterKam} onValueChange={setFilterKam}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All KAMs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All KAMs</SelectItem>
+                    {kams.map((kam) => (
+                      <SelectItem key={kam.id} value={kam.id}>
+                        {kam.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select value={filterIndustry || "all"} onValueChange={(value) => setFilterIndustry(value === "all" ? "" : value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Industries" />
@@ -1283,13 +1417,26 @@ export default function Accounts() {
                           <TableCell>{account.mcv_tier || "N/A"}</TableCell>
                           <TableCell>{account.company_size_tier || "N/A"}</TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleViewDetails(account)}
-                            >
-                              View Details
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewDetails(account)}
+                              >
+                                View Details
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setAccountToDelete(account);
+                                  setDeleteDialogOpen(true);
+                                }}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))
@@ -1694,6 +1841,35 @@ export default function Accounts() {
         loading={loadingAccounts}
         title="Preview Accounts CSV Upload"
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Account</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the account "{accountToDelete?.name}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAccount}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAccount}
+              disabled={deletingAccount}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingAccount ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

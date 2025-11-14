@@ -23,6 +23,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Trash2 } from "lucide-react";
 
 interface DealFormData {
   salesModuleName: string;
@@ -183,8 +194,15 @@ export default function Pipeline() {
   const [viewDetailsDialogOpen, setViewDetailsDialogOpen] = useState(false);
   const [selectedDealForView, setSelectedDealForView] = useState<any | null>(null);
   
+  // Delete dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [dealToDelete, setDealToDelete] = useState<any | null>(null);
+  const [deletingDeal, setDeletingDeal] = useState(false);
+  
   // Filters for view mode
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterAccount, setFilterAccount] = useState("all");
+  const [filterKam, setFilterKam] = useState("all");
   const [filterLob, setFilterLob] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
 
@@ -1461,6 +1479,41 @@ export default function Pipeline() {
     setViewDetailsDialogOpen(true);
   };
 
+  const handleDeleteDeal = async () => {
+    if (!dealToDelete?.id) return;
+
+    setDeletingDeal(true);
+    try {
+      const { error } = await supabase
+        .from("pipeline_deals")
+        .delete()
+        .eq("id", dealToDelete.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: "Deal deleted successfully",
+      });
+
+      // Refresh deals list
+      fetchDeals();
+      setDeleteDialogOpen(false);
+      setDealToDelete(null);
+    } catch (error: any) {
+      console.error("Error deleting deal:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete deal",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingDeal(false);
+    }
+  };
+
   // Handle opening status update dialog from view details
   const handleUpdateStatusFromView = (deal: any) => {
     setViewDetailsDialogOpen(false);
@@ -1661,13 +1714,13 @@ export default function Pipeline() {
   const filteredDeals = deals.filter((deal) => {
     const matchesSearch =
       !searchTerm ||
-      deal.account?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      deal.kam?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       deal.useCase?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesAccount = filterAccount === "all" || deal.account_id === filterAccount;
+    const matchesKam = filterKam === "all" || deal.kam_id === filterKam;
     const matchesLob = filterLob === "all" || deal.lob === filterLob;
     const matchesStatus = filterStatus === "all" || deal.status === filterStatus;
 
-    return matchesSearch && matchesLob && matchesStatus;
+    return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesStatus;
   });
 
   return (
@@ -2349,12 +2402,38 @@ export default function Pipeline() {
         <Card>
           <CardContent className="pt-6">
             <h3 className="font-semibold text-lg mb-4">Filters</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
               <Input
-                placeholder="Search by Account / KAM / Use Case"
+                placeholder="Search by Use Case"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
+              <Select value={filterAccount} onValueChange={setFilterAccount}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Accounts" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Accounts</SelectItem>
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterKam} onValueChange={setFilterKam}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All KAMs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All KAMs</SelectItem>
+                  {kams.map((kam) => (
+                    <SelectItem key={kam.id} value={kam.id}>
+                      {kam.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select value={filterLob} onValueChange={setFilterLob}>
                 <SelectTrigger>
                   <SelectValue placeholder="All LoB" />
@@ -2390,6 +2469,7 @@ export default function Pipeline() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Sales Module Name</TableHead>
                     <TableHead>Account</TableHead>
                     <TableHead>KAM</TableHead>
                     <TableHead>LoB</TableHead>
@@ -2401,7 +2481,7 @@ export default function Pipeline() {
                 <TableBody>
                   {loadingDeals ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
+                      <TableCell colSpan={7} className="text-center py-8">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="text-muted-foreground">Loading deals...</span>
@@ -2410,14 +2490,15 @@ export default function Pipeline() {
                     </TableRow>
                   ) : filteredDeals.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                         No deals found
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredDeals.map((deal) => (
                       <TableRow key={deal.id}>
-                        <TableCell className="font-medium">{deal.account || "N/A"}</TableCell>
+                        <TableCell className="font-medium">{deal.sales_module_name || "N/A"}</TableCell>
+                        <TableCell>{deal.account || "N/A"}</TableCell>
                         <TableCell>{deal.kam || "N/A"}</TableCell>
                         <TableCell>{deal.lob || "N/A"}</TableCell>
                         <TableCell>
@@ -2441,6 +2522,17 @@ export default function Pipeline() {
                               onClick={() => handleEditDeal(deal)}
                             >
                               Update
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setDealToDelete(deal);
+                                setDeleteDialogOpen(true);
+                              }}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
                         </TableCell>
@@ -3174,6 +3266,35 @@ export default function Pipeline() {
         loading={loadingDeals}
         title="Preview Pipeline Deals CSV Upload"
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Deal</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the deal "{dealToDelete?.sales_module_name || dealToDelete?.account}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingDeal}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteDeal}
+              disabled={deletingDeal}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingDeal ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

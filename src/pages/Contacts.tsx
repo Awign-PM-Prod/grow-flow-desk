@@ -22,6 +22,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Trash2 } from "lucide-react";
 
 type ViewMode = "form" | "view";
 
@@ -60,6 +71,16 @@ export default function Contacts() {
   const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
   const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
   const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [contactToDelete, setContactToDelete] = useState<any | null>(null);
+  const [deletingContact, setDeletingContact] = useState(false);
+
+  // Filters for view mode
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterAccount, setFilterAccount] = useState("all");
+  const [filterDepartment, setFilterDepartment] = useState("all");
+  const [filterTitle, setFilterTitle] = useState("all");
+  const [filterLevel, setFilterLevel] = useState("all");
 
   const [formData, setFormData] = useState<ContactFormData>({
     accountId: "",
@@ -695,6 +716,19 @@ export default function Contacts() {
     }
   }, [viewMode]);
 
+  const filteredContacts = contacts.filter((contact) => {
+    const matchesSearch =
+      !searchTerm ||
+      `${contact.first_name} ${contact.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      contact.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesAccount = filterAccount === "all" || contact.account_id === filterAccount;
+    const matchesDepartment = filterDepartment === "all" || contact.department === filterDepartment;
+    const matchesTitle = filterTitle === "all" || contact.title === filterTitle;
+    const matchesLevel = filterLevel === "all" || contact.level === filterLevel;
+
+    return matchesSearch && matchesAccount && matchesDepartment && matchesTitle && matchesLevel;
+  });
+
   const handleViewDetails = (contact: any) => {
     setSelectedContact(contact);
     setEditContactData({
@@ -719,6 +753,41 @@ export default function Contacts() {
     // Fetch contacts for the selected contact's account for Reports To dropdown
     if (contact.account_id) {
       fetchEditAccountContacts(contact.account_id);
+    }
+  };
+
+  const handleDeleteContact = async () => {
+    if (!contactToDelete?.id) return;
+
+    setDeletingContact(true);
+    try {
+      const { error } = await supabase
+        .from("contacts")
+        .delete()
+        .eq("id", contactToDelete.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: "Contact deleted successfully",
+      });
+
+      // Refresh contacts list
+      fetchContacts();
+      setDeleteDialogOpen(false);
+      setContactToDelete(null);
+    } catch (error: any) {
+      console.error("Error deleting contact:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete contact",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingContact(false);
     }
   };
 
@@ -1167,10 +1236,90 @@ export default function Contacts() {
 
       {/* View Contacts Table */}
       {viewMode === "view" && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="overflow-x-auto">
-              <Table>
+        <>
+          {/* Filters */}
+          <Card>
+            <CardContent className="pt-6">
+              <h3 className="font-semibold text-lg mb-4">Filters</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <Input
+                  placeholder="Search by Name / Email"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                <Select value={filterAccount} onValueChange={setFilterAccount}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Accounts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Accounts</SelectItem>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterDepartment} onValueChange={setFilterDepartment}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Departments" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Departments</SelectItem>
+                    {[...new Set(contacts.map((c) => c.department).filter(Boolean))].sort().map((dept) => (
+                      <SelectItem key={dept} value={dept}>
+                        {dept}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterTitle} onValueChange={setFilterTitle}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Titles" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Titles</SelectItem>
+                    {[...new Set(contacts.map((c) => c.title).filter(Boolean))].sort().map((title) => (
+                      <SelectItem key={title} value={title}>
+                        {title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterLevel} onValueChange={setFilterLevel}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Levels" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Levels</SelectItem>
+                    {[...new Set(contacts.map((c) => c.level).filter(Boolean))].sort().map((level) => (
+                      <SelectItem key={level} value={level}>
+                        {level}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchTerm("");
+                    setFilterAccount("all");
+                    setFilterDepartment("all");
+                    setFilterTitle("all");
+                    setFilterLevel("all");
+                  }}
+                >
+                  Clear Filters
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Table */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="overflow-x-auto">
+                <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Account</TableHead>
@@ -1192,14 +1341,14 @@ export default function Contacts() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ) : contacts.length === 0 ? (
+                  ) : filteredContacts.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                         No contacts found
                       </TableCell>
                     </TableRow>
                   ) : (
-                    contacts.map((contact) => (
+                    filteredContacts.map((contact) => (
                       <TableRow key={contact.id}>
                         <TableCell>{contact.accountName || "N/A"}</TableCell>
                         <TableCell className="font-medium">
@@ -1210,13 +1359,26 @@ export default function Contacts() {
                         <TableCell>{contact.title}</TableCell>
                         <TableCell>{contact.level}</TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleViewDetails(contact)}
-                          >
-                            View Details
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleViewDetails(contact)}
+                            >
+                              View Details
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setContactToDelete(contact);
+                                setDeleteDialogOpen(true);
+                              }}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -1226,6 +1388,7 @@ export default function Contacts() {
             </div>
           </CardContent>
         </Card>
+        </>
       )}
 
       {/* Contact Details Modal */}
@@ -1568,6 +1731,35 @@ export default function Contacts() {
         loading={loadingContacts}
         title="Preview Contacts CSV Upload"
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Contact</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the contact "{contactToDelete?.first_name} {contactToDelete?.last_name}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingContact}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteContact}
+              disabled={deletingContact}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingContact ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

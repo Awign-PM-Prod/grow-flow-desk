@@ -10,6 +10,7 @@ import Accounts from "./pages/Accounts";
 import Contacts from "./pages/Contacts";
 import Mandates from "./pages/Mandates";
 import Pipeline from "./pages/Pipeline";
+import Targets from "./pages/Targets";
 import AdminUsers from "./pages/AdminUsers";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -72,6 +73,16 @@ const App = () => (
               <ProtectedRoute>
                 <AppLayout>
                   <Pipeline />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/targets"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <Targets />
                 </AppLayout>
               </ProtectedRoute>
             }
