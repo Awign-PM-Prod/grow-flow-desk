@@ -82,7 +82,7 @@ export function AppSidebar() {
             <Building2 className="h-6 w-6 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-sidebar-foreground">CRM Pro</h1>
+            <h1 className="text-lg font-bold text-sidebar-foreground">Mandates Portal</h1>
             <p className="text-xs text-muted-foreground">Sales Management</p>
           </div>
         </div>

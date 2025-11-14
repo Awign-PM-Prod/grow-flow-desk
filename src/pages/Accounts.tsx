@@ -1458,8 +1458,8 @@ export default function Accounts() {
           setPipelineDeals([]);
         }
       }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-y-auto overflow-x-hidden [&>button]:right-2 [&>button]:top-2">
+          <DialogHeader className="pr-8">
             <DialogTitle>{selectedAccount?.name || "Account Details"}</DialogTitle>
           </DialogHeader>
           <div className="flex items-center justify-end gap-2 mb-4">

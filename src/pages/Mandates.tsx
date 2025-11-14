@@ -2700,7 +2700,11 @@ export default function Mandates() {
             <DialogTitle>{selectedMandate?.project_name || "Mandate Details"}</DialogTitle>
           </DialogHeader>
           <div className="flex items-center justify-end gap-2 mb-4">
-            {isEditMode ? (
+            {!isEditMode ? (
+              <Button variant="outline" onClick={() => setIsEditMode(true)}>
+                Edit
+              </Button>
+            ) : (
               <>
                 <Button variant="outline" onClick={() => {
                   setIsEditMode(false);
@@ -2746,7 +2750,7 @@ export default function Mandates() {
                   )}
                 </Button>
               </>
-            ) : null}
+            )}
           </div>
           {selectedMandate && editMandateData && (
             <div className="space-y-6">

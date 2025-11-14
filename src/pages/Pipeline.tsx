@@ -2519,9 +2519,9 @@ export default function Pipeline() {
                             <Button 
                               variant="ghost" 
                               size="sm"
-                              onClick={() => handleEditDeal(deal)}
+                              onClick={() => handleUpdateStatus(deal)}
                             >
-                              Update
+                              Update Status
                             </Button>
                             <Button
                               variant="ghost"
@@ -2563,9 +2563,14 @@ export default function Pipeline() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => selectedDealForView && handleUpdateStatusFromView(selectedDealForView)}
+                    onClick={() => {
+                      if (selectedDealForView) {
+                        setViewDetailsDialogOpen(false);
+                        handleEditDeal(selectedDealForView);
+                      }
+                    }}
                   >
-                    Update Status
+                    Edit
                   </Button>
                 </div>
               </div>
