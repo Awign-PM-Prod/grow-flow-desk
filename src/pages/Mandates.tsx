@@ -265,7 +265,25 @@ export default function Mandates() {
     }
   }, [formData.revenueMonthlyVolume, formData.revenueCommercialPerHead]);
 
-  // Reset upsell constraint fields when parent changes
+  // Reset dependent fields when Mandate Health changes
+  useEffect(() => {
+    if (formData.mandateHealth === "Need Improvement") {
+      // If health is "Need Improvement", reset all dependent fields
+      setFormData((prev) => ({
+        ...prev,
+        upsellConstraint: "",
+        upsellConstraintType: "-",
+        upsellConstraintSub: "-",
+        upsellConstraintSub2: "-",
+        clientBudgetTrend: "",
+        awignSharePercent: "",
+      }));
+    }
+    // Note: When health changes between "Exceeds" and "Meets", we don't reset
+    // because both allow the same upsell constraint values
+  }, [formData.mandateHealth]);
+
+  // Reset upsell constraint fields and retention-related fields when parent changes
   useEffect(() => {
     if (formData.upsellConstraint === "NO") {
       setFormData((prev) => ({
@@ -273,51 +291,80 @@ export default function Mandates() {
         upsellConstraintType: "-",
         upsellConstraintSub: "-",
         upsellConstraintSub2: "-",
+        // Reset client budget trend and awign share when constraint changes to NO
+        // This forces user to reselect them based on new constraint value
+        clientBudgetTrend: "",
+        awignSharePercent: "",
       }));
     } else if (formData.upsellConstraint === "YES") {
       // Reset sub fields when constraint changes to YES
-      if (!formData.upsellConstraintType || formData.upsellConstraintType === "-") {
-        setFormData((prev) => ({
-          ...prev,
-          upsellConstraintType: "",
-          upsellConstraintSub: "",
-          upsellConstraintSub2: "",
-        }));
-      }
+      setFormData((prev) => ({
+        ...prev,
+        upsellConstraintType: "",
+        upsellConstraintSub: "",
+        upsellConstraintSub2: "",
+        // Reset client budget trend and awign share when constraint changes to YES
+        // Since YES means retention type is "E", these fields are not needed
+        clientBudgetTrend: "",
+        awignSharePercent: "",
+      }));
     }
   }, [formData.upsellConstraint]);
 
   useEffect(() => {
     if (formData.upsellConstraint === "YES" && formData.upsellConstraintType) {
+      // When constraint type changes, always reset sub and sub2 to ensure valid hierarchy
       const validSubs = getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType);
       if (formData.upsellConstraintSub && !validSubs.includes(formData.upsellConstraintSub)) {
+        // Reset if current sub is invalid for new type
         setFormData((prev) => ({
           ...prev,
           upsellConstraintSub: "",
           upsellConstraintSub2: "",
         }));
-      } else if (formData.upsellConstraintSub) {
-        // Check if sub2 is still valid
-        const validSub2s = getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub);
-        if (formData.upsellConstraintSub2 && validSub2s.length > 0 && !validSub2s.includes(formData.upsellConstraintSub2)) {
-          setFormData((prev) => ({
-            ...prev,
-            upsellConstraintSub2: "",
-          }));
-        }
+      } else {
+        // Even if sub is valid, reset it to force user to reselect based on new type
+        // This ensures proper hierarchy validation
+        setFormData((prev) => ({
+          ...prev,
+          upsellConstraintSub: "",
+          upsellConstraintSub2: "",
+        }));
       }
+    } else if (formData.upsellConstraint === "YES" && !formData.upsellConstraintType) {
+      // If type is cleared, reset sub fields
+      setFormData((prev) => ({
+        ...prev,
+        upsellConstraintSub: "",
+        upsellConstraintSub2: "",
+      }));
     }
   }, [formData.upsellConstraintType]);
 
   useEffect(() => {
     if (formData.upsellConstraint === "YES" && formData.upsellConstraintType && formData.upsellConstraintSub) {
+      // When constraint sub changes, always reset sub2 to ensure valid hierarchy
       const validSub2s = getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub);
       if (formData.upsellConstraintSub2 && validSub2s.length > 0 && !validSub2s.includes(formData.upsellConstraintSub2)) {
+        // Reset if current sub2 is invalid for new sub
+        setFormData((prev) => ({
+          ...prev,
+          upsellConstraintSub2: "",
+        }));
+      } else {
+        // Even if sub2 is valid, reset it to force user to reselect based on new sub
+        // This ensures proper hierarchy validation
         setFormData((prev) => ({
           ...prev,
           upsellConstraintSub2: "",
         }));
       }
+    } else if (formData.upsellConstraint === "YES" && formData.upsellConstraintType && !formData.upsellConstraintSub) {
+      // If sub is cleared, reset sub2
+      setFormData((prev) => ({
+        ...prev,
+        upsellConstraintSub2: "",
+      }));
     }
   }, [formData.upsellConstraintSub]);
 
@@ -406,7 +453,27 @@ export default function Mandates() {
     }
   }, [editMandateData?.revenueMonthlyVolume, editMandateData?.revenueCommercialPerHead]);
 
-  // Reset upsell constraint fields for edit mode when parent changes
+  // Reset dependent fields when Mandate Health changes in edit mode
+  useEffect(() => {
+    if (editMandateData) {
+      if (editMandateData.mandateHealth === "Need Improvement") {
+        // If health is "Need Improvement", reset all dependent fields
+        setEditMandateData((prev: any) => ({
+          ...prev,
+          upsellConstraint: "",
+          upsellConstraintType: "-",
+          upsellConstraintSub: "-",
+          upsellConstraintSub2: "-",
+          clientBudgetTrend: "",
+          awignSharePercent: "",
+        }));
+      }
+      // Note: When health changes between "Exceeds" and "Meets", we don't reset
+      // because both allow the same upsell constraint values
+    }
+  }, [editMandateData?.mandateHealth]);
+
+  // Reset upsell constraint fields and retention-related fields for edit mode when parent changes
   useEffect(() => {
     if (editMandateData) {
       if (editMandateData.upsellConstraint === "NO") {
@@ -415,52 +482,77 @@ export default function Mandates() {
           upsellConstraintType: "-",
           upsellConstraintSub: "-",
           upsellConstraintSub2: "-",
+          // Reset client budget trend and awign share when constraint changes to NO
+          clientBudgetTrend: "",
+          awignSharePercent: "",
         }));
       } else if (editMandateData.upsellConstraint === "YES") {
         // Reset sub fields when constraint changes to YES
-        if (!editMandateData.upsellConstraintType || editMandateData.upsellConstraintType === "-") {
-          setEditMandateData((prev: any) => ({
-            ...prev,
-            upsellConstraintType: "",
-            upsellConstraintSub: "",
-            upsellConstraintSub2: "",
-          }));
-        }
+        setEditMandateData((prev: any) => ({
+          ...prev,
+          upsellConstraintType: "",
+          upsellConstraintSub: "",
+          upsellConstraintSub2: "",
+          // Reset client budget trend and awign share when constraint changes to YES
+          clientBudgetTrend: "",
+          awignSharePercent: "",
+        }));
       }
     }
   }, [editMandateData?.upsellConstraint]);
 
   useEffect(() => {
     if (editMandateData && editMandateData.upsellConstraint === "YES" && editMandateData.upsellConstraintType) {
+      // When constraint type changes, always reset sub and sub2 to ensure valid hierarchy
       const validSubs = getUpsellConstraintSubs(editMandateData.upsellConstraint, editMandateData.upsellConstraintType);
       if (editMandateData.upsellConstraintSub && !validSubs.includes(editMandateData.upsellConstraintSub)) {
+        // Reset if current sub is invalid for new type
         setEditMandateData((prev: any) => ({
           ...prev,
           upsellConstraintSub: "",
           upsellConstraintSub2: "",
         }));
-      } else if (editMandateData.upsellConstraintSub) {
-        // Check if sub2 is still valid
-        const validSub2s = getUpsellConstraintSub2s(editMandateData.upsellConstraint, editMandateData.upsellConstraintType, editMandateData.upsellConstraintSub);
-        if (editMandateData.upsellConstraintSub2 && validSub2s.length > 0 && !validSub2s.includes(editMandateData.upsellConstraintSub2)) {
-          setEditMandateData((prev: any) => ({
-            ...prev,
-            upsellConstraintSub2: "",
-          }));
-        }
+      } else {
+        // Even if sub is valid, reset it to force user to reselect based on new type
+        setEditMandateData((prev: any) => ({
+          ...prev,
+          upsellConstraintSub: "",
+          upsellConstraintSub2: "",
+        }));
       }
+    } else if (editMandateData && editMandateData.upsellConstraint === "YES" && !editMandateData.upsellConstraintType) {
+      // If type is cleared, reset sub fields
+      setEditMandateData((prev: any) => ({
+        ...prev,
+        upsellConstraintSub: "",
+        upsellConstraintSub2: "",
+      }));
     }
   }, [editMandateData?.upsellConstraintType]);
 
   useEffect(() => {
     if (editMandateData && editMandateData.upsellConstraint === "YES" && editMandateData.upsellConstraintType && editMandateData.upsellConstraintSub) {
+      // When constraint sub changes, always reset sub2 to ensure valid hierarchy
       const validSub2s = getUpsellConstraintSub2s(editMandateData.upsellConstraint, editMandateData.upsellConstraintType, editMandateData.upsellConstraintSub);
       if (editMandateData.upsellConstraintSub2 && validSub2s.length > 0 && !validSub2s.includes(editMandateData.upsellConstraintSub2)) {
+        // Reset if current sub2 is invalid for new sub
+        setEditMandateData((prev: any) => ({
+          ...prev,
+          upsellConstraintSub2: "",
+        }));
+      } else {
+        // Even if sub2 is valid, reset it to force user to reselect based on new sub
         setEditMandateData((prev: any) => ({
           ...prev,
           upsellConstraintSub2: "",
         }));
       }
+    } else if (editMandateData && editMandateData.upsellConstraint === "YES" && editMandateData.upsellConstraintType && !editMandateData.upsellConstraintSub) {
+      // If sub is cleared, reset sub2
+      setEditMandateData((prev: any) => ({
+        ...prev,
+        upsellConstraintSub2: "",
+      }));
     }
   }, [editMandateData?.upsellConstraintSub]);
 
