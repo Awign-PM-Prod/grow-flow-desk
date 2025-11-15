@@ -83,6 +83,12 @@ export default function Contacts() {
   const [filterTitle, setFilterTitle] = useState("all");
   const [filterLevel, setFilterLevel] = useState("all");
 
+  // Search terms for dropdowns in forms
+  const [accountSearch, setAccountSearch] = useState("");
+  const [reportsToSearch, setReportsToSearch] = useState("");
+  const [editAccountSearch, setEditAccountSearch] = useState("");
+  const [editReportsToSearch, setEditReportsToSearch] = useState("");
+
   const [formData, setFormData] = useState<ContactFormData>({
     accountId: "",
     firstName: "",
@@ -983,6 +989,8 @@ export default function Contacts() {
             positioning: "",
             awignChampion: "",
           });
+          setAccountSearch("");
+          setReportsToSearch("");
         }
       }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1008,15 +1016,36 @@ export default function Contacts() {
                         <SelectValue placeholder="Select account" />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search accounts..."
+                            value={accountSearch}
+                            onChange={(e) => setAccountSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         {accounts.length > 0 ? (
-                          accounts.map((account) => (
-                            <SelectItem key={account.id} value={account.id}>
-                              {account.name}
-                            </SelectItem>
-                          ))
+                          accounts
+                            .filter((account) =>
+                              account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                            )
+                            .map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.name}
+                              </SelectItem>
+                            ))
                         ) : (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             No accounts available
+                          </div>
+                        )}
+                        {accounts.length > 0 && accounts.filter((account) =>
+                          account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No accounts found
                           </div>
                         )}
                       </SelectContent>
@@ -1180,18 +1209,43 @@ export default function Contacts() {
                         <SelectValue placeholder={!formData.accountId ? "Select account first" : "Select contact or N/A"} />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search contacts..."
+                            value={reportsToSearch}
+                            onChange={(e) => setReportsToSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         <SelectItem value="N/A">N/A</SelectItem>
                         {accountContacts.length > 0 ? (
-                          accountContacts.map((contact) => (
-                            <SelectItem key={contact.id} value={contact.id}>
-                              {contact.first_name} {contact.last_name}
-                            </SelectItem>
-                          ))
+                          accountContacts
+                            .filter((contact) =>
+                              `${contact.first_name} ${contact.last_name}`
+                                .toLowerCase()
+                                .includes(reportsToSearch.toLowerCase())
+                            )
+                            .map((contact) => (
+                              <SelectItem key={contact.id} value={contact.id}>
+                                {contact.first_name} {contact.last_name}
+                              </SelectItem>
+                            ))
                         ) : formData.accountId ? (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             No contacts found for this account
                           </div>
                         ) : null}
+                        {accountContacts.length > 0 && accountContacts.filter((contact) =>
+                          `${contact.first_name} ${contact.last_name}`
+                            .toLowerCase()
+                            .includes(reportsToSearch.toLowerCase())
+                        ).length === 0 && reportsToSearch && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No contacts found
+                          </div>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1518,11 +1572,32 @@ export default function Contacts() {
                             <SelectValue placeholder="Select account" />
                           </SelectTrigger>
                           <SelectContent>
-                            {accounts.map((account) => (
-                              <SelectItem key={account.id} value={account.id}>
-                                {account.name}
-                              </SelectItem>
-                            ))}
+                            <div className="px-2 pb-2">
+                              <Input
+                                placeholder="Search accounts..."
+                                value={editAccountSearch}
+                                onChange={(e) => setEditAccountSearch(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
+                                className="h-8"
+                              />
+                            </div>
+                            {accounts
+                              .filter((account) =>
+                                account.name.toLowerCase().includes(editAccountSearch.toLowerCase())
+                              )
+                              .map((account) => (
+                                <SelectItem key={account.id} value={account.id}>
+                                  {account.name}
+                                </SelectItem>
+                              ))}
+                            {accounts.filter((account) =>
+                              account.name.toLowerCase().includes(editAccountSearch.toLowerCase())
+                            ).length === 0 && (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No accounts found
+                              </div>
+                            )}
                           </SelectContent>
                         </Select>
                       ) : (
@@ -1690,10 +1765,25 @@ export default function Contacts() {
                             <SelectValue placeholder={!editContactData.accountId ? "Select account first" : "Select contact or N/A"} />
                           </SelectTrigger>
                           <SelectContent>
+                            <div className="px-2 pb-2">
+                              <Input
+                                placeholder="Search contacts..."
+                                value={editReportsToSearch}
+                                onChange={(e) => setEditReportsToSearch(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
+                                className="h-8"
+                              />
+                            </div>
                             <SelectItem value="N/A">N/A</SelectItem>
                             {editAccountContacts.length > 0 ? (
                               editAccountContacts
                                 .filter((contact) => contact.id !== selectedContact.id) // Exclude current contact
+                                .filter((contact) =>
+                                  `${contact.first_name} ${contact.last_name}`
+                                    .toLowerCase()
+                                    .includes(editReportsToSearch.toLowerCase())
+                                )
                                 .map((contact) => (
                                   <SelectItem key={contact.id} value={contact.id}>
                                     {contact.first_name} {contact.last_name}
@@ -1704,6 +1794,17 @@ export default function Contacts() {
                                 No other contacts found for this account
                               </div>
                             ) : null}
+                            {editAccountContacts.length > 0 && editAccountContacts
+                              .filter((contact) => contact.id !== selectedContact.id)
+                              .filter((contact) =>
+                                `${contact.first_name} ${contact.last_name}`
+                                  .toLowerCase()
+                                  .includes(editReportsToSearch.toLowerCase())
+                              ).length === 0 && editReportsToSearch && (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No contacts found
+                              </div>
+                            )}
                           </SelectContent>
                         </Select>
                       ) : (

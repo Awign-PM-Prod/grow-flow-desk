@@ -173,6 +173,12 @@ export default function Mandates() {
   const [filterLob, setFilterLob] = useState("all");
   const [filterMandateHealth, setFilterMandateHealth] = useState("all");
   const [filterUpsellStatus, setFilterUpsellStatus] = useState("all");
+
+  // Search terms for dropdowns in forms
+  const [accountSearch, setAccountSearch] = useState("");
+  const [kamSearch, setKamSearch] = useState("");
+  const [editAccountSearch, setEditAccountSearch] = useState("");
+  const [editKamSearch, setEditKamSearch] = useState("");
   const [mandates, setMandates] = useState<any[]>([]);
   const [loadingMandates, setLoadingMandates] = useState(false);
   const [availableLobs, setAvailableLobs] = useState<string[]>([]);
@@ -2067,6 +2073,8 @@ export default function Mandates() {
             retentionType: "",
             upsellActionStatus: "",
           });
+          setAccountSearch("");
+          setKamSearch("");
         }
       }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
@@ -2149,15 +2157,36 @@ export default function Mandates() {
                         <SelectValue placeholder="Select account" />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search accounts..."
+                            value={accountSearch}
+                            onChange={(e) => setAccountSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         {accounts.length > 0 ? (
-                          accounts.map((account) => (
-                            <SelectItem key={account.id} value={account.id}>
-                              {account.name}
-                            </SelectItem>
-                          ))
+                          accounts
+                            .filter((account) =>
+                              account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                            )
+                            .map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.name}
+                              </SelectItem>
+                            ))
                         ) : (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             No accounts available
+                          </div>
+                        )}
+                        {accounts.length > 0 && accounts.filter((account) =>
+                          account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No accounts found
                           </div>
                         )}
                       </SelectContent>
@@ -2176,15 +2205,36 @@ export default function Mandates() {
                         <SelectValue placeholder="Select KAM" />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search KAMs..."
+                            value={kamSearch}
+                            onChange={(e) => setKamSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         {kams.length > 0 ? (
-                          kams.map((kam) => (
-                            <SelectItem key={kam.id} value={kam.id}>
-                              {kam.full_name || "Unknown"}
-                            </SelectItem>
-                          ))
+                          kams
+                            .filter((kam) =>
+                              (kam.full_name || "Unknown").toLowerCase().includes(kamSearch.toLowerCase())
+                            )
+                            .map((kam) => (
+                              <SelectItem key={kam.id} value={kam.id}>
+                                {kam.full_name || "Unknown"}
+                              </SelectItem>
+                            ))
                         ) : (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             No KAMs available
+                          </div>
+                        )}
+                        {kams.length > 0 && kams.filter((kam) =>
+                          (kam.full_name || "Unknown").toLowerCase().includes(kamSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No KAMs found
                           </div>
                         )}
                       </SelectContent>
@@ -2228,6 +2278,7 @@ export default function Mandates() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="New">New</SelectItem>
+                        <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
                         <SelectItem value="Existing">Existing</SelectItem>
                       </SelectContent>
                     </Select>
@@ -2972,11 +3023,32 @@ export default function Mandates() {
                             <SelectValue placeholder="Select account" />
                           </SelectTrigger>
                           <SelectContent>
-                            {accounts.map((account) => (
-                              <SelectItem key={account.id} value={account.id}>
-                                {account.name}
-                              </SelectItem>
-                            ))}
+                            <div className="px-2 pb-2">
+                              <Input
+                                placeholder="Search accounts..."
+                                value={editAccountSearch}
+                                onChange={(e) => setEditAccountSearch(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
+                                className="h-8"
+                              />
+                            </div>
+                            {accounts
+                              .filter((account) =>
+                                account.name.toLowerCase().includes(editAccountSearch.toLowerCase())
+                              )
+                              .map((account) => (
+                                <SelectItem key={account.id} value={account.id}>
+                                  {account.name}
+                                </SelectItem>
+                              ))}
+                            {accounts.filter((account) =>
+                              account.name.toLowerCase().includes(editAccountSearch.toLowerCase())
+                            ).length === 0 && (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No accounts found
+                              </div>
+                            )}
                           </SelectContent>
                         </Select>
                       ) : (
@@ -2994,11 +3066,32 @@ export default function Mandates() {
                             <SelectValue placeholder="Select KAM" />
                           </SelectTrigger>
                           <SelectContent>
-                            {kams.map((kam) => (
-                              <SelectItem key={kam.id} value={kam.id}>
-                                {kam.full_name || "Unknown"}
-                              </SelectItem>
-                            ))}
+                            <div className="px-2 pb-2">
+                              <Input
+                                placeholder="Search KAMs..."
+                                value={editKamSearch}
+                                onChange={(e) => setEditKamSearch(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
+                                className="h-8"
+                              />
+                            </div>
+                            {kams
+                              .filter((kam) =>
+                                (kam.full_name || "Unknown").toLowerCase().includes(editKamSearch.toLowerCase())
+                              )
+                              .map((kam) => (
+                                <SelectItem key={kam.id} value={kam.id}>
+                                  {kam.full_name || "Unknown"}
+                                </SelectItem>
+                              ))}
+                            {kams.filter((kam) =>
+                              (kam.full_name || "Unknown").toLowerCase().includes(editKamSearch.toLowerCase())
+                            ).length === 0 && (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No KAMs found
+                              </div>
+                            )}
                           </SelectContent>
                         </Select>
                       ) : (
@@ -3042,6 +3135,7 @@ export default function Mandates() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="New">New</SelectItem>
+                            <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
                             <SelectItem value="Existing">Existing</SelectItem>
                           </SelectContent>
                         </Select>

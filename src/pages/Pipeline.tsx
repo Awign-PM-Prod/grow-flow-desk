@@ -223,6 +223,13 @@ export default function Pipeline() {
   const [filterLob, setFilterLob] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
 
+  // Search terms for dropdowns in forms
+  const [accountSearch, setAccountSearch] = useState("");
+  const [kamSearch, setKamSearch] = useState("");
+  const [spocSearch, setSpocSearch] = useState("");
+  const [spoc2Search, setSpoc2Search] = useState("");
+  const [spoc3Search, setSpoc3Search] = useState("");
+
   const [formData, setFormData] = useState<DealFormData>({
     salesModuleName: "",
     kamId: "",
@@ -1920,6 +1927,11 @@ export default function Pipeline() {
             droppedReason: "",
             droppedReasonOthers: "",
           });
+          setAccountSearch("");
+          setKamSearch("");
+          setSpocSearch("");
+          setSpoc2Search("");
+          setSpoc3Search("");
         }
       }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
@@ -1957,15 +1969,36 @@ export default function Pipeline() {
                         <SelectValue placeholder="Select KAM" />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search KAMs..."
+                            value={kamSearch}
+                            onChange={(e) => setKamSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         {kams.length > 0 ? (
-                          kams.map((kam) => (
-                            <SelectItem key={kam.id} value={kam.id}>
-                              {kam.full_name || "Unknown"}
-                            </SelectItem>
-                          ))
+                          kams
+                            .filter((kam) =>
+                              (kam.full_name || "Unknown").toLowerCase().includes(kamSearch.toLowerCase())
+                            )
+                            .map((kam) => (
+                              <SelectItem key={kam.id} value={kam.id}>
+                                {kam.full_name || "Unknown"}
+                              </SelectItem>
+                            ))
                         ) : (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             No KAMs available
+                          </div>
+                        )}
+                        {kams.length > 0 && kams.filter((kam) =>
+                          (kam.full_name || "Unknown").toLowerCase().includes(kamSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No KAMs found
                           </div>
                         )}
                       </SelectContent>
@@ -1993,15 +2026,36 @@ export default function Pipeline() {
                         <SelectValue placeholder="Select account" />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search accounts..."
+                            value={accountSearch}
+                            onChange={(e) => setAccountSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         {accounts.length > 0 ? (
-                          accounts.map((account) => (
-                            <SelectItem key={account.id} value={account.id}>
-                              {account.name}
-                            </SelectItem>
-                          ))
+                          accounts
+                            .filter((account) =>
+                              account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                            )
+                            .map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.name}
+                              </SelectItem>
+                            ))
                         ) : (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             No accounts available
+                          </div>
+                        )}
+                        {accounts.length > 0 && accounts.filter((account) =>
+                          account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No accounts found
                           </div>
                         )}
                       </SelectContent>
@@ -2021,15 +2075,40 @@ export default function Pipeline() {
                         <SelectValue placeholder="Select SPOC" />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search contacts..."
+                            value={spocSearch}
+                            onChange={(e) => setSpocSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         {contacts.length > 0 ? (
-                          contacts.map((contact) => (
-                            <SelectItem key={contact.id} value={contact.id}>
-                              {contact.first_name} {contact.last_name}
-                            </SelectItem>
-                          ))
+                          contacts
+                            .filter((contact) =>
+                              `${contact.first_name} ${contact.last_name}`
+                                .toLowerCase()
+                                .includes(spocSearch.toLowerCase())
+                            )
+                            .map((contact) => (
+                              <SelectItem key={contact.id} value={contact.id}>
+                                {contact.first_name} {contact.last_name}
+                              </SelectItem>
+                            ))
                         ) : (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             {formData.accountId ? "No contacts available" : "Select account first"}
+                          </div>
+                        )}
+                        {contacts.length > 0 && contacts.filter((contact) =>
+                          `${contact.first_name} ${contact.last_name}`
+                            .toLowerCase()
+                            .includes(spocSearch.toLowerCase())
+                        ).length === 0 && spocSearch && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No contacts found
                           </div>
                         )}
                       </SelectContent>
@@ -2046,15 +2125,40 @@ export default function Pipeline() {
                         <SelectValue placeholder="Select SPOC 2 (optional)" />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search contacts..."
+                            value={spoc2Search}
+                            onChange={(e) => setSpoc2Search(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         {contacts.length > 0 ? (
-                          contacts.map((contact) => (
-                            <SelectItem key={contact.id} value={contact.id}>
-                              {contact.first_name} {contact.last_name}
-                            </SelectItem>
-                          ))
+                          contacts
+                            .filter((contact) =>
+                              `${contact.first_name} ${contact.last_name}`
+                                .toLowerCase()
+                                .includes(spoc2Search.toLowerCase())
+                            )
+                            .map((contact) => (
+                              <SelectItem key={contact.id} value={contact.id}>
+                                {contact.first_name} {contact.last_name}
+                              </SelectItem>
+                            ))
                         ) : (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             {formData.accountId ? "No contacts available" : "Select account first"}
+                          </div>
+                        )}
+                        {contacts.length > 0 && contacts.filter((contact) =>
+                          `${contact.first_name} ${contact.last_name}`
+                            .toLowerCase()
+                            .includes(spoc2Search.toLowerCase())
+                        ).length === 0 && spoc2Search && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No contacts found
                           </div>
                         )}
                       </SelectContent>
@@ -2071,15 +2175,40 @@ export default function Pipeline() {
                         <SelectValue placeholder="Select SPOC 3 (optional)" />
                       </SelectTrigger>
                       <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search contacts..."
+                            value={spoc3Search}
+                            onChange={(e) => setSpoc3Search(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
                         {contacts.length > 0 ? (
-                          contacts.map((contact) => (
-                            <SelectItem key={contact.id} value={contact.id}>
-                              {contact.first_name} {contact.last_name}
-                            </SelectItem>
-                          ))
+                          contacts
+                            .filter((contact) =>
+                              `${contact.first_name} ${contact.last_name}`
+                                .toLowerCase()
+                                .includes(spoc3Search.toLowerCase())
+                            )
+                            .map((contact) => (
+                              <SelectItem key={contact.id} value={contact.id}>
+                                {contact.first_name} {contact.last_name}
+                              </SelectItem>
+                            ))
                         ) : (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
                             {formData.accountId ? "No contacts available" : "Select account first"}
+                          </div>
+                        )}
+                        {contacts.length > 0 && contacts.filter((contact) =>
+                          `${contact.first_name} ${contact.last_name}`
+                            .toLowerCase()
+                            .includes(spoc3Search.toLowerCase())
+                        ).length === 0 && spoc3Search && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No contacts found
                           </div>
                         )}
                       </SelectContent>
