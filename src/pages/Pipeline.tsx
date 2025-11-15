@@ -162,12 +162,28 @@ const droppedReasons = [
 // Helper functions to get use cases and sub use cases
 const getUseCasesForLob = (lob: string): string[] => {
   if (!lob || !lobUseCaseMapping[lob]) return [];
-  return Object.keys(lobUseCaseMapping[lob]);
+  // Filter out "-" option as it should not be selectable
+  return Object.keys(lobUseCaseMapping[lob]).filter(uc => uc !== "-");
 };
 
 const getSubUseCasesForUseCase = (lob: string, useCase: string): string[] => {
   if (!lob || !useCase || !lobUseCaseMapping[lob] || !lobUseCaseMapping[lob][useCase]) return [];
-  return lobUseCaseMapping[lob][useCase];
+  // Filter out "-" option as it should not be selectable
+  return lobUseCaseMapping[lob][useCase].filter(subUc => subUc !== "-");
+};
+
+// Check if LoB only has "-" as use case (should disable use case field)
+const hasOnlyDashUseCase = (lob: string): boolean => {
+  if (!lob || !lobUseCaseMapping[lob]) return false;
+  const useCases = Object.keys(lobUseCaseMapping[lob]);
+  return useCases.length === 1 && useCases[0] === "-";
+};
+
+// Check if Use Case only has "-" as sub use case (should disable sub use case field)
+const hasOnlyDashSubUseCase = (lob: string, useCase: string): boolean => {
+  if (!lob || !useCase || !lobUseCaseMapping[lob] || !lobUseCaseMapping[lob][useCase]) return false;
+  const subUseCases = lobUseCaseMapping[lob][useCase];
+  return subUseCases.length === 1 && subUseCases[0] === "-";
 };
 
 export default function Pipeline() {
@@ -1072,22 +1088,31 @@ export default function Pipeline() {
   // Reset Use Case and Sub Use Case when LoB changes
   useEffect(() => {
     if (formData.lob) {
-      const validUseCases = getUseCasesForLob(formData.lob);
-      // Only reset if current useCase is not valid for the new LoB
-      if (formData.useCase && !validUseCases.includes(formData.useCase)) {
+      // If LoB only has "-" as use case, set it automatically
+      if (hasOnlyDashUseCase(formData.lob)) {
         setFormData((prev) => ({
           ...prev,
-          useCase: "",
-          subUseCase: "",
+          useCase: "-",
+          subUseCase: "-",
         }));
-      } else if (formData.useCase) {
-        // If useCase is still valid, check subUseCase
-        const validSubUseCases = getSubUseCasesForUseCase(formData.lob, formData.useCase);
-        if (formData.subUseCase && !validSubUseCases.includes(formData.subUseCase)) {
+      } else {
+        const validUseCases = getUseCasesForLob(formData.lob);
+        // Only reset if current useCase is not valid for the new LoB
+        if (formData.useCase && !validUseCases.includes(formData.useCase)) {
           setFormData((prev) => ({
             ...prev,
+            useCase: "",
             subUseCase: "",
           }));
+        } else if (formData.useCase) {
+          // If useCase is still valid, check subUseCase
+          const validSubUseCases = getSubUseCasesForUseCase(formData.lob, formData.useCase);
+          if (formData.subUseCase && !validSubUseCases.includes(formData.subUseCase)) {
+            setFormData((prev) => ({
+              ...prev,
+              subUseCase: "",
+            }));
+          }
         }
       }
     }
@@ -1096,13 +1121,21 @@ export default function Pipeline() {
   // Reset Sub Use Case when Use Case changes
   useEffect(() => {
     if (formData.lob && formData.useCase) {
-      const validSubUseCases = getSubUseCasesForUseCase(formData.lob, formData.useCase);
-      // Only reset if current subUseCase is not valid for the new useCase
-      if (formData.subUseCase && !validSubUseCases.includes(formData.subUseCase)) {
+      // If Use Case only has "-" as sub use case, set it automatically
+      if (hasOnlyDashSubUseCase(formData.lob, formData.useCase)) {
         setFormData((prev) => ({
           ...prev,
-          subUseCase: "",
+          subUseCase: "-",
         }));
+      } else {
+        const validSubUseCases = getSubUseCasesForUseCase(formData.lob, formData.useCase);
+        // Only reset if current subUseCase is not valid for the new useCase
+        if (formData.subUseCase && !validSubUseCases.includes(formData.subUseCase)) {
+          setFormData((prev) => ({
+            ...prev,
+            subUseCase: "",
+          }));
+        }
       }
     }
   }, [formData.useCase]);
@@ -2008,69 +2041,87 @@ export default function Pipeline() {
                     <Label htmlFor="useCase">
                       Use Case <span className="text-destructive">*</span>
                     </Label>
-                    <Select
-                      value={formData.useCase}
-                      onValueChange={(value) => handleInputChange("useCase", value)}
-                      required
-                      disabled={!formData.lob}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Use Case" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {formData.lob ? (
-                          getUseCasesForLob(formData.lob).length > 0 ? (
-                            getUseCasesForLob(formData.lob).map((useCase) => (
-                              <SelectItem key={useCase} value={useCase}>
-                                {useCase}
-                              </SelectItem>
-                            ))
+                    {formData.lob && hasOnlyDashUseCase(formData.lob) ? (
+                      <Input
+                        id="useCase"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
+                    ) : (
+                      <Select
+                        value={formData.useCase}
+                        onValueChange={(value) => handleInputChange("useCase", value)}
+                        required
+                        disabled={!formData.lob || hasOnlyDashUseCase(formData.lob)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Use Case" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.lob ? (
+                            getUseCasesForLob(formData.lob).length > 0 ? (
+                              getUseCasesForLob(formData.lob).map((useCase) => (
+                                <SelectItem key={useCase} value={useCase}>
+                                  {useCase}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No use cases available
+                              </div>
+                            )
                           ) : (
                             <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              No use cases available
+                              Select LoB first
                             </div>
-                          )
-                        ) : (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            Select LoB first
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="subUseCase">
                       Sub Use Case <span className="text-destructive">*</span>
                     </Label>
-                    <Select
-                      value={formData.subUseCase}
-                      onValueChange={(value) => handleInputChange("subUseCase", value)}
-                      required
-                      disabled={!formData.lob || !formData.useCase}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Sub Use Case" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {formData.lob && formData.useCase ? (
-                          getSubUseCasesForUseCase(formData.lob, formData.useCase).length > 0 ? (
-                            getSubUseCasesForUseCase(formData.lob, formData.useCase).map((subUseCase) => (
-                              <SelectItem key={subUseCase} value={subUseCase}>
-                                {subUseCase}
-                              </SelectItem>
-                            ))
+                    {formData.lob && formData.useCase && hasOnlyDashSubUseCase(formData.lob, formData.useCase) ? (
+                      <Input
+                        id="subUseCase"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
+                    ) : (
+                      <Select
+                        value={formData.subUseCase}
+                        onValueChange={(value) => handleInputChange("subUseCase", value)}
+                        required
+                        disabled={!formData.lob || !formData.useCase || hasOnlyDashSubUseCase(formData.lob, formData.useCase)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Sub Use Case" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.lob && formData.useCase ? (
+                            getSubUseCasesForUseCase(formData.lob, formData.useCase).length > 0 ? (
+                              getSubUseCasesForUseCase(formData.lob, formData.useCase).map((subUseCase) => (
+                                <SelectItem key={subUseCase} value={subUseCase}>
+                                  {subUseCase}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No sub use cases available
+                              </div>
+                            )
                           ) : (
                             <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              No sub use cases available
+                              {!formData.lob ? "Select LoB first" : "Select Use Case first"}
                             </div>
-                          )
-                        ) : (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            {!formData.lob ? "Select LoB first" : "Select Use Case first"}
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="monthlyVolume">

@@ -112,12 +112,22 @@ const getUpsellConstraintSub2s = (upsellConstraint: string, constraintType: stri
   if (!upsellConstraint || !constraintType || !constraintSub || !upsellConstraintMapping[upsellConstraint] || !upsellConstraintMapping[upsellConstraint][constraintType] || !upsellConstraintMapping[upsellConstraint][constraintType][constraintSub]) return [];
   const sub2Options = upsellConstraintMapping[upsellConstraint][constraintType][constraintSub];
   // If empty array, it means free text input
-  return sub2Options.length > 0 ? sub2Options : [];
+  // Filter out "-" option as it should not be selectable
+  return sub2Options.length > 0 ? sub2Options.filter(opt => opt !== "-") : [];
 };
 
 const isFreeTextSub2 = (upsellConstraint: string, constraintType: string, constraintSub: string): boolean => {
   if (!upsellConstraint || !constraintType || !constraintSub || !upsellConstraintMapping[upsellConstraint] || !upsellConstraintMapping[upsellConstraint][constraintType] || !upsellConstraintMapping[upsellConstraint][constraintType][constraintSub]) return false;
-  return upsellConstraintMapping[upsellConstraint][constraintType][constraintSub].length === 0;
+  const sub2Options = upsellConstraintMapping[upsellConstraint][constraintType][constraintSub];
+  // Empty array means free text input
+  return sub2Options.length === 0;
+};
+
+const isReadOnlySub2 = (upsellConstraint: string, constraintType: string, constraintSub: string): boolean => {
+  if (!upsellConstraint || !constraintType || !constraintSub || !upsellConstraintMapping[upsellConstraint] || !upsellConstraintMapping[upsellConstraint][constraintType] || !upsellConstraintMapping[upsellConstraint][constraintType][constraintSub]) return false;
+  const sub2Options = upsellConstraintMapping[upsellConstraint][constraintType][constraintSub];
+  // If array only contains "-", it should be read-only
+  return sub2Options.length === 1 && sub2Options[0] === "-";
 };
 
 export default function Mandates() {
@@ -367,6 +377,18 @@ export default function Mandates() {
       }));
     }
   }, [formData.upsellConstraintSub]);
+
+  // Clear Sub2 if it's "-" when field becomes free text input
+  useEffect(() => {
+    if (formData.upsellConstraint === "YES" && formData.upsellConstraintType && formData.upsellConstraintSub) {
+      if (isFreeTextSub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) && formData.upsellConstraintSub2 === "-") {
+        setFormData((prev) => ({
+          ...prev,
+          upsellConstraintSub2: "",
+        }));
+      }
+    }
+  }, [formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub, formData.upsellConstraintSub2]);
 
   // Auto-calculate Retention Type based on decision tree logic
   useEffect(() => {
@@ -2395,14 +2417,16 @@ export default function Mandates() {
                       value={formData.upsellConstraintType}
                       onValueChange={(value) => handleInputChange("upsellConstraintType", value)}
                       required
-                      disabled={!formData.upsellConstraint}
+                      disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO"}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
                         {formData.upsellConstraint === "NO" ? (
-                          <SelectItem value="-">-</SelectItem>
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Not applicable
+                          </div>
                         ) : formData.upsellConstraint === "YES" ? (
                           getUpsellConstraintTypes(formData.upsellConstraint).length > 0 ? (
                             getUpsellConstraintTypes(formData.upsellConstraint).map((type) => (
@@ -2438,7 +2462,9 @@ export default function Mandates() {
                       </SelectTrigger>
                       <SelectContent>
                         {formData.upsellConstraint === "NO" ? (
-                          <SelectItem value="-">-</SelectItem>
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Not applicable
+                          </div>
                         ) : formData.upsellConstraint === "YES" && formData.upsellConstraintType ? (
                           getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).length > 0 ? (
                             getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).map((sub) => (
@@ -2470,10 +2496,17 @@ export default function Mandates() {
                         readOnly
                         className="bg-muted"
                       />
+                    ) : isReadOnlySub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
+                      <Input
+                        id="upsellConstraintSub2"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
                     ) : isFreeTextSub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
                       <Input
                         id="upsellConstraintSub2"
-                        value={formData.upsellConstraintSub2}
+                        value={formData.upsellConstraintSub2 === "-" ? "" : formData.upsellConstraintSub2}
                         onChange={(e) => handleInputChange("upsellConstraintSub2", e.target.value)}
                         placeholder="Enter details (free text)"
                         required
@@ -2484,7 +2517,7 @@ export default function Mandates() {
                         value={formData.upsellConstraintSub2}
                         onValueChange={(value) => handleInputChange("upsellConstraintSub2", value)}
                         required
-                        disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-" || !formData.upsellConstraintSub || formData.upsellConstraintSub === "-"}
+                        disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-" || !formData.upsellConstraintSub || formData.upsellConstraintSub === "-" || getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length === 0}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Select" />
@@ -3245,7 +3278,7 @@ export default function Mandates() {
                         {(isEditMode || isMandateCheckerEditMode) ? (
                           <Select
                             value={editMandateData.upsellConstraintType}
-                            onValueChange={(value) => setEditMandateData({ ...editMandateData, upsellConstraintType: value, upsellConstraintSub: value === "-" ? "-" : "", upsellConstraintSub2: value === "-" ? "-" : "" })}
+                            onValueChange={(value) => setEditMandateData({ ...editMandateData, upsellConstraintType: value, upsellConstraintSub: "", upsellConstraintSub2: "" })}
                             disabled={!editMandateData.upsellConstraint || editMandateData.upsellConstraint !== "YES"}
                           >
                             <SelectTrigger>
@@ -3253,7 +3286,9 @@ export default function Mandates() {
                             </SelectTrigger>
                             <SelectContent>
                               {editMandateData.upsellConstraint === "NO" ? (
-                                <SelectItem value="-">-</SelectItem>
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  Not applicable
+                                </div>
                               ) : editMandateData.upsellConstraint === "YES" ? (
                                 getUpsellConstraintTypes(editMandateData.upsellConstraint).length > 0 ? (
                                   getUpsellConstraintTypes(editMandateData.upsellConstraint).map((type) => (
@@ -3290,7 +3325,9 @@ export default function Mandates() {
                             </SelectTrigger>
                             <SelectContent>
                               {editMandateData.upsellConstraint === "NO" ? (
-                                <SelectItem value="-">-</SelectItem>
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  Not applicable
+                                </div>
                               ) : editMandateData.upsellConstraint === "YES" && editMandateData.upsellConstraintType ? (
                                 getUpsellConstraintSubs(editMandateData.upsellConstraint, editMandateData.upsellConstraintType).length > 0 ? (
                                   getUpsellConstraintSubs(editMandateData.upsellConstraint, editMandateData.upsellConstraintType).map((sub) => (
@@ -3323,9 +3360,15 @@ export default function Mandates() {
                               readOnly
                               className="bg-muted"
                             />
+                          ) : isReadOnlySub2(editMandateData.upsellConstraint, editMandateData.upsellConstraintType, editMandateData.upsellConstraintSub) ? (
+                            <Input
+                              value="-"
+                              readOnly
+                              className="bg-muted"
+                            />
                           ) : isFreeTextSub2(editMandateData.upsellConstraint, editMandateData.upsellConstraintType, editMandateData.upsellConstraintSub) ? (
                             <Input
-                              value={editMandateData.upsellConstraintSub2}
+                              value={editMandateData.upsellConstraintSub2 === "-" ? "" : editMandateData.upsellConstraintSub2}
                               onChange={(e) => setEditMandateData({ ...editMandateData, upsellConstraintSub2: e.target.value })}
                               placeholder="Enter details (free text)"
                               disabled={!editMandateData.upsellConstraintSub || editMandateData.upsellConstraintSub === "-"}
@@ -3334,7 +3377,7 @@ export default function Mandates() {
                             <Select
                               value={editMandateData.upsellConstraintSub2}
                               onValueChange={(value) => setEditMandateData({ ...editMandateData, upsellConstraintSub2: value })}
-                              disabled={!editMandateData.upsellConstraint || editMandateData.upsellConstraint === "NO" || !editMandateData.upsellConstraintType || editMandateData.upsellConstraintType === "-" || !editMandateData.upsellConstraintSub || editMandateData.upsellConstraintSub === "-"}
+                              disabled={!editMandateData.upsellConstraint || editMandateData.upsellConstraint === "NO" || !editMandateData.upsellConstraintType || editMandateData.upsellConstraintType === "-" || !editMandateData.upsellConstraintSub || editMandateData.upsellConstraintSub === "-" || getUpsellConstraintSub2s(editMandateData.upsellConstraint, editMandateData.upsellConstraintType, editMandateData.upsellConstraintSub).length === 0}
                             >
                               <SelectTrigger>
                                 <SelectValue placeholder="Select" />
