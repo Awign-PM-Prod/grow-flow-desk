@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
   Dialog,
@@ -419,7 +420,28 @@ export default function Accounts() {
   const filteredAccounts = (accounts || []).filter((account) => {
     if (!account) return false;
     
-    const matchesSearch = !searchTerm || account.address?.toLowerCase().includes(searchTerm.toLowerCase());
+    // Search across all displayed fields
+    const matchesSearch = !searchTerm || (() => {
+      const searchLower = searchTerm.toLowerCase();
+      const searchableFields = [
+        account.name || "",
+        account.website || "",
+        account.address || "",
+        account.city || "",
+        account.state || "",
+        account.country || "",
+        String(account.founded_year || ""),
+        account.industry || "",
+        account.sub_category || "",
+        account.revenue_range || "",
+        account.total_acv ? account.total_acv.toLocaleString("en-IN") : "",
+        account.total_mcv ? account.total_mcv.toLocaleString("en-IN") : "",
+        account.mcv_tier || "",
+        account.company_size_tier || "",
+      ];
+      return searchableFields.some(field => field.toLowerCase().includes(searchLower));
+    })();
+    
     const matchesKam = filterKam === "all" || (accountKamMap[account.id]?.includes(filterKam) ?? false);
     const matchesIndustry = !filterIndustry || account.industry === filterIndustry;
     const matchesRevenue = !filterRevenue || account.revenue_range === filterRevenue;
@@ -430,6 +452,9 @@ export default function Accounts() {
 
     return matchesSearch && matchesKam && matchesIndustry && matchesRevenue && matchesMCVTier && matchesCompanyTier && matchesYearMin && matchesYearMax;
   });
+
+  // Check if any filters are active
+  const hasActiveFilters = searchTerm || filterKam !== "all" || filterIndustry || filterRevenue || filterMCVTier || filterCompanyTier || filterYearMin || filterYearMax;
 
   const handleViewDetails = async (account: any) => {
     setSelectedAccount(account);
@@ -824,15 +849,24 @@ export default function Accounts() {
     try {
       setLoadingAccounts(true);
       
-      // Fetch all accounts (not just filtered ones)
-      const { data, error } = await supabase
-        .from("accounts")
-        .select("*")
-        .order("created_at", { ascending: false });
+      // Use filtered accounts if filters are active, otherwise fetch all
+      let dataToExport: any[];
+      
+      if (hasActiveFilters) {
+        // Export filtered accounts
+        dataToExport = filteredAccounts;
+      } else {
+        // Fetch all accounts
+        const { data, error } = await supabase
+          .from("accounts")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
+        dataToExport = data || [];
+      }
 
-      if (!data || data.length === 0) {
+      if (!dataToExport || dataToExport.length === 0) {
         toast({
           title: "No data",
           description: "No accounts found to export.",
@@ -842,7 +876,7 @@ export default function Accounts() {
       }
 
       // Prepare data for CSV with all fields
-      const csvData = data.map((account) => ({
+      const csvData = dataToExport.map((account) => ({
         id: account.id,
         name: account.name || "",
         website: account.website || "",
@@ -864,12 +898,14 @@ export default function Accounts() {
       }));
 
       const csvContent = convertToCSV(csvData);
-      const filename = `accounts_export_${new Date().toISOString().split("T")[0]}.csv`;
+      const filename = hasActiveFilters 
+        ? `filtered_accounts_export_${new Date().toISOString().split("T")[0]}.csv`
+        : `accounts_export_${new Date().toISOString().split("T")[0]}.csv`;
       downloadCSV(csvContent, filename);
 
       toast({
         title: "Success!",
-        description: `Exported ${csvData.length} accounts to CSV.`,
+        description: `Exported ${csvData.length} ${hasActiveFilters ? 'filtered ' : ''}accounts to CSV.`,
       });
     } catch (error: any) {
       console.error("Error exporting accounts:", error);
@@ -974,7 +1010,7 @@ export default function Accounts() {
             disabled={loadingAccounts}
           >
             <Download className="mr-2 h-4 w-4" />
-            Export CSV
+            {hasActiveFilters ? "Download Filtered Accounts" : "Export Accounts"}
           </Button>
           <Button
             variant="outline"
@@ -1264,7 +1300,7 @@ export default function Accounts() {
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 <Input
-                  placeholder="Search by Address"
+                  placeholder="Search all fields..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -1389,7 +1425,7 @@ export default function Accounts() {
                     ) : (
                       filteredAccounts.map((account) => (
                         <TableRow key={account.id}>
-                          <TableCell className="font-medium">{account.name}</TableCell>
+                          <TableCell className="font-medium"><HighlightedText text={account.name} searchTerm={searchTerm} /></TableCell>
                           <TableCell>
                             <a
                               href={account.website}
@@ -1397,25 +1433,25 @@ export default function Accounts() {
                               rel="noopener noreferrer"
                               className="text-primary hover:underline"
                             >
-                              {account.website}
+                              <HighlightedText text={account.website} searchTerm={searchTerm} />
                             </a>
                           </TableCell>
-                          <TableCell>{account.address}</TableCell>
-                          <TableCell>{account.city || "N/A"}</TableCell>
-                          <TableCell>{account.state || "N/A"}</TableCell>
-                          <TableCell>{account.country || "N/A"}</TableCell>
-                          <TableCell>{account.founded_year}</TableCell>
-                          <TableCell>{account.industry}</TableCell>
-                          <TableCell>{account.sub_category}</TableCell>
-                          <TableCell>{account.revenue_range}</TableCell>
+                          <TableCell><HighlightedText text={account.address} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={account.city || "N/A"} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={account.state || "N/A"} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={account.country || "N/A"} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={String(account.founded_year || "")} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={account.industry} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={account.sub_category} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={account.revenue_range} searchTerm={searchTerm} /></TableCell>
                           <TableCell>
-                            {account.total_acv ? account.total_acv.toLocaleString("en-IN") : "0"}
+                            <HighlightedText text={account.total_acv ? account.total_acv.toLocaleString("en-IN") : "0"} searchTerm={searchTerm} />
                           </TableCell>
                           <TableCell>
-                            {account.total_mcv ? account.total_mcv.toLocaleString("en-IN") : "0"}
+                            <HighlightedText text={account.total_mcv ? account.total_mcv.toLocaleString("en-IN") : "0"} searchTerm={searchTerm} />
                           </TableCell>
-                          <TableCell>{account.mcv_tier || "N/A"}</TableCell>
-                          <TableCell>{account.company_size_tier || "N/A"}</TableCell>
+                          <TableCell><HighlightedText text={account.mcv_tier || "N/A"} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={account.company_size_tier || "N/A"} searchTerm={searchTerm} /></TableCell>
                           <TableCell>
                             <div className="flex gap-2">
                               <Button

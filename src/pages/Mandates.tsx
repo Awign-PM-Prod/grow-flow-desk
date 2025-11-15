@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
   Dialog,
@@ -1561,25 +1562,61 @@ export default function Mandates() {
     try {
       setLoadingMandates(true);
       
-      // Fetch all mandates with related data
-      const { data, error } = await supabase
-        .from("mandates")
-        .select(`
-          *,
-          accounts:account_id (
-            id,
-            name
-          ),
-          profiles:kam_id (
-            id,
-            full_name
-          )
-        `)
-        .order("created_at", { ascending: false });
+      // Use filtered mandates if filters are active, otherwise fetch all
+      let dataToExport: any[];
+      
+      if (hasActiveFilters) {
+        // Export filtered mandates - need to fetch full data with relations for filtered mandates
+        const filteredMandateIds = filteredMandates.map(m => m.id);
+        if (filteredMandateIds.length === 0) {
+          toast({
+            title: "No data",
+            description: "No mandates found to export.",
+            variant: "default",
+          });
+          return;
+        }
+        
+        const { data, error } = await supabase
+          .from("mandates")
+          .select(`
+            *,
+            accounts:account_id (
+              id,
+              name
+            ),
+            profiles:kam_id (
+              id,
+              full_name
+            )
+          `)
+          .in("id", filteredMandateIds)
+          .order("created_at", { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
+        dataToExport = data || [];
+      } else {
+        // Fetch all mandates with related data
+        const { data, error } = await supabase
+          .from("mandates")
+          .select(`
+            *,
+            accounts:account_id (
+              id,
+              name
+            ),
+            profiles:kam_id (
+              id,
+              full_name
+            )
+          `)
+          .order("created_at", { ascending: false });
 
-      if (!data || data.length === 0) {
+        if (error) throw error;
+        dataToExport = data || [];
+      }
+
+      if (!dataToExport || dataToExport.length === 0) {
         toast({
           title: "No data",
           description: "No mandates found to export.",
@@ -1589,7 +1626,7 @@ export default function Mandates() {
       }
 
       // Prepare data for CSV with all fields
-      const csvData = data.map((mandate: any) => ({
+      const csvData = dataToExport.map((mandate: any) => ({
         id: mandate.id || "",
         project_code: mandate.project_code || "",
         project_name: mandate.project_name || "",
@@ -1626,12 +1663,14 @@ export default function Mandates() {
       }));
 
       const csvContent = convertToCSV(csvData);
-      const filename = `mandates_export_${new Date().toISOString().split("T")[0]}.csv`;
+      const filename = hasActiveFilters 
+        ? `filtered_mandates_export_${new Date().toISOString().split("T")[0]}.csv`
+        : `mandates_export_${new Date().toISOString().split("T")[0]}.csv`;
       downloadCSV(csvContent, filename);
 
       toast({
         title: "Success!",
-        description: `Exported ${csvData.length} mandates to CSV.`,
+        description: `Exported ${csvData.length} ${hasActiveFilters ? 'filtered ' : ''}mandates to CSV.`,
       });
     } catch (error: any) {
       console.error("Error exporting mandates:", error);
@@ -1934,10 +1973,23 @@ export default function Mandates() {
   };
 
   const filteredMandates = mandates.filter((mandate) => {
-    const matchesSearch =
-      !searchTerm ||
-      mandate.projectCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mandate.projectName.toLowerCase().includes(searchTerm.toLowerCase());
+    // Search across all displayed fields
+    const matchesSearch = !searchTerm || (() => {
+      const searchLower = searchTerm.toLowerCase();
+      const searchableFields = [
+        mandate.projectCode || "",
+        mandate.projectName || "",
+        mandate.account || "",
+        mandate.kam || "",
+        mandate.lob || "",
+        mandate.acv || "",
+        mandate.mcv || "",
+        mandate.mandateHealth || "",
+        mandate.upsellStatus || "",
+      ];
+      return searchableFields.some(field => field.toLowerCase().includes(searchLower));
+    })();
+    
     const matchesAccount = filterAccount === "all" || mandate.account_id === filterAccount;
     const matchesKam = filterKam === "all" || mandate.kam_id === filterKam;
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
@@ -1946,6 +1998,9 @@ export default function Mandates() {
 
     return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesHealth && matchesStatus;
   });
+
+  // Check if any filters are active
+  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterMandateHealth !== "all" || filterUpsellStatus !== "all";
 
   return (
     <div className="space-y-6">
@@ -1964,7 +2019,7 @@ export default function Mandates() {
             disabled={loadingMandates}
           >
             <Download className="mr-2 h-4 w-4" />
-            Export CSV
+            {hasActiveFilters ? "Download Filtered Mandates" : "Export Mandates"}
           </Button>
           <Button
             variant="outline"
@@ -2636,7 +2691,7 @@ export default function Mandates() {
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
               <Input
-                  placeholder="Search by Project"
+                  placeholder="Search all fields..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -2746,13 +2801,13 @@ export default function Mandates() {
                     ) : (
                       filteredMandates.map((mandate) => (
                 <TableRow key={mandate.id}>
-                          <TableCell className="font-medium">{mandate.projectCode}</TableCell>
-                          <TableCell>{mandate.projectName}</TableCell>
-                          <TableCell>{mandate.account}</TableCell>
-                          <TableCell>{mandate.kam}</TableCell>
-                          <TableCell>{mandate.lob}</TableCell>
-                          <TableCell>{mandate.acv}</TableCell>
-                          <TableCell>{mandate.mcv}</TableCell>
+                          <TableCell className="font-medium"><HighlightedText text={mandate.projectCode} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={mandate.projectName} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={mandate.account} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={mandate.kam} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={mandate.lob} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={mandate.acv} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={mandate.mcv} searchTerm={searchTerm} /></TableCell>
                   <TableCell>
                             <Badge
                               variant={
@@ -2763,11 +2818,11 @@ export default function Mandates() {
                                     : "destructive"
                               }
                             >
-                              {mandate.mandateHealth}
+                              <HighlightedText text={mandate.mandateHealth} searchTerm={searchTerm} />
                     </Badge>
                   </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{mandate.upsellStatus}</Badge>
+                            <Badge variant="outline"><HighlightedText text={mandate.upsellStatus} searchTerm={searchTerm} /></Badge>
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">

@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
   Dialog,
@@ -816,40 +817,91 @@ export default function Pipeline() {
     try {
       setLoadingDeals(true);
       
-      // Fetch all deals with related data
-      const { data, error } = await supabase
-        .from("pipeline_deals")
-        .select(`
-          *,
-          accounts:account_id (
-            id,
-            name
-          ),
-          profiles:kam_id (
-            id,
-            full_name
-          ),
-          spoc:spoc_id (
-            id,
-            first_name,
-            last_name
-          ),
-          spoc2:spoc2_id (
-            id,
-            first_name,
-            last_name
-          ),
-          spoc3:spoc3_id (
-            id,
-            first_name,
-            last_name
-          )
-        `)
-        .order("created_at", { ascending: false });
+      // Use filtered deals if filters are active, otherwise fetch all
+      let dataToExport: any[];
+      
+      if (hasActiveFilters) {
+        // Export filtered deals - need to fetch full data with relations for filtered deals
+        const filteredDealIds = filteredDeals.map(d => d.id);
+        if (filteredDealIds.length === 0) {
+          toast({
+            title: "No data",
+            description: "No pipeline deals found to export.",
+            variant: "default",
+          });
+          return;
+        }
+        
+        const { data, error } = await supabase
+          .from("pipeline_deals")
+          .select(`
+            *,
+            accounts:account_id (
+              id,
+              name
+            ),
+            profiles:kam_id (
+              id,
+              full_name
+            ),
+            spoc:spoc_id (
+              id,
+              first_name,
+              last_name
+            ),
+            spoc2:spoc2_id (
+              id,
+              first_name,
+              last_name
+            ),
+            spoc3:spoc3_id (
+              id,
+              first_name,
+              last_name
+            )
+          `)
+          .in("id", filteredDealIds)
+          .order("created_at", { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
+        dataToExport = data || [];
+      } else {
+        // Fetch all deals with related data
+        const { data, error } = await supabase
+          .from("pipeline_deals")
+          .select(`
+            *,
+            accounts:account_id (
+              id,
+              name
+            ),
+            profiles:kam_id (
+              id,
+              full_name
+            ),
+            spoc:spoc_id (
+              id,
+              first_name,
+              last_name
+            ),
+            spoc2:spoc2_id (
+              id,
+              first_name,
+              last_name
+            ),
+            spoc3:spoc3_id (
+              id,
+              first_name,
+              last_name
+            )
+          `)
+          .order("created_at", { ascending: false });
 
-      if (!data || data.length === 0) {
+        if (error) throw error;
+        dataToExport = data || [];
+      }
+
+      if (!dataToExport || dataToExport.length === 0) {
         toast({
           title: "No data",
           description: "No pipeline deals found to export.",
@@ -859,7 +911,7 @@ export default function Pipeline() {
       }
 
       // Prepare data for CSV with all fields
-      const csvData = data.map((deal: any) => ({
+      const csvData = dataToExport.map((deal: any) => ({
         id: deal.id || "",
         sales_module_name: deal.sales_module_name || "",
         kam_id: deal.kam_id || "",
@@ -902,12 +954,14 @@ export default function Pipeline() {
       }));
 
       const csvContent = convertToCSV(csvData);
-      const filename = `pipeline_deals_export_${new Date().toISOString().split("T")[0]}.csv`;
+      const filename = hasActiveFilters 
+        ? `filtered_deals_export_${new Date().toISOString().split("T")[0]}.csv`
+        : `pipeline_deals_export_${new Date().toISOString().split("T")[0]}.csv`;
       downloadCSV(csvContent, filename);
 
       toast({
         title: "Success!",
-        description: `Exported ${csvData.length} pipeline deals to CSV.`,
+        description: `Exported ${csvData.length} ${hasActiveFilters ? 'filtered ' : ''}pipeline deals to CSV.`,
       });
     } catch (error: any) {
       console.error("Error exporting pipeline deals:", error);
@@ -1745,9 +1799,21 @@ export default function Pipeline() {
   const showDroppedBlock = formData.status === "Dropped";
 
   const filteredDeals = deals.filter((deal) => {
-    const matchesSearch =
-      !searchTerm ||
-      deal.useCase?.toLowerCase().includes(searchTerm.toLowerCase());
+    // Search across all displayed fields
+    const matchesSearch = !searchTerm || (() => {
+      const searchLower = searchTerm.toLowerCase();
+      const searchableFields = [
+        deal.sales_module_name || "",
+        deal.account || "",
+        deal.kam || "",
+        deal.lob || "",
+        deal.expectedRevenue ? `₹${parseFloat(deal.expectedRevenue).toLocaleString("en-IN")}` : "",
+        deal.status || "",
+        deal.useCase || "",
+      ];
+      return searchableFields.some(field => field.toLowerCase().includes(searchLower));
+    })();
+    
     const matchesAccount = filterAccount === "all" || deal.account_id === filterAccount;
     const matchesKam = filterKam === "all" || deal.kam_id === filterKam;
     const matchesLob = filterLob === "all" || deal.lob === filterLob;
@@ -1755,6 +1821,9 @@ export default function Pipeline() {
 
     return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesStatus;
   });
+
+  // Check if any filters are active
+  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterStatus !== "all";
 
   return (
     <div className="space-y-6">
@@ -1773,7 +1842,7 @@ export default function Pipeline() {
             disabled={loadingDeals}
           >
             <Download className="mr-2 h-4 w-4" />
-            Export CSV
+            {hasActiveFilters ? "Download Filtered Deals" : "Export Deals"}
           </Button>
           <Button
             variant="outline"
@@ -2455,7 +2524,7 @@ export default function Pipeline() {
             <h3 className="font-semibold text-lg mb-4">Filters</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
               <Input
-                placeholder="Search by Use Case"
+                placeholder="Search all fields..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -2504,9 +2573,11 @@ export default function Pipeline() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="Open">Open</SelectItem>
-                  <SelectItem value="Closed Won">Closed Won</SelectItem>
-                  <SelectItem value="Lost">Lost</SelectItem>
+                  {statusOptions.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -2548,16 +2619,21 @@ export default function Pipeline() {
                   ) : (
                     filteredDeals.map((deal) => (
                       <TableRow key={deal.id}>
-                        <TableCell className="font-medium">{deal.sales_module_name || "N/A"}</TableCell>
-                        <TableCell>{deal.account || "N/A"}</TableCell>
-                        <TableCell>{deal.kam || "N/A"}</TableCell>
-                        <TableCell>{deal.lob || "N/A"}</TableCell>
+                        <TableCell className="font-medium"><HighlightedText text={deal.sales_module_name || "N/A"} searchTerm={searchTerm} /></TableCell>
+                        <TableCell><HighlightedText text={deal.account || "N/A"} searchTerm={searchTerm} /></TableCell>
+                        <TableCell><HighlightedText text={deal.kam || "N/A"} searchTerm={searchTerm} /></TableCell>
+                        <TableCell><HighlightedText text={deal.lob || "N/A"} searchTerm={searchTerm} /></TableCell>
                         <TableCell>
-                          {deal.expectedRevenue
-                            ? `₹${parseFloat(deal.expectedRevenue).toLocaleString("en-IN")}`
-                            : "N/A"}
+                          <HighlightedText
+                            text={
+                              deal.expectedRevenue
+                                ? `₹${parseFloat(deal.expectedRevenue).toLocaleString("en-IN")}`
+                                : "N/A"
+                            }
+                            searchTerm={searchTerm}
+                          />
                         </TableCell>
-                        <TableCell>{deal.status || "N/A"}</TableCell>
+                        <TableCell><HighlightedText text={deal.status || "N/A"} searchTerm={searchTerm} /></TableCell>
                         <TableCell>
                           <div className="flex gap-2">
                             <Button 

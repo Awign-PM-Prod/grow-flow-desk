@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
   Dialog,
@@ -644,21 +645,53 @@ export default function Contacts() {
     try {
       setLoadingContacts(true);
       
-      // Fetch all contacts with account names
-      const { data, error } = await supabase
-        .from("contacts")
-        .select(`
-          *,
-          accounts:account_id (
-            id,
-            name
-          )
-        `)
-        .order("created_at", { ascending: false });
+      // Use filtered contacts if filters are active, otherwise fetch all
+      let dataToExport: any[];
+      
+      if (hasActiveFilters) {
+        // Export filtered contacts - need to fetch account names for filtered contacts
+        const filteredContactIds = filteredContacts.map(c => c.id);
+        if (filteredContactIds.length === 0) {
+          toast({
+            title: "No data",
+            description: "No contacts found to export.",
+            variant: "default",
+          });
+          return;
+        }
+        
+        const { data, error } = await supabase
+          .from("contacts")
+          .select(`
+            *,
+            accounts:account_id (
+              id,
+              name
+            )
+          `)
+          .in("id", filteredContactIds)
+          .order("created_at", { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
+        dataToExport = data || [];
+      } else {
+        // Fetch all contacts with account names
+        const { data, error } = await supabase
+          .from("contacts")
+          .select(`
+            *,
+            accounts:account_id (
+              id,
+              name
+            )
+          `)
+          .order("created_at", { ascending: false });
 
-      if (!data || data.length === 0) {
+        if (error) throw error;
+        dataToExport = data || [];
+      }
+
+      if (!dataToExport || dataToExport.length === 0) {
         toast({
           title: "No data",
           description: "No contacts found to export.",
@@ -668,7 +701,7 @@ export default function Contacts() {
       }
 
       // Prepare data for CSV with all fields
-      const csvData = data.map((contact: any) => ({
+      const csvData = dataToExport.map((contact: any) => ({
         id: contact.id || "",
         account_id: contact.account_id || "",
         account_name: contact.accounts?.name || "",
@@ -691,12 +724,14 @@ export default function Contacts() {
       }));
 
       const csvContent = convertToCSV(csvData);
-      const filename = `contacts_export_${new Date().toISOString().split("T")[0]}.csv`;
+      const filename = hasActiveFilters 
+        ? `filtered_contacts_export_${new Date().toISOString().split("T")[0]}.csv`
+        : `contacts_export_${new Date().toISOString().split("T")[0]}.csv`;
       downloadCSV(csvContent, filename);
 
       toast({
         title: "Success!",
-        description: `Exported ${csvData.length} contacts to CSV.`,
+        description: `Exported ${csvData.length} ${hasActiveFilters ? 'filtered ' : ''}contacts to CSV.`,
       });
     } catch (error: any) {
       console.error("Error exporting contacts:", error);
@@ -717,10 +752,22 @@ export default function Contacts() {
   }, [viewMode]);
 
   const filteredContacts = contacts.filter((contact) => {
-    const matchesSearch =
-      !searchTerm ||
-      `${contact.first_name} ${contact.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contact.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    // Search across all displayed fields
+    const matchesSearch = !searchTerm || (() => {
+      const searchLower = searchTerm.toLowerCase();
+      const searchableFields = [
+        contact.accountName || "",
+        contact.first_name || "",
+        contact.last_name || "",
+        `${contact.first_name} ${contact.last_name}`,
+        contact.email || "",
+        contact.phone_number || "",
+        contact.title || "",
+        contact.level || "",
+      ];
+      return searchableFields.some(field => field.toLowerCase().includes(searchLower));
+    })();
+    
     const matchesAccount = filterAccount === "all" || contact.account_id === filterAccount;
     const matchesDepartment = filterDepartment === "all" || contact.department === filterDepartment;
     const matchesTitle = filterTitle === "all" || contact.title === filterTitle;
@@ -728,6 +775,9 @@ export default function Contacts() {
 
     return matchesSearch && matchesAccount && matchesDepartment && matchesTitle && matchesLevel;
   });
+
+  // Check if any filters are active
+  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterDepartment !== "all" || filterTitle !== "all" || filterLevel !== "all";
 
   const handleViewDetails = (contact: any) => {
     setSelectedContact(contact);
@@ -873,7 +923,7 @@ export default function Contacts() {
             disabled={loadingContacts}
           >
             <Download className="mr-2 h-4 w-4" />
-            Export CSV
+            {hasActiveFilters ? "Download Filtered Contacts" : "Export Contacts"}
           </Button>
           <Button
             variant="outline"
@@ -1243,7 +1293,7 @@ export default function Contacts() {
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 <Input
-                  placeholder="Search by Name / Email"
+                  placeholder="Search all fields..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -1350,14 +1400,14 @@ export default function Contacts() {
                   ) : (
                     filteredContacts.map((contact) => (
                       <TableRow key={contact.id}>
-                        <TableCell>{contact.accountName || "N/A"}</TableCell>
+                        <TableCell><HighlightedText text={contact.accountName || "N/A"} searchTerm={searchTerm} /></TableCell>
                         <TableCell className="font-medium">
-                          {contact.first_name} {contact.last_name}
+                          <HighlightedText text={`${contact.first_name} ${contact.last_name}`} searchTerm={searchTerm} />
                         </TableCell>
-                        <TableCell>{contact.email}</TableCell>
-                        <TableCell>{contact.phone_number}</TableCell>
-                        <TableCell>{contact.title}</TableCell>
-                        <TableCell>{contact.level}</TableCell>
+                        <TableCell><HighlightedText text={contact.email} searchTerm={searchTerm} /></TableCell>
+                        <TableCell><HighlightedText text={contact.phone_number} searchTerm={searchTerm} /></TableCell>
+                        <TableCell><HighlightedText text={contact.title} searchTerm={searchTerm} /></TableCell>
+                        <TableCell><HighlightedText text={contact.level} searchTerm={searchTerm} /></TableCell>
                         <TableCell>
                           <div className="flex gap-2">
                             <Button
