@@ -3696,58 +3696,90 @@ export default function Mandates() {
               </Card>
 
               {/* 5th Section: Monthly Records */}
-              {selectedMandate?.monthly_data && Object.keys(selectedMandate.monthly_data).length > 0 && (
-                <Card className="border-purple-200 bg-purple-50/50">
-                  <CardContent className="pt-6">
-                    <h3 className="font-semibold text-lg mb-4 text-purple-900">Monthly Records</h3>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Month/Year</TableHead>
-                            <TableHead>Planned MCV</TableHead>
-                            <TableHead>Achieved MCV</TableHead>
-                            <TableHead>Percentage Achieved</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {Object.entries(selectedMandate.monthly_data)
-                            .sort(([a], [b]) => a.localeCompare(b)) // Sort ascending by date (oldest first)
-                            .map(([monthYear, values]: [string, any]) => {
-                              const [plannedMcv, achievedMcv] = Array.isArray(values) ? values : [0, 0];
-                              const percentage = plannedMcv > 0 
-                                ? ((achievedMcv / plannedMcv) * 100).toFixed(2) 
-                                : "0.00";
-                              
-                              // Parse month_year to display format
-                              const [year, month] = monthYear.split('-');
-                              const monthName = new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('default', { month: 'long' });
-                              
-                              return (
-                                <TableRow key={monthYear}>
-                                  <TableCell className="font-medium">
-                                    {monthName} {year}
-                                  </TableCell>
-                                  <TableCell>
-                                    {plannedMcv ? plannedMcv.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}
-                                  </TableCell>
-                                  <TableCell>
-                                    {achievedMcv ? achievedMcv.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge variant={parseFloat(percentage) >= 100 ? "default" : parseFloat(percentage) >= 80 ? "secondary" : "destructive"}>
-                                      {percentage}%
-                                    </Badge>
-                                  </TableCell>
+              {selectedMandate?.monthly_data && Object.keys(selectedMandate.monthly_data).length > 0 && (() => {
+                // Group monthly records by financial year
+                const recordsByFinancialYear: Record<string, Array<{ monthYear: string; monthName: string; plannedMcv: number; achievedMcv: number; percentage: string }>> = {};
+                
+                Object.entries(selectedMandate.monthly_data)
+                  .sort(([a], [b]) => a.localeCompare(b)) // Sort ascending by date (oldest first)
+                  .forEach(([monthYear, values]: [string, any]) => {
+                    const [plannedMcv, achievedMcv] = Array.isArray(values) ? values : [0, 0];
+                    const percentage = plannedMcv > 0 
+                      ? ((achievedMcv / plannedMcv) * 100).toFixed(2) 
+                      : "0.00";
+                    
+                    // Parse month_year to display format
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const monthName = new Date(yearNum, monthNum - 1, 1).toLocaleString('default', { month: 'long' });
+                    const financialYear = calculateFinancialYear(monthNum, yearNum);
+                    
+                    if (!recordsByFinancialYear[financialYear]) {
+                      recordsByFinancialYear[financialYear] = [];
+                    }
+                    
+                    recordsByFinancialYear[financialYear].push({
+                      monthYear,
+                      monthName,
+                      plannedMcv,
+                      achievedMcv,
+                      percentage,
+                    });
+                  });
+                
+                // Sort financial years (extract start year for sorting)
+                const sortedFinancialYears = Object.keys(recordsByFinancialYear).sort((a, b) => {
+                  const yearA = parseInt(a.split('-')[0]);
+                  const yearB = parseInt(b.split('-')[0]);
+                  return yearA - yearB;
+                });
+                
+                return (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold text-lg text-purple-900">Monthly Records</h3>
+                    {sortedFinancialYears.map((financialYear) => (
+                      <Card key={financialYear} className="border-purple-200 bg-purple-50/50">
+                        <CardContent className="pt-6">
+                          <h4 className="font-semibold text-md mb-4 text-purple-800">Financial Year: {financialYear}</h4>
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Month</TableHead>
+                                  <TableHead>Planned MCV</TableHead>
+                                  <TableHead>Achieved MCV</TableHead>
+                                  <TableHead>Percentage Achieved</TableHead>
                                 </TableRow>
-                              );
-                            })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                              </TableHeader>
+                              <TableBody>
+                                {recordsByFinancialYear[financialYear].map((record) => (
+                                  <TableRow key={record.monthYear}>
+                                    <TableCell className="font-medium">
+                                      {record.monthName}
+                                    </TableCell>
+                                    <TableCell>
+                                      {record.plannedMcv ? record.plannedMcv.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}
+                                    </TableCell>
+                                    <TableCell>
+                                      {record.achievedMcv ? record.achievedMcv.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant={parseFloat(record.percentage) >= 100 ? "default" : parseFloat(record.percentage) >= 80 ? "secondary" : "destructive"}>
+                                        {record.percentage}%
+                                      </Badge>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </DialogContent>
