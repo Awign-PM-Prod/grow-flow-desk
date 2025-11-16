@@ -187,6 +187,38 @@ const hasOnlyDashSubUseCase = (lob: string, useCase: string): boolean => {
   return subUseCases.length === 1 && subUseCases[0] === "-";
 };
 
+// Status order mapping for chronological sorting
+const statusOrder: Record<string, number> = {
+  "Listed": 1,
+  "Pre-Appointment Prep Done": 2,
+  "Discovery Meeting Done": 3,
+  "Requirement Gathering Done": 4,
+  "Solution Proposal Made": 5,
+  "SOW Handshake Done": 6,
+  "Final Proposal Done": 7,
+  "Commercial Agreed": 8,
+  "Closed Won": 9,
+  "Dropped": 10,
+};
+
+// Helper function to get badge styling for each status
+const getStatusBadgeStyle = (status: string): { variant: "default" | "secondary" | "destructive" | "outline"; className?: string } => {
+  const statusStyleMap: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
+    "Listed": { variant: "outline", className: "bg-gray-100 text-gray-700 border-gray-300" },
+    "Pre-Appointment Prep Done": { variant: "outline", className: "bg-blue-100 text-blue-700 border-blue-300" },
+    "Discovery Meeting Done": { variant: "outline", className: "bg-cyan-100 text-cyan-700 border-cyan-300" },
+    "Requirement Gathering Done": { variant: "outline", className: "bg-teal-100 text-teal-700 border-teal-300" },
+    "Solution Proposal Made": { variant: "outline", className: "bg-indigo-100 text-indigo-700 border-indigo-300" },
+    "SOW Handshake Done": { variant: "outline", className: "bg-purple-100 text-purple-700 border-purple-300" },
+    "Final Proposal Done": { variant: "outline", className: "bg-pink-100 text-pink-700 border-pink-300" },
+    "Commercial Agreed": { variant: "outline", className: "bg-orange-100 text-orange-700 border-orange-300" },
+    "Closed Won": { variant: "default", className: "bg-green-600 text-white border-green-600" },
+    "Dropped": { variant: "destructive", className: "bg-red-600 text-white border-red-600" },
+  };
+
+  return statusStyleMap[status] || { variant: "outline", className: "bg-gray-100 text-gray-700 border-gray-300" };
+};
+
 export default function Pipeline() {
   const [loading, setLoading] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
@@ -222,6 +254,7 @@ export default function Pipeline() {
   const [filterKam, setFilterKam] = useState("all");
   const [filterLob, setFilterLob] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "status">("newest");
 
   // Search terms for dropdowns in forms
   const [accountSearch, setAccountSearch] = useState("");
@@ -1805,29 +1838,49 @@ export default function Pipeline() {
   const showClosedWonBlock = formData.status === "Closed Won";
   const showDroppedBlock = formData.status === "Dropped";
 
-  const filteredDeals = deals.filter((deal) => {
-    // Search across all displayed fields
-    const matchesSearch = !searchTerm || (() => {
-      const searchLower = searchTerm.toLowerCase();
-      const searchableFields = [
-        deal.sales_module_name || "",
-        deal.account || "",
-        deal.kam || "",
-        deal.lob || "",
-        deal.expectedRevenue ? `₹${parseFloat(deal.expectedRevenue).toLocaleString("en-IN")}` : "",
-        deal.status || "",
-        deal.useCase || "",
-      ];
-      return searchableFields.some(field => field.toLowerCase().includes(searchLower));
-    })();
-    
-    const matchesAccount = filterAccount === "all" || deal.account_id === filterAccount;
-    const matchesKam = filterKam === "all" || deal.kam_id === filterKam;
-    const matchesLob = filterLob === "all" || deal.lob === filterLob;
-    const matchesStatus = filterStatus === "all" || deal.status === filterStatus;
+  const filteredDeals = deals
+    .filter((deal) => {
+      // Search across all displayed fields
+      const matchesSearch = !searchTerm || (() => {
+        const searchLower = searchTerm.toLowerCase();
+        const searchableFields = [
+          deal.sales_module_name || "",
+          deal.account || "",
+          deal.kam || "",
+          deal.lob || "",
+          deal.expectedRevenue ? `₹${parseFloat(deal.expectedRevenue).toLocaleString("en-IN")}` : "",
+          deal.status || "",
+          deal.useCase || "",
+        ];
+        return searchableFields.some(field => field.toLowerCase().includes(searchLower));
+      })();
+      
+      const matchesAccount = filterAccount === "all" || deal.account_id === filterAccount;
+      const matchesKam = filterKam === "all" || deal.kam_id === filterKam;
+      const matchesLob = filterLob === "all" || deal.lob === filterLob;
+      const matchesStatus = filterStatus === "all" || deal.status === filterStatus;
 
-    return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesStatus;
-  });
+      return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesStatus;
+    })
+    .sort((a, b) => {
+      if (sortBy === "newest") {
+        // Sort by created_at descending (newest first)
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA;
+      } else if (sortBy === "oldest") {
+        // Sort by created_at ascending (oldest first)
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateA - dateB;
+      } else if (sortBy === "status") {
+        // Sort by status order (chronological)
+        const orderA = statusOrder[a.status] || 999;
+        const orderB = statusOrder[b.status] || 999;
+        return orderA - orderB;
+      }
+      return 0;
+    });
 
   // Check if any filters are active
   const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterStatus !== "all";
@@ -2651,7 +2704,7 @@ export default function Pipeline() {
         <Card>
           <CardContent className="pt-6">
             <h3 className="font-semibold text-lg mb-4">Filters</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
               <Input
                 placeholder="Search all fields..."
                 value={searchTerm}
@@ -2698,15 +2751,54 @@ export default function Pipeline() {
               </Select>
               <Select value={filterStatus} onValueChange={setFilterStatus}>
                 <SelectTrigger>
-                  <SelectValue placeholder="All Status" />
+                  {filterStatus === "all" ? (
+                    <SelectValue placeholder="All Status" />
+                  ) : (
+                    <div className="flex items-center">
+                      {(() => {
+                        const badgeStyle = getStatusBadgeStyle(filterStatus);
+                        return (
+                          <Badge
+                            variant={badgeStyle.variant}
+                            className={badgeStyle.className}
+                          >
+                            {filterStatus}
+                          </Badge>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  {statusOptions.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status}
-                    </SelectItem>
-                  ))}
+                  {statusOptions.map((status) => {
+                    const badgeStyle = getStatusBadgeStyle(status);
+                    return (
+                      <SelectItem key={status} value={status}>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={badgeStyle.variant}
+                            className={badgeStyle.className}
+                          >
+                            {status}
+                          </Badge>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium">Sort By:</Label>
+              <Select value={sortBy} onValueChange={(value: "newest" | "oldest" | "status") => setSortBy(value)}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest first</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="status">Status</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2762,7 +2854,18 @@ export default function Pipeline() {
                             searchTerm={searchTerm}
                           />
                         </TableCell>
-                        <TableCell><HighlightedText text={deal.status || "N/A"} searchTerm={searchTerm} /></TableCell>
+                        <TableCell>
+                          {deal.status ? (
+                            <Badge
+                              variant={getStatusBadgeStyle(deal.status).variant}
+                              className={getStatusBadgeStyle(deal.status).className}
+                            >
+                              <HighlightedText text={deal.status} searchTerm={searchTerm} />
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">N/A</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
                             <Button 

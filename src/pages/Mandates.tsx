@@ -131,6 +131,38 @@ const isReadOnlySub2 = (upsellConstraint: string, constraintType: string, constr
   return sub2Options.length === 1 && sub2Options[0] === "-";
 };
 
+// Helper function to calculate Financial Year based on selected month and year
+// Logic: Jan-Mar use (year-1)-(year), Apr-Dec use (year)-(year+1)
+const calculateFinancialYear = (month: number, year: number): string => {
+  if (!month || !year) return "";
+  
+  if (month >= 1 && month <= 3) {
+    // Jan, Feb, March: Use (year-1)-(year)
+    const startYear = year - 1;
+    const endYear = year.toString().slice(-2);
+    return `${startYear}-${endYear}`;
+  } else {
+    // April to December: Use (year)-(year+1)
+    const startYear = year;
+    const endYear = (year + 1).toString().slice(-2);
+    return `${startYear}-${endYear}`;
+  }
+};
+
+// Helper function to get Financial Year based on current date (for initial auto-fill)
+const getFinancialYear = (): string => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12 (Jan = 1, Dec = 12)
+  return calculateFinancialYear(currentMonth, currentYear);
+};
+
+// Helper function to extract the starting year from financial year string (e.g., "2025-26" -> 2025)
+const extractYearFromFinancialYear = (financialYear: string): number => {
+  const match = financialYear.match(/^(\d{4})-/);
+  return match ? parseInt(match[1], 10) : new Date().getFullYear();
+};
+
 export default function Mandates() {
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
@@ -202,6 +234,7 @@ export default function Mandates() {
   const [monthlyRecordForm, setMonthlyRecordForm] = useState({
     month: "",
     year: "",
+    financialYear: "",
     plannedMcv: "",
     achievedMcv: "",
   });
@@ -481,6 +514,26 @@ export default function Mandates() {
       }
     }
   }, [editMandateData?.revenueMonthlyVolume, editMandateData?.revenueCommercialPerHead]);
+
+  // Calculate Financial Year when month or year changes
+  useEffect(() => {
+    if (monthlyRecordForm.month && monthlyRecordForm.year) {
+      const month = parseInt(monthlyRecordForm.month);
+      const year = parseInt(monthlyRecordForm.year);
+      if (!isNaN(month) && !isNaN(year)) {
+        const financialYear = calculateFinancialYear(month, year);
+        setMonthlyRecordForm(prev => ({
+          ...prev,
+          financialYear: financialYear,
+        }));
+      }
+    } else {
+      setMonthlyRecordForm(prev => ({
+        ...prev,
+        financialYear: "",
+      }));
+    }
+  }, [monthlyRecordForm.month, monthlyRecordForm.year]);
 
   // Reset dependent fields when Mandate Health changes in edit mode
   useEffect(() => {
@@ -3748,6 +3801,16 @@ export default function Mandates() {
               className="w-full justify-start h-auto py-6"
               onClick={() => {
                 setUpdateOptionsDialogOpen(false);
+                const now = new Date();
+                const currentYear = now.getFullYear();
+                const currentMonth = now.getMonth() + 1;
+                setMonthlyRecordForm({
+                  month: "",
+                  year: currentYear.toString(),
+                  financialYear: "",
+                  plannedMcv: "",
+                  achievedMcv: "",
+                });
                 setMonthlyRecordDialogOpen(true);
               }}
             >
@@ -3767,9 +3830,18 @@ export default function Mandates() {
           setMonthlyRecordForm({
             month: "",
             year: "",
+            financialYear: "",
             plannedMcv: "",
             achievedMcv: "",
           });
+        } else {
+          // Auto-fill year when dialog opens
+          const now = new Date();
+          const currentYear = now.getFullYear();
+          setMonthlyRecordForm(prev => ({
+            ...prev,
+            year: prev.year || currentYear.toString(),
+          }));
         }
       }}>
         <DialogContent>
@@ -3831,6 +3903,7 @@ export default function Mandates() {
               setMonthlyRecordForm({
                 month: "",
                 year: "",
+                financialYear: "",
                 plannedMcv: "",
                 achievedMcv: "",
               });
@@ -3890,6 +3963,17 @@ export default function Mandates() {
                 onChange={(e) => setMonthlyRecordForm({ ...monthlyRecordForm, year: e.target.value })}
                 placeholder="e.g., 2025"
                 required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="financialYear">Financial Year</Label>
+              <Input
+                id="financialYear"
+                type="text"
+                value={monthlyRecordForm.financialYear}
+                placeholder="e.g., 2025-26"
+                readOnly
+                className="bg-muted"
               />
             </div>
             <div className="space-y-2">
