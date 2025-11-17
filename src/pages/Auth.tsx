@@ -143,7 +143,9 @@ export default function Auth() {
           navigate("/dashboard");
         }
       } else {
-        const redirectUrl = `${window.location.origin}/`;
+        // Use production URL from environment variable, fallback to current origin for development
+        const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+        const redirectUrl = `${siteUrl}/`;
         
         const { error } = await supabase.auth.signUp({
           email,
