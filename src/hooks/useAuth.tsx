@@ -66,8 +66,29 @@ export function useAuth() {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    navigate("/auth");
+    try {
+      // Attempt to sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      
+      // If we get a 403 error, it's often due to session mismatch - we can ignore it
+      // and proceed to clear local session data
+      if (error) {
+        // 403 errors are common when session is already invalidated - we can safely ignore
+        if (error.status !== 403) {
+          console.error("Sign out error:", error);
+        }
+      }
+    } catch (error: any) {
+      // Handle 403 or other errors gracefully
+      // 403 errors during signOut are often harmless (session already invalidated)
+      if (error?.status !== 403) {
+        console.error("Sign out error:", error);
+      }
+    } finally {
+      // Always navigate to auth page, even if signOut API call fails
+      // Supabase client will clear local storage automatically
+      navigate("/auth");
+    }
   };
 
   const hasRole = (role: UserRole) => userRoles.includes(role);
