@@ -57,17 +57,17 @@ interface AccountFormData {
 
 // Industry to Sub Category mapping
 const industrySubCategories: Record<string, string[]> = {
-  "Manufacturing": ["Automotive", "Electronics", "Textiles", "Pharmaceuticals", "Food & Beverage", "Others"],
-  "FMCG": ["Personal Care", "Food Products", "Beverages", "Home Care", "Others"],
-  "Retail Trade": ["E-commerce", "Supermarkets", "Department Stores", "Specialty Retail", "Others"],
-  "Information & Communication": ["Software", "IT Services", "Telecommunications", "Media", "Others"],
-  "Financial Services": ["Banking", "Insurance", "Investment", "Fintech", "Others"],
-  "Transportation & Logistics": ["Shipping", "Aviation", "Railways", "Road Transport", "Warehousing", "Others"],
-  "Electricity & Gas": ["Power Generation", "Distribution", "Renewable Energy", "Gas Supply", "Others"],
-  "Services": ["Consulting", "Professional Services", "Healthcare", "Education", "Hospitality", "Others"],
-  "Construction & Infrastructure": ["Real Estate Development", "Infrastructure", "Engineering", "Others"],
-  "Real Estate": ["Residential", "Commercial", "Industrial", "Others"],
-  "Media & Entertainment": ["Broadcasting", "Publishing", "Digital Media", "Entertainment", "Others"],
+  "Manufacturing": ["Automobiles", "Electronics", "Machinery", "Other Products"],
+  "FMCG": ["Food & Beverage", "Household & Personal Care (Beauty products)", "Health & Wellness"],
+  "Retail Trade": ["Fashion & Trend", "E-commerce Retailers"],
+  "Information & Communication": ["IT", "Software", "Telecom Carriers", "Web Services"],
+  "Financial Services": ["Banks", "Securities", "Insurance", "Leasing"],
+  "Transportation & Logistics": ["Railways", "Airlines", "Shipping", "Courier Services", "Warehousing"],
+  "Electricity & Gas": ["Power Companies", "Gas Utilities"],
+  "Services": ["Human Resources", "Education", "Consulting", "Advertising", "Travel"],
+  "Construction & Infrastructure": ["General Contractors", "Housing", "Civil Engineering"],
+  "Real Estate": ["Developers", "Condominiums", "Office Management"],
+  "Media & Entertainment": [], // No sub-category for Media & Entertainment
   "Others": ["Others"],
 };
 
@@ -128,7 +128,7 @@ export default function Accounts() {
 
   // Update sub-categories when industry changes
   useEffect(() => {
-    if (formData.industry && industrySubCategories[formData.industry]) {
+    if (formData.industry) {
       setFormData((prev) => ({
         ...prev,
         subCategory: "",
@@ -664,8 +664,10 @@ export default function Accounts() {
         if (!row["Industry"] || row["Industry"].trim() === "") {
           errors.push("Industry is required");
         }
-        if (!row["Sub Category"] || row["Sub Category"].trim() === "") {
-          errors.push("Sub Category is required");
+        if (row["Industry"] && row["Industry"].trim() !== "Media & Entertainment") {
+          if (!row["Sub Category"] || row["Sub Category"].trim() === "") {
+            errors.push("Sub Category is required");
+          }
         }
         if (!row["Revenue Range"] || row["Revenue Range"].trim() === "") {
           errors.push("Revenue Range is required");
@@ -1200,19 +1202,23 @@ export default function Accounts() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="subCategory">
-                      Industry - Sub Category <span className="text-destructive">*</span>
+                      Industry - Sub Category {formData.industry !== "Media & Entertainment" && <span className="text-destructive">*</span>}
                     </Label>
                     <Select
                       value={formData.subCategory}
                       onValueChange={(value) => handleInputChange("subCategory", value)}
-                      required
-                      disabled={!formData.industry}
+                      required={formData.industry !== "Media & Entertainment"}
+                      disabled={!formData.industry || formData.industry === "Media & Entertainment"}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select..." />
+                        <SelectValue placeholder={formData.industry === "Media & Entertainment" ? "Sub category cannot be added" : "Select..."} />
                       </SelectTrigger>
                       <SelectContent>
-                        {formData.industry && industrySubCategories[formData.industry] ? (
+                        {formData.industry === "Media & Entertainment" ? (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Sub category cannot be added for Media & Entertainment
+                          </div>
+                        ) : formData.industry && industrySubCategories[formData.industry] && industrySubCategories[formData.industry].length > 0 ? (
                           industrySubCategories[formData.industry].map((subCat) => (
                             <SelectItem key={subCat} value={subCat}>
                               {subCat}
@@ -1228,7 +1234,7 @@ export default function Accounts() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="revenueRange">
-                      Company Size 1 (Revenue Range) <span className="text-destructive">*</span>
+                      Company Size (Revenue Range) <span className="text-destructive">*</span>
                     </Label>
                     <Select
                       value={formData.revenueRange}
@@ -1659,13 +1665,17 @@ export default function Accounts() {
                         <Select
                           value={editAccountData.subCategory}
                           onValueChange={(value) => setEditAccountData({ ...editAccountData, subCategory: value })}
-                          disabled={!editAccountData.industry}
+                          disabled={!editAccountData.industry || editAccountData.industry === "Media & Entertainment"}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder="Select sub category" />
+                            <SelectValue placeholder={editAccountData.industry === "Media & Entertainment" ? "Sub category cannot be added" : "Select sub category"} />
                           </SelectTrigger>
                           <SelectContent>
-                            {editAccountData.industry && industrySubCategories[editAccountData.industry] ? (
+                            {editAccountData.industry === "Media & Entertainment" ? (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                Sub category cannot be added for Media & Entertainment
+                              </div>
+                            ) : editAccountData.industry && industrySubCategories[editAccountData.industry] && industrySubCategories[editAccountData.industry].length > 0 ? (
                               industrySubCategories[editAccountData.industry].map((subCat) => (
                                 <SelectItem key={subCat} value={subCat}>
                                   {subCat}
