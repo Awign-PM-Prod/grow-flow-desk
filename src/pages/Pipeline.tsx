@@ -202,6 +202,13 @@ const statusOrder: Record<string, number> = {
 };
 
 // Helper function to get badge styling for each status
+// Helper function to format status with number prefix (starting from 0)
+const formatStatusWithNumber = (status: string): string => {
+  const index = statusOptions.indexOf(status);
+  if (index === -1) return status;
+  return `${index}. ${status}`;
+};
+
 const getStatusBadgeStyle = (status: string): { variant: "default" | "secondary" | "destructive" | "outline"; className?: string } => {
   const statusStyleMap: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
     "Listed": { variant: "outline", className: "bg-gray-100 text-gray-700 border-gray-300" },
@@ -565,6 +572,9 @@ export default function Pipeline() {
         if (!row["PRJ Start Date"] || row["PRJ Start Date"].trim() === "") {
           errors.push("PRJ Start Date is required");
         }
+        if (!row["GM Threshold"] || isNaN(parseFloat(row["GM Threshold"]))) {
+          errors.push("GM Threshold is required and must be a valid number");
+        }
 
         return {
           rowNumber,
@@ -728,7 +738,7 @@ export default function Pipeline() {
           mpv: mpv,
           max_mpv: maxMpv,
           prj_duration_months: parseInt(row["PRJ duration in months"]) || 0,
-          gm_threshold: row["GM Threshold"] ? parseFloat(row["GM Threshold"]) : null,
+          gm_threshold: parseFloat(row["GM Threshold"]) || 0,
           prj_frequency: row["PRJ Frequency"],
           status: "Listed", // Default status for bulk uploads
           prj_start_date: prjStartDate,
@@ -1290,7 +1300,7 @@ export default function Pipeline() {
         mpv: parseFloat(formData.mpv) || 0,
         max_mpv: parseFloat(formData.maxMpv) || 0,
         prj_duration_months: parseInt(formData.prjDurationMonths) || 0,
-        gm_threshold: formData.gmThreshold ? parseFloat(formData.gmThreshold) : null,
+        gm_threshold: parseFloat(formData.gmThreshold) || 0,
         prj_frequency: formData.prjFrequency,
         status: formData.status,
         prj_start_date: formData.prjStartDate || null,
@@ -1448,7 +1458,7 @@ export default function Pipeline() {
         mpv: parseFloat(formData.mpv) || 0,
         max_mpv: parseFloat(formData.maxMpv) || 0,
         prj_duration_months: parseInt(formData.prjDurationMonths) || 0,
-        gm_threshold: formData.gmThreshold ? parseFloat(formData.gmThreshold) : null,
+        gm_threshold: parseFloat(formData.gmThreshold) || 0,
         prj_frequency: formData.prjFrequency,
         status: formData.status,
         prj_start_date: formData.prjStartDate || null,
@@ -2468,12 +2478,15 @@ export default function Pipeline() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="gmThreshold">GM Threshold</Label>
+                    <Label htmlFor="gmThreshold">
+                      GM Threshold <span className="text-destructive">*</span>
+                    </Label>
                     <Input
                       id="gmThreshold"
                       type="number"
                       value={formData.gmThreshold}
                       onChange={(e) => handleInputChange("gmThreshold", e.target.value)}
+                      required
                     />
                   </div>
                   <div className="space-y-2">
@@ -2513,7 +2526,7 @@ export default function Pipeline() {
                       <SelectContent>
                         {statusOptions.map((status) => (
                           <SelectItem key={status} value={status}>
-                            {status}
+                            {formatStatusWithNumber(status)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -2780,7 +2793,7 @@ export default function Pipeline() {
                             variant={badgeStyle.variant}
                             className={badgeStyle.className}
                           >
-                            {status}
+                            {formatStatusWithNumber(status)}
                           </Badge>
                         </div>
                       </SelectItem>
@@ -2860,7 +2873,7 @@ export default function Pipeline() {
                               variant={getStatusBadgeStyle(deal.status).variant}
                               className={getStatusBadgeStyle(deal.status).className}
                             >
-                              <HighlightedText text={deal.status} searchTerm={searchTerm} />
+                              <HighlightedText text={formatStatusWithNumber(deal.status)} searchTerm={searchTerm} />
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground">N/A</span>
@@ -3021,7 +3034,7 @@ export default function Pipeline() {
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Status:</Label>
                       <p className="mt-1">
-                        <Badge variant="outline">{selectedDealForView.status || "N/A"}</Badge>
+                        <Badge variant="outline">{selectedDealForView.status ? formatStatusWithNumber(selectedDealForView.status) : "N/A"}</Badge>
                       </p>
                     </div>
                     <div className="space-y-2">
@@ -3352,7 +3365,7 @@ export default function Pipeline() {
                 <SelectContent>
                   {statusOptions.map((status) => (
                     <SelectItem key={status} value={status}>
-                      {status}
+                      {formatStatusWithNumber(status)}
                     </SelectItem>
                   ))}
                 </SelectContent>
