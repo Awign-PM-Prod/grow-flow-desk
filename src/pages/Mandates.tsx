@@ -45,6 +45,8 @@ interface MandateFormData {
   accountId: string;
   kamId: string;
   lob: string;
+  useCase: string;
+  subUseCase: string;
   type: string;
 
   // Handover Info
@@ -131,6 +133,71 @@ const isReadOnlySub2 = (upsellConstraint: string, constraintType: string, constr
   return sub2Options.length === 1 && sub2Options[0] === "-";
 };
 
+// Data structure for LoB -> Use Case -> Sub Use Case mapping
+const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
+  "Diligence & Audit": {
+    "Mystery Audit": ["-"],
+    "Non-Mystery Audit": ["Stock Audit", "Store Audit", "Warehouse Audit", "Retail Outlet Audit", "Distributor Audit", "Others"],
+    "Background Verification": ["-"],
+  },
+  "New Business Development": {
+    "Promoters Deployment": ["-"],
+    "Fixed Resource Deployment": ["-"],
+    "New Customer Acquisition": ["-"],
+    "Retailer Activation": ["-"],
+    "Society Activation": ["-"],
+  },
+  "Digital Gigs": {
+    "Content Operations": ["-"],
+    "Telecalling": ["-"],
+  },
+  "Awign Expert": {
+    "-": ["-"],
+  },
+  "Last Mile Operations": {
+    "-": ["-"],
+  },
+  "Invigilation & Proctoring": {
+    "-": ["-"],
+  },
+  "Staffing": {
+    "-": ["-"],
+  },
+  "Others": {
+    "Market Survey": ["-"],
+    "Edtech": ["-"],
+    "SaaS": ["-"],
+    "Others": ["-"],
+  },
+};
+
+// Helper functions to get use cases and sub use cases
+const getUseCasesForLob = (lob: string): string[] => {
+  if (!lob || !lobUseCaseMapping[lob]) return [];
+  // Filter out "-" option as it should not be selectable
+  return Object.keys(lobUseCaseMapping[lob]).filter(uc => uc !== "-");
+};
+
+const getSubUseCasesForUseCase = (lob: string, useCase: string): string[] => {
+  if (!lob || !useCase || !lobUseCaseMapping[lob] || !lobUseCaseMapping[lob][useCase]) return [];
+  // Filter out "-" option as it should not be selectable
+  return lobUseCaseMapping[lob][useCase].filter(subUc => subUc !== "-");
+};
+
+// Check if LoB only has "-" as use case (should disable use case field)
+const hasOnlyDashUseCase = (lob: string): boolean => {
+  if (!lob || !lobUseCaseMapping[lob]) return false;
+  const useCases = Object.keys(lobUseCaseMapping[lob]);
+  return useCases.length === 1 && useCases[0] === "-";
+};
+
+// Check if Use Case only has "-" as sub use case (should disable sub use case field)
+const hasOnlyDashSubUseCase = (lob: string, useCase: string): boolean => {
+  if (!lob || !useCase || !lobUseCaseMapping[lob] || !lobUseCaseMapping[lob][useCase]) return false;
+  const subUseCases = lobUseCaseMapping[lob][useCase];
+  return subUseCases.length === 1 && subUseCases[0] === "-";
+};
+
 // Helper function to calculate Financial Year based on selected month and year
 // Logic: Jan-Mar use (year-1)-(year), Apr-Dec use (year)-(year+1)
 const calculateFinancialYear = (month: number, year: number): string => {
@@ -174,6 +241,8 @@ export default function Mandates() {
     accountId: "",
     kamId: "",
     lob: "",
+    useCase: "",
+    subUseCase: "",
     type: "",
     newSalesOwner: "",
     handoverMonthlyVolume: "",
@@ -429,6 +498,61 @@ export default function Mandates() {
       }
     }
   }, [formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub, formData.upsellConstraintSub2]);
+
+  // Reset Use Case and Sub Use Case when LoB changes
+  useEffect(() => {
+    if (formData.lob) {
+      // If LoB only has "-" as use case, set it automatically
+      if (hasOnlyDashUseCase(formData.lob)) {
+        setFormData((prev) => ({
+          ...prev,
+          useCase: "-",
+          subUseCase: "-",
+        }));
+      } else {
+        const validUseCases = getUseCasesForLob(formData.lob);
+        // Only reset if current useCase is not valid for the new LoB
+        if (formData.useCase && !validUseCases.includes(formData.useCase)) {
+          setFormData((prev) => ({
+            ...prev,
+            useCase: "",
+            subUseCase: "",
+          }));
+        } else if (formData.useCase) {
+          // If useCase is still valid, check subUseCase
+          const validSubUseCases = getSubUseCasesForUseCase(formData.lob, formData.useCase);
+          if (formData.subUseCase && !validSubUseCases.includes(formData.subUseCase)) {
+            setFormData((prev) => ({
+              ...prev,
+              subUseCase: "",
+            }));
+          }
+        }
+      }
+    }
+  }, [formData.lob]);
+
+  // Reset Sub Use Case when Use Case changes
+  useEffect(() => {
+    if (formData.lob && formData.useCase) {
+      // If Use Case only has "-" as sub use case, set it automatically
+      if (hasOnlyDashSubUseCase(formData.lob, formData.useCase)) {
+        setFormData((prev) => ({
+          ...prev,
+          subUseCase: "-",
+        }));
+      } else {
+        const validSubUseCases = getSubUseCasesForUseCase(formData.lob, formData.useCase);
+        // Only reset if current subUseCase is not valid for the new useCase
+        if (formData.subUseCase && !validSubUseCases.includes(formData.subUseCase)) {
+          setFormData((prev) => ({
+            ...prev,
+            subUseCase: "",
+          }));
+        }
+      }
+    }
+  }, [formData.useCase]);
 
   // Auto-calculate Retention Type based on decision tree logic
   useEffect(() => {
@@ -696,6 +820,61 @@ export default function Mandates() {
     editMandateData?.awignSharePercent,
   ]);
 
+  // Reset Use Case and Sub Use Case when LoB changes in edit form
+  useEffect(() => {
+    if (editMandateData?.lob) {
+      // If LoB only has "-" as use case, set it automatically
+      if (hasOnlyDashUseCase(editMandateData.lob)) {
+        setEditMandateData((prev: any) => ({
+          ...prev,
+          useCase: "-",
+          subUseCase: "-",
+        }));
+      } else {
+        const validUseCases = getUseCasesForLob(editMandateData.lob);
+        // Only reset if current useCase is not valid for the new LoB
+        if (editMandateData.useCase && !validUseCases.includes(editMandateData.useCase)) {
+          setEditMandateData((prev: any) => ({
+            ...prev,
+            useCase: "",
+            subUseCase: "",
+          }));
+        } else if (editMandateData.useCase) {
+          // If useCase is still valid, check subUseCase
+          const validSubUseCases = getSubUseCasesForUseCase(editMandateData.lob, editMandateData.useCase);
+          if (editMandateData.subUseCase && !validSubUseCases.includes(editMandateData.subUseCase)) {
+            setEditMandateData((prev: any) => ({
+              ...prev,
+              subUseCase: "",
+            }));
+          }
+        }
+      }
+    }
+  }, [editMandateData?.lob]);
+
+  // Reset Sub Use Case when Use Case changes in edit form
+  useEffect(() => {
+    if (editMandateData?.lob && editMandateData?.useCase) {
+      // If Use Case only has "-" as sub use case, set it automatically
+      if (hasOnlyDashSubUseCase(editMandateData.lob, editMandateData.useCase)) {
+        setEditMandateData((prev: any) => ({
+          ...prev,
+          subUseCase: "-",
+        }));
+      } else {
+        const validSubUseCases = getSubUseCasesForUseCase(editMandateData.lob, editMandateData.useCase);
+        // Only reset if current subUseCase is not valid for the new useCase
+        if (editMandateData.subUseCase && !validSubUseCases.includes(editMandateData.subUseCase)) {
+          setEditMandateData((prev: any) => ({
+            ...prev,
+            subUseCase: "",
+          }));
+        }
+      }
+    }
+  }, [editMandateData?.useCase]);
+
   const handleInputChange = (field: keyof MandateFormData, value: string) => {
     setFormData((prev) => ({
       ...prev,
@@ -723,6 +902,8 @@ export default function Mandates() {
         account_id: formData.accountId || null,
         kam_id: formData.kamId || null,
         lob: formData.lob,
+        use_case: formData.useCase || null,
+        sub_use_case: formData.subUseCase || null,
         type: formData.type || null,
         
         // Handover Info
@@ -778,6 +959,8 @@ export default function Mandates() {
         accountId: "",
         kamId: "",
         lob: "",
+        useCase: "",
+        subUseCase: "",
         newSalesOwner: "",
         handoverMonthlyVolume: "",
         handoverCommercialPerHead: "",
@@ -1843,6 +2026,8 @@ export default function Mandates() {
       accountId: mandate.account_id || "",
       kamId: mandate.kam_id || "",
       lob: mandate.lob || "",
+      useCase: mandate.use_case || "",
+      subUseCase: mandate.sub_use_case || "",
       type: mandate.type || "",
       newSalesOwner: mandate.new_sales_owner || "",
       handoverMonthlyVolume: mandate.handover_monthly_volume?.toString() || "",
@@ -1917,6 +2102,8 @@ export default function Mandates() {
         account_id: editMandateData.accountId || null,
         kam_id: editMandateData.kamId || null,
         lob: editMandateData.lob || null,
+        use_case: editMandateData.useCase || null,
+        sub_use_case: editMandateData.subUseCase || null,
         type: editMandateData.type || null,
         new_sales_owner: editMandateData.newSalesOwner || null,
         handover_monthly_volume: editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null,
@@ -2103,6 +2290,8 @@ export default function Mandates() {
             accountId: "",
             kamId: "",
             lob: "",
+            useCase: "",
+            subUseCase: "",
             type: "",
             newSalesOwner: "",
             handoverMonthlyVolume: "",
@@ -2316,6 +2505,92 @@ export default function Mandates() {
                         <SelectItem value="Others">Others</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="useCase">
+                      Use Case <span className="text-destructive">*</span>
+                    </Label>
+                    {formData.lob && hasOnlyDashUseCase(formData.lob) ? (
+                      <Input
+                        id="useCase"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
+                    ) : (
+                      <Select
+                        value={formData.useCase}
+                        onValueChange={(value) => handleInputChange("useCase", value)}
+                        required
+                        disabled={!formData.lob || hasOnlyDashUseCase(formData.lob)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Use Case" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.lob ? (
+                            getUseCasesForLob(formData.lob).length > 0 ? (
+                              getUseCasesForLob(formData.lob).map((useCase) => (
+                                <SelectItem key={useCase} value={useCase}>
+                                  {useCase}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No use cases available
+                              </div>
+                            )
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              Select LoB first
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="subUseCase">
+                      Sub Use Case <span className="text-destructive">*</span>
+                    </Label>
+                    {formData.lob && formData.useCase && hasOnlyDashSubUseCase(formData.lob, formData.useCase) ? (
+                      <Input
+                        id="subUseCase"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
+                    ) : (
+                      <Select
+                        value={formData.subUseCase}
+                        onValueChange={(value) => handleInputChange("subUseCase", value)}
+                        required
+                        disabled={!formData.lob || !formData.useCase || hasOnlyDashSubUseCase(formData.lob, formData.useCase)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Sub Use Case" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.lob && formData.useCase ? (
+                            getSubUseCasesForUseCase(formData.lob, formData.useCase).length > 0 ? (
+                              getSubUseCasesForUseCase(formData.lob, formData.useCase).map((subUseCase) => (
+                                <SelectItem key={subUseCase} value={subUseCase}>
+                                  {subUseCase}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No sub use cases available
+                              </div>
+                            )
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {!formData.lob ? "Select LoB first" : "Select Use Case first"}
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="type">
@@ -3174,6 +3449,92 @@ export default function Mandates() {
                         </Select>
                       ) : (
                         <p className="mt-1">{selectedMandate.lob || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Use Case:</Label>
+                      {isEditMode ? (
+                        editMandateData.lob && hasOnlyDashUseCase(editMandateData.lob) ? (
+                          <Input
+                            value="-"
+                            readOnly
+                            className="bg-muted"
+                          />
+                        ) : (
+                          <Select
+                            value={editMandateData.useCase}
+                            onValueChange={(value) => setEditMandateData({ ...editMandateData, useCase: value })}
+                            disabled={!editMandateData.lob || hasOnlyDashUseCase(editMandateData.lob)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select Use Case" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {editMandateData.lob ? (
+                                getUseCasesForLob(editMandateData.lob).length > 0 ? (
+                                  getUseCasesForLob(editMandateData.lob).map((useCase) => (
+                                    <SelectItem key={useCase} value={useCase}>
+                                      {useCase}
+                                    </SelectItem>
+                                  ))
+                                ) : (
+                                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                    No use cases available
+                                  </div>
+                                )
+                              ) : (
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  Select LoB first
+                                </div>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )
+                      ) : (
+                        <p className="mt-1">{selectedMandate.use_case || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Sub Use Case:</Label>
+                      {isEditMode ? (
+                        editMandateData.lob && editMandateData.useCase && hasOnlyDashSubUseCase(editMandateData.lob, editMandateData.useCase) ? (
+                          <Input
+                            value="-"
+                            readOnly
+                            className="bg-muted"
+                          />
+                        ) : (
+                          <Select
+                            value={editMandateData.subUseCase}
+                            onValueChange={(value) => setEditMandateData({ ...editMandateData, subUseCase: value })}
+                            disabled={!editMandateData.lob || !editMandateData.useCase || hasOnlyDashSubUseCase(editMandateData.lob, editMandateData.useCase)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select Sub Use Case" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {editMandateData.lob && editMandateData.useCase ? (
+                                getSubUseCasesForUseCase(editMandateData.lob, editMandateData.useCase).length > 0 ? (
+                                  getSubUseCasesForUseCase(editMandateData.lob, editMandateData.useCase).map((subUseCase) => (
+                                    <SelectItem key={subUseCase} value={subUseCase}>
+                                      {subUseCase}
+                                    </SelectItem>
+                                  ))
+                                ) : (
+                                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                    No sub use cases available
+                                  </div>
+                                )
+                              ) : (
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  {!editMandateData.lob ? "Select LoB first" : "Select Use Case first"}
+                                </div>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )
+                      ) : (
+                        <p className="mt-1">{selectedMandate.sub_use_case || "N/A"}</p>
                       )}
                     </div>
                     <div className="space-y-2">
