@@ -11,10 +11,13 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Download, Upload, FileText } from "lucide-react";
+import { Loader2, Download, Upload, FileText, Calendar as CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
@@ -279,6 +282,7 @@ export default function Pipeline() {
   const [filterKam, setFilterKam] = useState("all");
   const [filterLob, setFilterLob] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterExpectedContractSignDateRange, setFilterExpectedContractSignDateRange] = useState<{ from?: Date; to?: Date } | undefined>(undefined);
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "status">("newest");
 
   // Search terms for dropdowns in forms
@@ -1961,6 +1965,8 @@ export default function Pipeline() {
           deal.kam || "",
           deal.lob || "",
           deal.expectedRevenue ? `₹${parseFloat(deal.expectedRevenue).toLocaleString("en-IN")}` : "",
+          deal.mpv ? `₹${parseFloat(deal.mpv.toString()).toLocaleString("en-IN")}` : "",
+          deal.expected_contract_sign_date || "",
           deal.status || "",
           deal.useCase || "",
         ];
@@ -1971,8 +1977,34 @@ export default function Pipeline() {
       const matchesKam = filterKam === "all" || deal.kam_id === filterKam;
       const matchesLob = filterLob === "all" || deal.lob === filterLob;
       const matchesStatus = filterStatus === "all" || deal.status === filterStatus;
+      
+      // Date range filter logic
+      const matchesExpectedContractSignDate = !filterExpectedContractSignDateRange || (() => {
+        if (!deal.expected_contract_sign_date) return false;
+        const dealDate = new Date(deal.expected_contract_sign_date);
+        dealDate.setHours(0, 0, 0, 0); // Normalize to start of day
+        const { from, to } = filterExpectedContractSignDateRange;
+        
+        // If only one date is selected (from), show deals before that date
+        if (from && !to) {
+          const fromDate = new Date(from);
+          fromDate.setHours(0, 0, 0, 0);
+          return dealDate < fromDate;
+        }
+        
+        // If both dates are selected, show deals between the range (inclusive)
+        if (from && to) {
+          const fromDate = new Date(from);
+          fromDate.setHours(0, 0, 0, 0);
+          const toDate = new Date(to);
+          toDate.setHours(23, 59, 59, 999);
+          return dealDate >= fromDate && dealDate <= toDate;
+        }
+        
+        return false;
+      })();
 
-      return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesStatus;
+      return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesStatus && matchesExpectedContractSignDate;
     })
     .sort((a, b) => {
       if (sortBy === "newest") {
@@ -1995,7 +2027,16 @@ export default function Pipeline() {
     });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterStatus !== "all";
+  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterStatus !== "all" || filterExpectedContractSignDateRange !== undefined;
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setFilterAccount("all");
+    setFilterKam("all");
+    setFilterLob("all");
+    setFilterStatus("all");
+    setFilterExpectedContractSignDateRange(undefined);
+  };
 
   return (
     <div className="space-y-6">
@@ -2918,6 +2959,58 @@ export default function Pipeline() {
                   <SelectItem value="status">Status</SelectItem>
                 </SelectContent>
               </Select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="min-w-[300px] justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {filterExpectedContractSignDateRange?.from ? (
+                      filterExpectedContractSignDateRange.to ? (
+                        <>
+                          {format(filterExpectedContractSignDateRange.from, "LLL dd, y")} -{" "}
+                          {format(filterExpectedContractSignDateRange.to, "LLL dd, y")}
+                        </>
+                      ) : (
+                        <>
+                          Before {format(filterExpectedContractSignDateRange.from, "LLL dd, y")}
+                        </>
+                      )
+                    ) : (
+                      <span>Expected Contract Sign Date</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <div className="p-3 border-b">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Select Date Range</span>
+                      {filterExpectedContractSignDateRange && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setFilterExpectedContractSignDateRange(undefined)}
+                          className="h-7 text-xs"
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <Calendar
+                    mode="range"
+                    selected={filterExpectedContractSignDateRange}
+                    onSelect={setFilterExpectedContractSignDateRange}
+                    numberOfMonths={2}
+                  />
+                </PopoverContent>
+              </Popover>
+              {hasActiveFilters && (
+                <Button variant="outline" onClick={clearFilters}>
+                  Clear Filters
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -2934,6 +3027,8 @@ export default function Pipeline() {
                     <TableHead>KAM</TableHead>
                     <TableHead>LoB</TableHead>
                     <TableHead>Expected Revenue</TableHead>
+                    <TableHead>MPV</TableHead>
+                    <TableHead>Expected Contract Sign Date</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
@@ -2941,7 +3036,7 @@ export default function Pipeline() {
                 <TableBody>
                   {loadingDeals ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8">
+                      <TableCell colSpan={9} className="text-center py-8">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="text-muted-foreground">Loading deals...</span>
@@ -2950,7 +3045,7 @@ export default function Pipeline() {
                     </TableRow>
                   ) : filteredDeals.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                         No deals found
                       </TableCell>
                     </TableRow>
@@ -2968,6 +3063,22 @@ export default function Pipeline() {
                                 ? `₹${parseFloat(deal.expectedRevenue).toLocaleString("en-IN")}`
                                 : "N/A"
                             }
+                            searchTerm={searchTerm}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <HighlightedText
+                            text={
+                              deal.mpv
+                                ? `₹${parseFloat(deal.mpv.toString()).toLocaleString("en-IN")}`
+                                : "N/A"
+                            }
+                            searchTerm={searchTerm}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <HighlightedText
+                            text={deal.expected_contract_sign_date || "N/A"}
                             searchTerm={searchTerm}
                           />
                         </TableCell>
