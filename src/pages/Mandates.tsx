@@ -274,6 +274,7 @@ export default function Mandates() {
   const [filterLob, setFilterLob] = useState("all");
   const [filterMandateHealth, setFilterMandateHealth] = useState("all");
   const [filterUpsellStatus, setFilterUpsellStatus] = useState("all");
+  const [filterRetentionType, setFilterRetentionType] = useState("all");
 
   // Search terms for dropdowns in forms
   const [accountSearch, setAccountSearch] = useState("");
@@ -283,6 +284,7 @@ export default function Mandates() {
   const [mandates, setMandates] = useState<any[]>([]);
   const [loadingMandates, setLoadingMandates] = useState(false);
   const [availableLobs, setAvailableLobs] = useState<string[]>([]);
+  const [availableRetentionTypes, setAvailableRetentionTypes] = useState<string[]>([]);
   const [selectedMandate, setSelectedMandate] = useState<any | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
@@ -309,6 +311,7 @@ export default function Mandates() {
   });
   const [savingMonthlyRecord, setSavingMonthlyRecord] = useState(false);
   const [bulkUpdateMcvDialogOpen, setBulkUpdateMcvDialogOpen] = useState(false);
+  const [bulkUploadCasesDialogOpen, setBulkUploadCasesDialogOpen] = useState(false);
   const [mcvCsvPreviewOpen, setMcvCsvPreviewOpen] = useState(false);
   const [mcvCsvPreviewRows, setMcvCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
   const [mcvCsvFileToUpload, setMcvCsvFileToUpload] = useState<File | null>(null);
@@ -1998,6 +2001,7 @@ export default function Mandates() {
         mcv: mandate.revenue_mcv ? mandate.revenue_mcv.toLocaleString("en-IN") : "N/A",
         mandateHealth: mandate.mandate_health || "N/A",
         upsellStatus: mandate.upsell_action_status || "N/A",
+        retentionType: mandate.retention_type || "N/A",
       }));
 
       setMandates(transformedMandates);
@@ -2005,6 +2009,10 @@ export default function Mandates() {
       // Extract unique LoB values for filter
       const uniqueLobs = [...new Set((data || []).map((m: any) => m.lob).filter(Boolean))];
       setAvailableLobs(uniqueLobs.sort());
+      
+      // Extract unique Retention Type values for filter
+      const uniqueRetentionTypes = [...new Set((data || []).map((m: any) => m.retention_type).filter(Boolean))];
+      setAvailableRetentionTypes(uniqueRetentionTypes.sort());
     } catch (error: any) {
       console.error("Error fetching mandates:", error);
       toast({
@@ -2031,6 +2039,7 @@ export default function Mandates() {
     setFilterLob("all");
     setFilterMandateHealth("all");
     setFilterUpsellStatus("all");
+    setFilterRetentionType("all");
   };
 
   const handleViewDetails = (mandate: any) => {
@@ -2248,6 +2257,7 @@ export default function Mandates() {
         mandate.mcv || "",
         mandate.mandateHealth || "",
         mandate.upsellStatus || "",
+        mandate.retentionType || "",
       ];
       return searchableFields.some(field => field.toLowerCase().includes(searchLower));
     })();
@@ -2257,12 +2267,13 @@ export default function Mandates() {
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
     const matchesHealth = filterMandateHealth === "all" || mandate.mandateHealth === filterMandateHealth;
     const matchesStatus = filterUpsellStatus === "all" || mandate.upsellStatus === filterUpsellStatus;
+    const matchesRetentionType = filterRetentionType === "all" || mandate.retention_type === filterRetentionType;
 
-    return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesHealth && matchesStatus;
+    return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesHealth && matchesStatus && matchesRetentionType;
   });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterMandateHealth !== "all" || filterUpsellStatus !== "all";
+  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterMandateHealth !== "all" || filterUpsellStatus !== "all" || filterRetentionType !== "all";
 
   return (
     <div className="space-y-6">
@@ -2288,6 +2299,12 @@ export default function Mandates() {
             onClick={() => setBulkUpdateMcvDialogOpen(true)}
           >
             Bulk Update MCV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setBulkUploadCasesDialogOpen(true)}
+          >
+            Bulk Upload Cases
           </Button>
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Mandate
@@ -2339,41 +2356,6 @@ export default function Mandates() {
           <DialogHeader>
             <DialogTitle>Add Mandate</DialogTitle>
           </DialogHeader>
-          <div className="flex gap-2 mb-4 pb-4 border-b">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleDownloadMandateTemplate}
-            >
-              <FileText className="mr-2 h-4 w-4" />
-              Download Template
-            </Button>
-            <label>
-              <input
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    handleBulkUploadMandates(file);
-                  }
-                  e.target.value = "";
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                asChild
-                disabled={loadingMandates}
-              >
-                <span>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Bulk Upload
-                </span>
-              </Button>
-            </label>
-          </div>
           <form onSubmit={handleSubmit} className="space-y-6">
               {/* 1st Section: Project Information */}
               <Card className="border-blue-200 bg-blue-50/50">
@@ -3146,6 +3128,19 @@ export default function Mandates() {
                     <SelectItem value="Done">Done</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={filterRetentionType} onValueChange={setFilterRetentionType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Retention Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Retention Types</SelectItem>
+                    {availableRetentionTypes.map((retentionType) => (
+                      <SelectItem key={retentionType} value={retentionType}>
+                        {retentionType}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button variant="outline" onClick={clearFilters}>
                   Clear Filters
                 </Button>
@@ -3169,13 +3164,14 @@ export default function Mandates() {
                       <TableHead>MCV</TableHead>
                       <TableHead>Mandate Health</TableHead>
                       <TableHead>Upsell Status</TableHead>
+                      <TableHead>Retention Type</TableHead>
                       <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
                     {loadingMandates ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="text-center py-8">
+                        <TableCell colSpan={11} className="text-center py-8">
                           <div className="flex items-center justify-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-muted-foreground">Loading mandates...</span>
@@ -3184,7 +3180,7 @@ export default function Mandates() {
                       </TableRow>
                     ) : filteredMandates.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                           No mandates found
                         </TableCell>
                       </TableRow>
@@ -3213,6 +3209,9 @@ export default function Mandates() {
                   </TableCell>
                           <TableCell>
                             <Badge variant="outline"><HighlightedText text={mandate.upsellStatus} searchTerm={searchTerm} /></Badge>
+                          </TableCell>
+                          <TableCell>
+                            <HighlightedText text={mandate.retentionType} searchTerm={searchTerm} />
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
@@ -4495,6 +4494,50 @@ export default function Mandates() {
                 <span>
                   <Upload className="mr-2 h-4 w-4" />
                   Upload CSV File
+                </span>
+              </Button>
+            </label>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Upload Cases Dialog */}
+      <Dialog open={bulkUploadCasesDialogOpen} onOpenChange={setBulkUploadCasesDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Upload Cases</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleDownloadMandateTemplate}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Download Template
+            </Button>
+            <label className="block w-full">
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleBulkUploadMandates(file);
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="outline"
+                className="w-full"
+                asChild
+                disabled={loadingMandates}
+              >
+                <span>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Update Cases
                 </span>
               </Button>
             </label>
