@@ -113,17 +113,17 @@ export default function Accounts() {
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterKam, setFilterKam] = useState("all");
+  const [filterAccountName, setFilterAccountName] = useState("");
+  const [filterCountry, setFilterCountry] = useState("");
   const [filterIndustry, setFilterIndustry] = useState("");
+  const [filterSubCategory, setFilterSubCategory] = useState("");
   const [filterRevenue, setFilterRevenue] = useState("");
   const [filterMCVTier, setFilterMCVTier] = useState("");
   const [filterCompanyTier, setFilterCompanyTier] = useState("");
-  const [filterYearMin, setFilterYearMin] = useState("");
-  const [filterYearMax, setFilterYearMax] = useState("");
   
-  // KAMs for filter
-  const [kams, setKams] = useState<{ id: string; full_name: string }[]>([]);
-  const [accountKamMap, setAccountKamMap] = useState<Record<string, string[]>>({});
+  // Search states for filter dropdowns
+  const [accountNameSearch, setAccountNameSearch] = useState("");
+  const [countrySearch, setCountrySearch] = useState("");
 
   const { toast } = useToast();
 
@@ -136,6 +136,13 @@ export default function Accounts() {
       }));
     }
   }, [formData.industry]);
+
+  // Reset sub category filter when industry filter changes
+  useEffect(() => {
+    if (filterIndustry) {
+      setFilterSubCategory("");
+    }
+  }, [filterIndustry]);
 
   // Auto-calculate Company Size Tier based on revenue range
   useEffect(() => {
@@ -316,9 +323,6 @@ export default function Accounts() {
       }
 
       setAccounts(accountsWithTotals);
-      
-      // Fetch KAMs and build account-KAM mapping
-      await fetchKamsAndMapping(accountsWithTotals.map((a: any) => a.id));
     } catch (error: any) {
       console.error("Error fetching accounts:", error);
       setAccounts([]);
@@ -332,73 +336,6 @@ export default function Accounts() {
     }
   };
 
-  const fetchKamsAndMapping = async (accountIds: string[]) => {
-    try {
-      // Fetch all KAMs
-      const { data: kamData, error: kamError } = await supabase
-        .from("profiles")
-        .select("id, full_name")
-        .order("full_name");
-
-      if (kamError) {
-        console.error("Error fetching KAMs:", kamError);
-        return;
-      }
-
-      if (kamData) {
-        setKams(kamData);
-      }
-
-      // Build account-KAM mapping from mandates and deals
-      const mapping: Record<string, string[]> = {};
-      
-      // Get KAMs from mandates
-      if (accountIds.length > 0) {
-        const { data: mandatesData } = await supabase
-          .from("mandates")
-          .select("account_id, kam_id")
-          .in("account_id", accountIds)
-          .not("kam_id", "is", null);
-
-        if (mandatesData) {
-          mandatesData.forEach((mandate: any) => {
-            if (mandate.account_id && mandate.kam_id) {
-              if (!mapping[mandate.account_id]) {
-                mapping[mandate.account_id] = [];
-              }
-              if (!mapping[mandate.account_id].includes(mandate.kam_id)) {
-                mapping[mandate.account_id].push(mandate.kam_id);
-              }
-            }
-          });
-        }
-
-        // Get KAMs from pipeline deals
-        const { data: dealsData } = await supabase
-          .from("pipeline_deals")
-          .select("account_id, kam_id")
-          .in("account_id", accountIds)
-          .not("kam_id", "is", null);
-
-        if (dealsData) {
-          dealsData.forEach((deal: any) => {
-            if (deal.account_id && deal.kam_id) {
-              if (!mapping[deal.account_id]) {
-                mapping[deal.account_id] = [];
-              }
-              if (!mapping[deal.account_id].includes(deal.kam_id)) {
-                mapping[deal.account_id].push(deal.kam_id);
-              }
-            }
-          });
-        }
-      }
-
-      setAccountKamMap(mapping);
-    } catch (error) {
-      console.error("Error fetching KAMs and mapping:", error);
-    }
-  };
 
   useEffect(() => {
     if (viewMode === "view") {
@@ -409,13 +346,15 @@ export default function Accounts() {
 
   const clearFilters = () => {
     setSearchTerm("");
-    setFilterKam("all");
+    setFilterAccountName("");
+    setFilterCountry("");
     setFilterIndustry("");
+    setFilterSubCategory("");
     setFilterRevenue("");
     setFilterMCVTier("");
     setFilterCompanyTier("");
-    setFilterYearMin("");
-    setFilterYearMax("");
+    setAccountNameSearch("");
+    setCountrySearch("");
   };
 
   const filteredAccounts = (accounts || []).filter((account) => {
@@ -443,19 +382,23 @@ export default function Accounts() {
       return searchableFields.some(field => field.toLowerCase().includes(searchLower));
     })();
     
-    const matchesKam = filterKam === "all" || (accountKamMap[account.id]?.includes(filterKam) ?? false);
+    const matchesAccountName = !filterAccountName || account.name === filterAccountName;
+    const matchesCountry = !filterCountry || account.country === filterCountry;
     const matchesIndustry = !filterIndustry || account.industry === filterIndustry;
+    const matchesSubCategory = !filterSubCategory || account.sub_category === filterSubCategory;
     const matchesRevenue = !filterRevenue || account.revenue_range === filterRevenue;
     const matchesMCVTier = !filterMCVTier || account.mcv_tier === filterMCVTier;
     const matchesCompanyTier = !filterCompanyTier || account.company_size_tier === filterCompanyTier;
-    const matchesYearMin = !filterYearMin || (account.founded_year && account.founded_year >= parseInt(filterYearMin));
-    const matchesYearMax = !filterYearMax || (account.founded_year && account.founded_year <= parseInt(filterYearMax));
 
-    return matchesSearch && matchesKam && matchesIndustry && matchesRevenue && matchesMCVTier && matchesCompanyTier && matchesYearMin && matchesYearMax;
+    return matchesSearch && matchesAccountName && matchesCountry && matchesIndustry && matchesSubCategory && matchesRevenue && matchesMCVTier && matchesCompanyTier;
   });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterKam !== "all" || filterIndustry || filterRevenue || filterMCVTier || filterCompanyTier || filterYearMin || filterYearMax;
+  const hasActiveFilters = searchTerm || filterAccountName || filterCountry || filterIndustry || filterSubCategory || filterRevenue || filterMCVTier || filterCompanyTier;
+  
+  // Get unique account names and countries for filters
+  const uniqueAccountNames = Array.from(new Set((accounts || []).map((acc) => acc.name).filter(Boolean))).sort();
+  const uniqueCountries = Array.from(new Set((accounts || []).map((acc) => acc.country).filter(Boolean))).sort();
 
   const handleViewDetails = async (account: any) => {
     setSelectedAccount(account);
@@ -600,12 +543,83 @@ export default function Accounts() {
       { key: "industry", label: "Industry" },
       { key: "sub_category", label: "Sub Category" },
       { key: "revenue_range", label: "Revenue Range" },
+      { key: "gap1", label: "" },
+      { key: "gap2", label: "" },
+      { key: "reference_industry", label: "Reference Industry" },
+      { key: "reference_sub_category", label: "Reference Sub Category" },
     ];
-    downloadCSVTemplate(templateHeaders, "accounts_upload_template.csv");
+    
+    // Create header row
+    const headerRow = templateHeaders.map((h) => escapeCSVValue(h.label)).join(",");
+    
+    // Create reference data rows showing all industries and their sub categories
+    const referenceRows: string[] = [];
+    
+    // Add empty row for spacing
+    referenceRows.push(templateHeaders.map(() => "").join(","));
+    
+    // Add header row for reference section
+    const referenceHeaderRow = [
+      ...Array(10).fill(""), // Empty columns for data fields
+      "", "", // 2 empty columns for gap
+      "=== REFERENCE: Industries and Sub Categories ===",
+      "Use this reference to select correct Industry and Sub Category values"
+    ].join(",");
+    referenceRows.push(referenceHeaderRow);
+    
+    // Add empty row after header
+    referenceRows.push(templateHeaders.map((h, i) => {
+      if (i < 10) return ""; // Data fields
+      if (i === 10 || i === 11) return ""; // Gap columns
+      if (i === 12) return "Industry";
+      if (i === 13) return "Sub Category";
+      return "";
+    }).join(","));
+    
+    // Add each industry and its sub categories
+    Object.entries(industrySubCategories).forEach(([industry, subCategories]) => {
+      if (subCategories.length > 0) {
+        // Add one row per sub category
+        subCategories.forEach((subCat, index) => {
+          const row = [
+            ...Array(10).fill(""), // Empty columns for data fields
+            "", "", // 2 empty columns for gap
+            index === 0 ? industry : "", // Show industry name only in first row
+            subCat
+          ].join(",");
+          referenceRows.push(row);
+        });
+      } else {
+        // Industry with no sub categories
+        const row = [
+          ...Array(10).fill(""), // Empty columns for data fields
+          "", "", // 2 empty columns for gap
+          industry,
+          "No sub category"
+        ].join(",");
+        referenceRows.push(row);
+      }
+    });
+    
+    const csvContent = [headerRow, ...referenceRows].join("\n");
+    downloadCSV(csvContent, "accounts_upload_template.csv");
+    
     toast({
       title: "Template Downloaded",
-      description: "CSV template downloaded. Fill in the data and upload it.",
+      description: "CSV template downloaded. Fill in the data and upload it. Reference data included on the right.",
     });
+  };
+  
+  // Helper function to escape CSV values (same as in csv-export.ts)
+  const escapeCSVValue = (value: any): string => {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    const stringValue = String(value);
+    if (stringValue.includes(",") || stringValue.includes("\n") || stringValue.includes('"')) {
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    return stringValue;
   };
 
   const handleBulkUploadAccounts = async (file: File) => {
@@ -645,14 +659,25 @@ export default function Accounts() {
       }
 
       // Parse and validate each row
-      const previewRows = csvData.map((row: any, index: number) => {
-        const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
-        const errors: string[] = [];
+      const previewRows = csvData
+        .map((row: any, index: number) => {
+          const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
+          
+          // Skip reference rows (rows that have reference data but no account data)
+          const hasReferenceData = (row["Reference Industry"] && row["Reference Industry"].trim() !== "") ||
+                                   (row["Reference Sub Category"] && row["Reference Sub Category"].trim() !== "");
+          const hasAccountData = row["Account Name"] && row["Account Name"].trim() !== "";
+          
+          if (hasReferenceData && !hasAccountData) {
+            return null; // Skip this row
+          }
+          
+          const errors: string[] = [];
 
-        // Validate required fields
-        if (!row["Account Name"] || row["Account Name"].trim() === "") {
-          errors.push("Account Name is required");
-        }
+          // Validate required fields
+          if (!row["Account Name"] || row["Account Name"].trim() === "") {
+            errors.push("Account Name is required");
+          }
         if (!row["Website"] || row["Website"].trim() === "") {
           errors.push("Website is required");
         }
@@ -680,7 +705,8 @@ export default function Accounts() {
           isValid: errors.length === 0,
           errors,
         };
-      });
+      })
+      .filter((row: any) => row !== null); // Remove skipped reference rows
 
       // Store preview data and open dialog
       setCsvPreviewRows(previewRows);
@@ -711,11 +737,19 @@ export default function Accounts() {
         throw new Error("You must be logged in to upload accounts");
       }
 
-      // Filter out invalid rows
-      const validRows = csvData.filter((row: any, index: number) => {
-        const previewRow = csvPreviewRows[index];
-        return previewRow?.isValid;
-      });
+      // Filter out reference rows and invalid rows
+      // Use preview rows to determine which rows are valid
+      // Preview rows have rowNumber = CSV row index + 2 (header is row 1, first data row is row 2)
+      const validRows = csvPreviewRows
+        .filter((previewRow: any) => previewRow.isValid)
+        .map((previewRow: any) => {
+          // Get the original CSV row using rowNumber
+          // rowNumber is 1-indexed for display, but csvData is 0-indexed (header removed by parseCSV)
+          // So rowNumber - 2 gives us the index in csvData
+          const csvIndex = previewRow.rowNumber - 2;
+          return csvData[csvIndex];
+        })
+        .filter((row: any) => row !== undefined); // Safety check
 
       const accountsToInsert = validRows.map((row: any) => {
         // Auto-calculate company_size_tier from revenue_range
@@ -1306,23 +1340,70 @@ export default function Accounts() {
           <Card>
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-9 gap-3">
                 <Input
                   placeholder="Search all fields..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
-                <Select value={filterKam} onValueChange={setFilterKam}>
+                <Select value={filterAccountName || undefined} onValueChange={(value) => setFilterAccountName(value === "all" ? "" : value)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="All KAMs" />
+                    <SelectValue placeholder="All Account Names" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All KAMs</SelectItem>
-                    {kams.map((kam) => (
-                      <SelectItem key={kam.id} value={kam.id}>
-                        {kam.full_name}
-                      </SelectItem>
-                    ))}
+                    <div className="px-2 pb-2">
+                      <Input
+                        placeholder="Search account names..."
+                        value={accountNameSearch}
+                        onChange={(e) => setAccountNameSearch(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="h-8"
+                      />
+                    </div>
+                    <SelectItem value="all">All Account Names</SelectItem>
+                    {uniqueAccountNames
+                      .filter((name) => name.toLowerCase().includes(accountNameSearch.toLowerCase()))
+                      .map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    {uniqueAccountNames.filter((name) => name.toLowerCase().includes(accountNameSearch.toLowerCase())).length === 0 && (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No account names found
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
+                <Select value={filterCountry || undefined} onValueChange={(value) => setFilterCountry(value === "all" ? "" : value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Countries" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <div className="px-2 pb-2">
+                      <Input
+                        placeholder="Search countries..."
+                        value={countrySearch}
+                        onChange={(e) => setCountrySearch(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="h-8"
+                      />
+                    </div>
+                    <SelectItem value="all">All Countries</SelectItem>
+                    {uniqueCountries
+                      .filter((country) => country.toLowerCase().includes(countrySearch.toLowerCase()))
+                      .map((country) => (
+                        <SelectItem key={country} value={country}>
+                          {country}
+                        </SelectItem>
+                      ))}
+                    {uniqueCountries.filter((country) => country.toLowerCase().includes(countrySearch.toLowerCase())).length === 0 && (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No countries found
+                      </div>
+                    )}
                   </SelectContent>
                 </Select>
                 <Select value={filterIndustry || "all"} onValueChange={(value) => setFilterIndustry(value === "all" ? "" : value)}>
@@ -1336,6 +1417,39 @@ export default function Accounts() {
                         {industry}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+                <Select 
+                  value={filterSubCategory || undefined} 
+                  onValueChange={(value) => setFilterSubCategory(value === "all" ? "" : value)}
+                  disabled={!filterIndustry || filterIndustry === "Media & Entertainment" || filterIndustry === "E-Commerce"}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Sub Industry" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {!filterIndustry ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        Select industry first
+                      </div>
+                    ) : filterIndustry === "Media & Entertainment" || filterIndustry === "E-Commerce" ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No sub category for {filterIndustry}
+                      </div>
+                    ) : industrySubCategories[filterIndustry] && industrySubCategories[filterIndustry].length > 0 ? (
+                      <>
+                        <SelectItem value="all">All Sub Categories</SelectItem>
+                        {industrySubCategories[filterIndustry].map((subCat) => (
+                          <SelectItem key={subCat} value={subCat}>
+                            {subCat}
+                          </SelectItem>
+                        ))}
+                      </>
+                    ) : (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No sub categories available
+                      </div>
+                    )}
                   </SelectContent>
                 </Select>
                 <Select value={filterRevenue || "all"} onValueChange={(value) => setFilterRevenue(value === "all" ? "" : value)}>
@@ -1371,18 +1485,6 @@ export default function Accounts() {
                     <SelectItem value="Tier 2">Tier 2</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input
-                  type="number"
-                  placeholder="Founded Year ≥"
-                  value={filterYearMin}
-                  onChange={(e) => setFilterYearMin(e.target.value)}
-                />
-                <Input
-                  type="number"
-                  placeholder="Founded Year ≤"
-                  value={filterYearMax}
-                  onChange={(e) => setFilterYearMax(e.target.value)}
-                />
                 <Button variant="outline" onClick={clearFilters}>
                   Clear Filters
                 </Button>
