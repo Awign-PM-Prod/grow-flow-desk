@@ -82,6 +82,7 @@ export default function Contacts() {
   const [filterDepartment, setFilterDepartment] = useState("all");
   const [filterTitle, setFilterTitle] = useState("all");
   const [filterLevel, setFilterLevel] = useState("all");
+  const [filterAwignChampion, setFilterAwignChampion] = useState("all");
 
   // Search terms for dropdowns in forms
   const [accountSearch, setAccountSearch] = useState("");
@@ -778,12 +779,15 @@ export default function Contacts() {
     const matchesDepartment = filterDepartment === "all" || contact.department === filterDepartment;
     const matchesTitle = filterTitle === "all" || contact.title === filterTitle;
     const matchesLevel = filterLevel === "all" || contact.level === filterLevel;
+    const matchesAwignChampion = filterAwignChampion === "all" || 
+      (filterAwignChampion === "YES" && contact.awign_champion === true) ||
+      (filterAwignChampion === "NO" && contact.awign_champion === false);
 
-    return matchesSearch && matchesAccount && matchesDepartment && matchesTitle && matchesLevel;
+    return matchesSearch && matchesAccount && matchesDepartment && matchesTitle && matchesLevel && matchesAwignChampion;
   });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterDepartment !== "all" || filterTitle !== "all" || filterLevel !== "all";
+  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterDepartment !== "all" || filterTitle !== "all" || filterLevel !== "all" || filterAwignChampion !== "all";
 
   const handleViewDetails = (contact: any) => {
     setSelectedContact(contact);
@@ -1403,6 +1407,16 @@ export default function Contacts() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Select value={filterAwignChampion} onValueChange={setFilterAwignChampion}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Awign Champions" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Awign Champions</SelectItem>
+                    <SelectItem value="YES">YES</SelectItem>
+                    <SelectItem value="NO">NO</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -1411,6 +1425,7 @@ export default function Contacts() {
                     setFilterDepartment("all");
                     setFilterTitle("all");
                     setFilterLevel("all");
+                    setFilterAwignChampion("all");
                   }}
                 >
                   Clear Filters
@@ -1432,13 +1447,14 @@ export default function Contacts() {
                     <TableHead>Phone</TableHead>
                     <TableHead>Title</TableHead>
                     <TableHead>Level</TableHead>
+                    <TableHead>Awign Champion</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loadingContacts ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8">
+                      <TableCell colSpan={8} className="text-center py-8">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="text-muted-foreground">Loading contacts...</span>
@@ -1447,7 +1463,7 @@ export default function Contacts() {
                     </TableRow>
                   ) : filteredContacts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                         No contacts found
                       </TableCell>
                     </TableRow>
@@ -1462,6 +1478,7 @@ export default function Contacts() {
                         <TableCell><HighlightedText text={contact.phone_number} searchTerm={searchTerm} /></TableCell>
                         <TableCell><HighlightedText text={contact.title} searchTerm={searchTerm} /></TableCell>
                         <TableCell><HighlightedText text={contact.level} searchTerm={searchTerm} /></TableCell>
+                        <TableCell>{contact.awign_champion ? "YES" : "NO"}</TableCell>
                         <TableCell>
                           <div className="flex gap-2">
                             <Button
