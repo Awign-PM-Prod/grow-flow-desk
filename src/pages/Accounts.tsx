@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Download, Upload, FileText } from "lucide-react";
+import { Loader2, Download, Upload, FileText, Globe } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
@@ -59,7 +59,7 @@ interface AccountFormData {
 const industrySubCategories: Record<string, string[]> = {
   "Manufacturing": ["Automobiles", "Electronics", "Machinery", "Other Products"],
   "FMCG": ["Food & Beverage", "Household & Personal Care (Beauty products)", "Health & Wellness"],
-  "Retail Trade": ["Fashion & Trend", "E-commerce Retailers"],
+  "Retail Trade": ["Fashion & Trend", "Retailers"],
   "Information & Communication": ["IT", "Software", "Telecom Carriers", "Web Services"],
   "Financial Services": ["Banks", "Securities", "Insurance", "Leasing"],
   "Transportation & Logistics": ["Railways", "Airlines", "Shipping", "Courier Services", "Warehousing"],
@@ -68,6 +68,7 @@ const industrySubCategories: Record<string, string[]> = {
   "Construction & Infrastructure": ["General Contractors", "Housing", "Civil Engineering"],
   "Real Estate": ["Developers", "Condominiums", "Office Management"],
   "Media & Entertainment": [], // No sub-category for Media & Entertainment
+  "E-Commerce": [], // No sub-category for E-Commerce
   "Others": ["Others"],
 };
 
@@ -664,7 +665,7 @@ export default function Accounts() {
         if (!row["Industry"] || row["Industry"].trim() === "") {
           errors.push("Industry is required");
         }
-        if (row["Industry"] && row["Industry"].trim() !== "Media & Entertainment") {
+        if (row["Industry"] && row["Industry"].trim() !== "Media & Entertainment" && row["Industry"].trim() !== "E-Commerce") {
           if (!row["Sub Category"] || row["Sub Category"].trim() === "") {
             errors.push("Sub Category is required");
           }
@@ -984,6 +985,7 @@ export default function Accounts() {
     "Construction & Infrastructure",
     "Real Estate",
     "Media & Entertainment",
+    "E-Commerce",
     "Others",
   ];
 
@@ -1223,21 +1225,21 @@ export default function Accounts() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="subCategory">
-                      Industry - Sub Category {formData.industry !== "Media & Entertainment" && <span className="text-destructive">*</span>}
+                      Industry - Sub Category {formData.industry !== "Media & Entertainment" && formData.industry !== "E-Commerce" && <span className="text-destructive">*</span>}
                     </Label>
                     <Select
                       value={formData.subCategory}
                       onValueChange={(value) => handleInputChange("subCategory", value)}
-                      required={formData.industry !== "Media & Entertainment"}
-                      disabled={!formData.industry || formData.industry === "Media & Entertainment"}
+                      required={formData.industry !== "Media & Entertainment" && formData.industry !== "E-Commerce"}
+                      disabled={!formData.industry || formData.industry === "Media & Entertainment" || formData.industry === "E-Commerce"}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder={formData.industry === "Media & Entertainment" ? "Sub category cannot be added" : "Select..."} />
+                        <SelectValue placeholder={formData.industry === "Media & Entertainment" || formData.industry === "E-Commerce" ? "Sub category cannot be added" : "Select..."} />
                       </SelectTrigger>
                       <SelectContent>
-                        {formData.industry === "Media & Entertainment" ? (
+                        {formData.industry === "Media & Entertainment" || formData.industry === "E-Commerce" ? (
                           <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            Sub category cannot be added for Media & Entertainment
+                            Sub category cannot be added for {formData.industry}
                           </div>
                         ) : formData.industry && industrySubCategories[formData.industry] && industrySubCategories[formData.industry].length > 0 ? (
                           industrySubCategories[formData.industry].map((subCat) => (
@@ -1395,8 +1397,7 @@ export default function Accounts() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Account Name</TableHead>
-                      <TableHead>Website</TableHead>
+                      <TableHead className="min-w-[250px] w-[20%]">Account Name</TableHead>
                       <TableHead>Address</TableHead>
                       <TableHead>City</TableHead>
                       <TableHead>State</TableHead>
@@ -1415,7 +1416,7 @@ export default function Accounts() {
                   <TableBody>
                     {loadingAccounts ? (
                       <TableRow>
-                        <TableCell colSpan={15} className="text-center py-8">
+                        <TableCell colSpan={14} className="text-center py-8">
                           <div className="flex items-center justify-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-muted-foreground">Loading accounts...</span>
@@ -1424,23 +1425,28 @@ export default function Accounts() {
                       </TableRow>
                     ) : filteredAccounts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={15} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
                           No accounts found
                         </TableCell>
                       </TableRow>
                     ) : (
                       filteredAccounts.map((account) => (
                         <TableRow key={account.id}>
-                          <TableCell className="font-medium"><HighlightedText text={account.name} searchTerm={searchTerm} /></TableCell>
-                          <TableCell>
-                            <a
-                              href={account.website}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary hover:underline"
-                            >
-                              <HighlightedText text={account.website} searchTerm={searchTerm} />
-                            </a>
+                          <TableCell className="font-medium min-w-[250px] w-[20%]">
+                            <div className="flex items-center gap-2">
+                              <HighlightedText text={account.name} searchTerm={searchTerm} />
+                              {account.website && (
+                                <a
+                                  href={account.website.startsWith('http') ? account.website : `https://${account.website}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary hover:text-primary/80 transition-colors"
+                                  title={`Visit ${account.website}`}
+                                >
+                                  <Globe className="h-4 w-4" />
+                                </a>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell><HighlightedText text={account.address} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={account.city || "N/A"} searchTerm={searchTerm} /></TableCell>
@@ -1665,15 +1671,15 @@ export default function Accounts() {
                         <Select
                           value={editAccountData.subCategory}
                           onValueChange={(value) => setEditAccountData({ ...editAccountData, subCategory: value })}
-                          disabled={!editAccountData.industry || editAccountData.industry === "Media & Entertainment"}
+                          disabled={!editAccountData.industry || editAccountData.industry === "Media & Entertainment" || editAccountData.industry === "E-Commerce"}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder={editAccountData.industry === "Media & Entertainment" ? "Sub category cannot be added" : "Select sub category"} />
+                            <SelectValue placeholder={editAccountData.industry === "Media & Entertainment" || editAccountData.industry === "E-Commerce" ? "Sub category cannot be added" : "Select sub category"} />
                           </SelectTrigger>
                           <SelectContent>
-                            {editAccountData.industry === "Media & Entertainment" ? (
+                            {editAccountData.industry === "Media & Entertainment" || editAccountData.industry === "E-Commerce" ? (
                               <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                Sub category cannot be added for Media & Entertainment
+                                Sub category cannot be added for {editAccountData.industry}
                               </div>
                             ) : editAccountData.industry && industrySubCategories[editAccountData.industry] && industrySubCategories[editAccountData.industry].length > 0 ? (
                               industrySubCategories[editAccountData.industry].map((subCat) => (

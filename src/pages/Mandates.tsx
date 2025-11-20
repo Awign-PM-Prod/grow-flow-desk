@@ -876,10 +876,25 @@ export default function Mandates() {
   }, [editMandateData?.useCase]);
 
   const handleInputChange = (field: keyof MandateFormData, value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        [field]: value,
+      };
+      
+      // If type is changed to "New Cross Sell", clear all handover values
+      if (field === "type" && value === "New Cross Sell") {
+        updated.newSalesOwner = "";
+        updated.handoverMonthlyVolume = "";
+        updated.handoverCommercialPerHead = "";
+        updated.handoverMcv = "";
+        updated.prjDurationMonths = "";
+        updated.handoverAcv = "";
+        updated.handoverPrjType = "";
+      }
+      
+      return updated;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -906,14 +921,14 @@ export default function Mandates() {
         sub_use_case: formData.subUseCase || null,
         type: formData.type || null,
         
-        // Handover Info
-        new_sales_owner: formData.newSalesOwner || null,
-        handover_monthly_volume: formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null,
-        handover_commercial_per_head: formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null,
-        handover_mcv: formData.handoverMcv ? parseFloat(formData.handoverMcv) : null,
-        prj_duration_months: formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null,
-        handover_acv: formData.handoverAcv ? parseFloat(formData.handoverAcv) : null,
-        handover_prj_type: formData.handoverPrjType || null,
+        // Handover Info - Set to null if type is "New Cross Sell"
+        new_sales_owner: formData.type === "New Cross Sell" ? null : (formData.newSalesOwner || null),
+        handover_monthly_volume: formData.type === "New Cross Sell" ? null : (formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null),
+        handover_commercial_per_head: formData.type === "New Cross Sell" ? null : (formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null),
+        handover_mcv: formData.type === "New Cross Sell" ? null : (formData.handoverMcv ? parseFloat(formData.handoverMcv) : null),
+        prj_duration_months: formData.type === "New Cross Sell" ? null : (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null),
+        handover_acv: formData.type === "New Cross Sell" ? null : (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null),
+        handover_prj_type: formData.type === "New Cross Sell" ? null : (formData.handoverPrjType || null),
         
         // Revenue Info
         revenue_monthly_volume: formData.revenueMonthlyVolume ? parseFloat(formData.revenueMonthlyVolume) : null,
@@ -2105,13 +2120,14 @@ export default function Mandates() {
         use_case: editMandateData.useCase || null,
         sub_use_case: editMandateData.subUseCase || null,
         type: editMandateData.type || null,
-        new_sales_owner: editMandateData.newSalesOwner || null,
-        handover_monthly_volume: editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null,
-        handover_commercial_per_head: editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null,
-        handover_mcv: editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null,
-        prj_duration_months: editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null,
-        handover_acv: editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null,
-        handover_prj_type: editMandateData.handoverPrjType || null,
+        // Handover Info - Set to null if type is "New Cross Sell"
+        new_sales_owner: editMandateData.type === "New Cross Sell" ? null : (editMandateData.newSalesOwner || null),
+        handover_monthly_volume: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null),
+        handover_commercial_per_head: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null),
+        handover_mcv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null),
+        prj_duration_months: editMandateData.type === "New Cross Sell" ? null : (editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null),
+        handover_acv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null),
+        handover_prj_type: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverPrjType || null),
         revenue_monthly_volume: editMandateData.revenueMonthlyVolume ? parseFloat(editMandateData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: editMandateData.revenueCommercialPerHead ? parseFloat(editMandateData.revenueCommercialPerHead) : null,
         revenue_mcv: editMandateData.revenueMcv ? parseFloat(editMandateData.revenueMcv) : null,
@@ -2616,6 +2632,7 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
+              {(formData.type === "New" || formData.type === "Existing") && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
@@ -2721,6 +2738,7 @@ export default function Mandates() {
                   </div>
                 </CardContent>
               </Card>
+              )}
 
               {/* 3rd Section: Revenue Info */}
               <Card className="border-purple-200 bg-purple-50/50">
@@ -3535,7 +3553,20 @@ export default function Mandates() {
                       {isEditMode ? (
                         <Select
                           value={editMandateData.type}
-                          onValueChange={(value) => setEditMandateData({ ...editMandateData, type: value })}
+                          onValueChange={(value) => {
+                            const updated = { ...editMandateData, type: value };
+                            // If type is changed to "New Cross Sell", clear all handover values
+                            if (value === "New Cross Sell") {
+                              updated.newSalesOwner = "";
+                              updated.handoverMonthlyVolume = "";
+                              updated.handoverCommercialPerHead = "";
+                              updated.handoverMcv = "";
+                              updated.prjDurationMonths = "";
+                              updated.handoverAcv = "";
+                              updated.handoverPrjType = "";
+                            }
+                            setEditMandateData(updated);
+                          }}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select type" />
@@ -3555,6 +3586,8 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
+              {((isEditMode && (editMandateData.type === "New" || editMandateData.type === "Existing")) || 
+                (!isEditMode && (selectedMandate.type === "New" || selectedMandate.type === "Existing"))) && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
@@ -3665,6 +3698,7 @@ export default function Mandates() {
                   </div>
                 </CardContent>
               </Card>
+              )}
 
               {/* 3rd Section: Revenue Info */}
               <Card className="border-purple-200 bg-purple-50/50">
