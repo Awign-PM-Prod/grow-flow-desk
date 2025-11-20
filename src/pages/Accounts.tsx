@@ -1095,6 +1095,18 @@ export default function Accounts() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="address">
+                      Address <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="address"
+                      value={formData.address}
+                      onChange={(e) => handleInputChange("address", e.target.value)}
+                      placeholder="Street address"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="website">
                       Website <span className="text-destructive">*</span>
                     </Label>
@@ -1104,18 +1116,6 @@ export default function Accounts() {
                       value={formData.website}
                       onChange={(e) => handleInputChange("website", e.target.value)}
                       placeholder="https://example.com"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="address">
-                      Address <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="address"
-                      value={formData.address}
-                      onChange={(e) => handleInputChange("address", e.target.value)}
-                      placeholder="Street address"
                       required
                     />
                   </div>
@@ -1132,6 +1132,21 @@ export default function Accounts() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="foundedYear">
+                      Founded Year <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="foundedYear"
+                      type="number"
+                      min="1800"
+                      max="2100"
+                      value={formData.foundedYear}
+                      onChange={(e) => handleInputChange("foundedYear", e.target.value)}
+                      placeholder="2010"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="state">
                       State <span className="text-destructive">*</span>
                     </Label>
@@ -1144,6 +1159,27 @@ export default function Accounts() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="revenueRange">
+                      Company Size (Revenue Range) <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.revenueRange}
+                      onValueChange={(value) => handleInputChange("revenueRange", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {revenueRanges.map((range) => (
+                          <SelectItem key={range} value={range}>
+                            {range}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="country">
                       Country <span className="text-destructive">*</span>
                     </Label>
@@ -1152,21 +1188,6 @@ export default function Accounts() {
                       value={formData.country}
                       onChange={(e) => handleInputChange("country", e.target.value)}
                       placeholder="Country"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="foundedYear">
-                      Founded Year <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="foundedYear"
-                      type="number"
-                      min="1800"
-                      max="2100"
-                      value={formData.foundedYear}
-                      onChange={(e) => handleInputChange("foundedYear", e.target.value)}
-                      placeholder="2010"
                       required
                     />
                   </div>
@@ -1229,27 +1250,6 @@ export default function Accounts() {
                             Select industry first
                           </div>
                         )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="revenueRange">
-                      Company Size (Revenue Range) <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.revenueRange}
-                      onValueChange={(value) => handleInputChange("revenueRange", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {revenueRanges.map((range) => (
-                          <SelectItem key={range} value={range}>
-                            {range}
-                          </SelectItem>
-                        ))}
                       </SelectContent>
                     </Select>
                   </div>

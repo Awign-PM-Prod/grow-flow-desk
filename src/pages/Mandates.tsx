@@ -2359,10 +2359,10 @@ export default function Mandates() {
             </label>
           </div>
           <form onSubmit={handleSubmit} className="space-y-6">
-              {/* 1st Section: Project Info */}
+              {/* 1st Section: Project Information */}
               <Card className="border-blue-200 bg-blue-50/50">
                 <CardContent className="pt-6">
-                  <h3 className="font-semibold text-lg mb-4 text-blue-900">Project Info</h3>
+                  <h3 className="font-semibold text-lg mb-4 text-blue-900">Project Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="projectCode">
@@ -2376,6 +2376,30 @@ export default function Mandates() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="lob">
+                      LoB (Vertical) <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.lob}
+                      onValueChange={(value) => handleInputChange("lob", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select LoB" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Diligence & Audit">Diligence & Audit</SelectItem>
+                        <SelectItem value="New Business Development">New Business Development</SelectItem>
+                        <SelectItem value="Digital Gigs">Digital Gigs</SelectItem>
+                        <SelectItem value="Awign Expert">Awign Expert</SelectItem>
+                        <SelectItem value="Last Mile Operations">Last Mile Operations</SelectItem>
+                        <SelectItem value="Invigilation & Proctoring">Invigilation & Proctoring</SelectItem>
+                        <SelectItem value="Staffing">Staffing</SelectItem>
+                        <SelectItem value="Others">Others</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="projectName">
                       Project Name <span className="text-destructive">*</span>
                     </Label>
@@ -2385,6 +2409,49 @@ export default function Mandates() {
                       onChange={(e) => handleInputChange("projectName", e.target.value)}
                       required
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="useCase">
+                      Use Case <span className="text-destructive">*</span>
+                    </Label>
+                    {formData.lob && hasOnlyDashUseCase(formData.lob) ? (
+                      <Input
+                        id="useCase"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
+                    ) : (
+                      <Select
+                        value={formData.useCase}
+                        onValueChange={(value) => handleInputChange("useCase", value)}
+                        required
+                        disabled={!formData.lob || hasOnlyDashUseCase(formData.lob)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Use Case" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.lob ? (
+                            getUseCasesForLob(formData.lob).length > 0 ? (
+                              getUseCasesForLob(formData.lob).map((useCase) => (
+                                <SelectItem key={useCase} value={useCase}>
+                                  {useCase}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No use cases available
+                              </div>
+                            )
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              Select LoB first
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="accountId">
@@ -2435,6 +2502,49 @@ export default function Mandates() {
                     </Select>
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="subUseCase">
+                      Sub Use Case <span className="text-destructive">*</span>
+                    </Label>
+                    {formData.lob && formData.useCase && hasOnlyDashSubUseCase(formData.lob, formData.useCase) ? (
+                      <Input
+                        id="subUseCase"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
+                    ) : (
+                      <Select
+                        value={formData.subUseCase}
+                        onValueChange={(value) => handleInputChange("subUseCase", value)}
+                        required
+                        disabled={!formData.lob || !formData.useCase || hasOnlyDashSubUseCase(formData.lob, formData.useCase)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Sub Use Case" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.lob && formData.useCase ? (
+                            getSubUseCasesForUseCase(formData.lob, formData.useCase).length > 0 ? (
+                              getSubUseCasesForUseCase(formData.lob, formData.useCase).map((subUseCase) => (
+                                <SelectItem key={subUseCase} value={subUseCase}>
+                                  {subUseCase}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No sub use cases available
+                              </div>
+                            )
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {!formData.lob ? "Select LoB first" : "Select Use Case first"}
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="kamId">
                       KAM (CE in charge) <span className="text-destructive">*</span>
                     </Label>
@@ -2483,116 +2593,6 @@ export default function Mandates() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="lob">
-                      LoB (Vertical) <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.lob}
-                      onValueChange={(value) => handleInputChange("lob", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select LoB" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Diligence & Audit">Diligence & Audit</SelectItem>
-                        <SelectItem value="New Business Development">New Business Development</SelectItem>
-                        <SelectItem value="Digital Gigs">Digital Gigs</SelectItem>
-                        <SelectItem value="Awign Expert">Awign Expert</SelectItem>
-                        <SelectItem value="Last Mile Operations">Last Mile Operations</SelectItem>
-                        <SelectItem value="Invigilation & Proctoring">Invigilation & Proctoring</SelectItem>
-                        <SelectItem value="Staffing">Staffing</SelectItem>
-                        <SelectItem value="Others">Others</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="useCase">
-                      Use Case <span className="text-destructive">*</span>
-                    </Label>
-                    {formData.lob && hasOnlyDashUseCase(formData.lob) ? (
-                      <Input
-                        id="useCase"
-                        value="-"
-                        readOnly
-                        className="bg-muted"
-                      />
-                    ) : (
-                      <Select
-                        value={formData.useCase}
-                        onValueChange={(value) => handleInputChange("useCase", value)}
-                        required
-                        disabled={!formData.lob || hasOnlyDashUseCase(formData.lob)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Use Case" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {formData.lob ? (
-                            getUseCasesForLob(formData.lob).length > 0 ? (
-                              getUseCasesForLob(formData.lob).map((useCase) => (
-                                <SelectItem key={useCase} value={useCase}>
-                                  {useCase}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No use cases available
-                              </div>
-                            )
-                          ) : (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              Select LoB first
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="subUseCase">
-                      Sub Use Case <span className="text-destructive">*</span>
-                    </Label>
-                    {formData.lob && formData.useCase && hasOnlyDashSubUseCase(formData.lob, formData.useCase) ? (
-                      <Input
-                        id="subUseCase"
-                        value="-"
-                        readOnly
-                        className="bg-muted"
-                      />
-                    ) : (
-                      <Select
-                        value={formData.subUseCase}
-                        onValueChange={(value) => handleInputChange("subUseCase", value)}
-                        required
-                        disabled={!formData.lob || !formData.useCase || hasOnlyDashSubUseCase(formData.lob, formData.useCase)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Sub Use Case" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {formData.lob && formData.useCase ? (
-                            getSubUseCasesForUseCase(formData.lob, formData.useCase).length > 0 ? (
-                              getSubUseCasesForUseCase(formData.lob, formData.useCase).map((subUseCase) => (
-                                <SelectItem key={subUseCase} value={subUseCase}>
-                                  {subUseCase}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No sub use cases available
-                              </div>
-                            )
-                          ) : (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              {!formData.lob ? "Select LoB first" : "Select Use Case first"}
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                  <div className="space-y-2">
                     <Label htmlFor="type">
                       Type <span className="text-destructive">*</span>
                     </Label>
@@ -2620,7 +2620,7 @@ export default function Mandates() {
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
+                    <div className="space-y-2 md:col-span-2">
                       <Label htmlFor="newSalesOwner">New Sales Owner</Label>
                       <Input
                         id="newSalesOwner"
@@ -2628,7 +2628,7 @@ export default function Mandates() {
                         onChange={(e) => handleInputChange("newSalesOwner", e.target.value)}
                       />
                     </div>
-                    <div className="space-y-2 md:col-span-2">
+                    <div className="space-y-2">
                       <Label htmlFor="handoverMcv">
                         MCV <span className="text-destructive">*</span>
                       </Label>
@@ -2639,32 +2639,30 @@ export default function Mandates() {
                         readOnly
                         className="bg-muted"
                       />
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="handoverMonthlyVolume">
-                            Monthly Volume <span className="text-destructive">*</span>
-                          </Label>
-                          <Input
-                            id="handoverMonthlyVolume"
-                            type="number"
-                            value={formData.handoverMonthlyVolume}
-                            onChange={(e) => handleInputChange("handoverMonthlyVolume", e.target.value)}
-                            required
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="handoverCommercialPerHead">
-                            Commercial per head/task <span className="text-destructive">*</span>
-                          </Label>
-                          <Input
-                            id="handoverCommercialPerHead"
-                            type="number"
-                            value={formData.handoverCommercialPerHead}
-                            onChange={(e) => handleInputChange("handoverCommercialPerHead", e.target.value)}
-                            required
-                          />
-                        </div>
-                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="handoverAcv">
+                        ACV <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="handoverAcv"
+                        type="number"
+                        value={formData.handoverAcv}
+                        onChange={(e) => handleInputChange("handoverAcv", e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="handoverMonthlyVolume">
+                        Monthly Volume <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="handoverMonthlyVolume"
+                        type="number"
+                        value={formData.handoverMonthlyVolume}
+                        onChange={(e) => handleInputChange("handoverMonthlyVolume", e.target.value)}
+                        required
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="prjDurationMonths">
@@ -2691,14 +2689,14 @@ export default function Mandates() {
                       </p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="handoverAcv">
-                        ACV <span className="text-destructive">*</span>
+                      <Label htmlFor="handoverCommercialPerHead">
+                        Commercial per head/task <span className="text-destructive">*</span>
                       </Label>
                       <Input
-                        id="handoverAcv"
+                        id="handoverCommercialPerHead"
                         type="number"
-                        value={formData.handoverAcv}
-                        onChange={(e) => handleInputChange("handoverAcv", e.target.value)}
+                        value={formData.handoverCommercialPerHead}
+                        onChange={(e) => handleInputChange("handoverCommercialPerHead", e.target.value)}
                         required
                       />
                     </div>
@@ -2740,32 +2738,18 @@ export default function Mandates() {
                         readOnly
                         className="bg-muted"
                       />
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="revenueMonthlyVolume">
-                            Monthly Volume <span className="text-destructive">*</span>
-                          </Label>
-                          <Input
-                            id="revenueMonthlyVolume"
-                            type="number"
-                            value={formData.revenueMonthlyVolume}
-                            onChange={(e) => handleInputChange("revenueMonthlyVolume", e.target.value)}
-                            required
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="revenueCommercialPerHead">
-                            Commercial per head/task <span className="text-destructive">*</span>
-                          </Label>
-                          <Input
-                            id="revenueCommercialPerHead"
-                            type="number"
-                            value={formData.revenueCommercialPerHead}
-                            onChange={(e) => handleInputChange("revenueCommercialPerHead", e.target.value)}
-                            required
-                          />
-                        </div>
-                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="revenueMonthlyVolume">
+                        Monthly Volume <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="revenueMonthlyVolume"
+                        type="number"
+                        value={formData.revenueMonthlyVolume}
+                        onChange={(e) => handleInputChange("revenueMonthlyVolume", e.target.value)}
+                        required
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="revenueAcv">
@@ -2776,6 +2760,18 @@ export default function Mandates() {
                         type="number"
                         value={formData.revenueAcv}
                         onChange={(e) => handleInputChange("revenueAcv", e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="revenueCommercialPerHead">
+                        Commercial per head/task <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="revenueCommercialPerHead"
+                        type="number"
+                        value={formData.revenueCommercialPerHead}
+                        onChange={(e) => handleInputChange("revenueCommercialPerHead", e.target.value)}
                         required
                       />
                     </div>
@@ -2826,6 +2822,25 @@ export default function Mandates() {
                     </Select>
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="clientBudgetTrend">
+                      Client Budget Trend <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.clientBudgetTrend}
+                      onValueChange={(value) => handleInputChange("clientBudgetTrend", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select trend" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Increase">Increase</SelectItem>
+                        <SelectItem value="Same">Same</SelectItem>
+                        <SelectItem value="Decrease">Decrease</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="upsellConstraint">
                       Upsell Constraint <span className="text-destructive">*</span>
                     </Label>
@@ -2840,6 +2855,24 @@ export default function Mandates() {
                       <SelectContent>
                         <SelectItem value="YES">YES</SelectItem>
                         <SelectItem value="NO">NO</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="awignSharePercent">
+                      Awign Share % <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.awignSharePercent}
+                      onValueChange={(value) => handleInputChange("awignSharePercent", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select share" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Below 70%">Below 70%</SelectItem>
+                        <SelectItem value="70% & Above">70% & Above</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2881,140 +2914,6 @@ export default function Mandates() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="upsellConstraintSub">
-                      Upsell Constraint Type - Sub <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.upsellConstraintSub}
-                      onValueChange={(value) => handleInputChange("upsellConstraintSub", value)}
-                      required
-                      disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-"}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {formData.upsellConstraint === "NO" ? (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            Not applicable
-                          </div>
-                        ) : formData.upsellConstraint === "YES" && formData.upsellConstraintType ? (
-                          getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).length > 0 ? (
-                            getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).map((sub) => (
-                              <SelectItem key={sub} value={sub}>
-                                {sub}
-                              </SelectItem>
-                            ))
-                          ) : (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              No sub types available
-                            </div>
-                          )
-                        ) : (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            {!formData.upsellConstraint ? "Select Upsell Constraint first" : "Select Type first"}
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="upsellConstraintSub2">
-                      Upsell Constraint Type - Sub 2 <span className="text-destructive">*</span>
-                    </Label>
-                    {formData.upsellConstraint === "NO" ? (
-                      <Input
-                        id="upsellConstraintSub2"
-                        value="-"
-                        readOnly
-                        className="bg-muted"
-                      />
-                    ) : isReadOnlySub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
-                      <Input
-                        id="upsellConstraintSub2"
-                        value="-"
-                        readOnly
-                        className="bg-muted"
-                      />
-                    ) : isFreeTextSub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
-                      <Input
-                        id="upsellConstraintSub2"
-                        value={formData.upsellConstraintSub2 === "-" ? "" : formData.upsellConstraintSub2}
-                        onChange={(e) => handleInputChange("upsellConstraintSub2", e.target.value)}
-                        placeholder="Enter details (free text)"
-                        required
-                        disabled={!formData.upsellConstraintSub || formData.upsellConstraintSub === "-"}
-                      />
-                    ) : (
-                      <Select
-                        value={formData.upsellConstraintSub2}
-                        onValueChange={(value) => handleInputChange("upsellConstraintSub2", value)}
-                        required
-                        disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-" || !formData.upsellConstraintSub || formData.upsellConstraintSub === "-" || getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length === 0}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {formData.upsellConstraint === "YES" && formData.upsellConstraintType && formData.upsellConstraintSub ? (
-                            getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length > 0 ? (
-                              getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).map((sub2) => (
-                                <SelectItem key={sub2} value={sub2}>
-                                  {sub2}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No options available
-                              </div>
-                            )
-                          ) : (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              {!formData.upsellConstraint ? "Select Upsell Constraint first" : !formData.upsellConstraintType ? "Select Type first" : "Select Sub first"}
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="clientBudgetTrend">
-                      Client Budget Trend <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.clientBudgetTrend}
-                      onValueChange={(value) => handleInputChange("clientBudgetTrend", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select trend" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Increase">Increase</SelectItem>
-                        <SelectItem value="Same">Same</SelectItem>
-                        <SelectItem value="Decrease">Decrease</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="awignSharePercent">
-                      Awign Share % <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.awignSharePercent}
-                      onValueChange={(value) => handleInputChange("awignSharePercent", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select share" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Below 70%">Below 70%</SelectItem>
-                        <SelectItem value="70% & Above">70% & Above</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                     <div className="space-y-2">
                       <Label htmlFor="retentionType">Retention Type</Label>
                       <Input
@@ -3025,6 +2924,100 @@ export default function Mandates() {
                         className="bg-muted"
                       />
                     </div>
+                  {formData.upsellConstraint === "YES" && (
+                    <>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="upsellConstraintSub">
+                          Upsell Constraint Type - Sub <span className="text-destructive">*</span>
+                        </Label>
+                        <Select
+                          value={formData.upsellConstraintSub}
+                          onValueChange={(value) => handleInputChange("upsellConstraintSub", value)}
+                          required
+                          disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-"}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {formData.upsellConstraint === "NO" ? (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                Not applicable
+                              </div>
+                            ) : formData.upsellConstraint === "YES" && formData.upsellConstraintType ? (
+                              getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).length > 0 ? (
+                                getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).map((sub) => (
+                                  <SelectItem key={sub} value={sub}>
+                                    {sub}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  No sub types available
+                                </div>
+                              )
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                {!formData.upsellConstraint ? "Select Upsell Constraint first" : "Select Type first"}
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="upsellConstraintSub2">
+                          Upsell Constraint Type - Sub 2 <span className="text-destructive">*</span>
+                        </Label>
+                        {isReadOnlySub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
+                          <Input
+                            id="upsellConstraintSub2"
+                            value="-"
+                            readOnly
+                            className="bg-muted"
+                          />
+                        ) : isFreeTextSub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
+                          <Input
+                            id="upsellConstraintSub2"
+                            value={formData.upsellConstraintSub2 === "-" ? "" : formData.upsellConstraintSub2}
+                            onChange={(e) => handleInputChange("upsellConstraintSub2", e.target.value)}
+                            placeholder="Enter details (free text)"
+                            required
+                            disabled={!formData.upsellConstraintSub || formData.upsellConstraintSub === "-"}
+                          />
+                        ) : (
+                          <Select
+                            value={formData.upsellConstraintSub2}
+                            onValueChange={(value) => handleInputChange("upsellConstraintSub2", value)}
+                            required
+                            disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-" || !formData.upsellConstraintSub || formData.upsellConstraintSub === "-" || getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length === 0}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {formData.upsellConstraint === "YES" && formData.upsellConstraintType && formData.upsellConstraintSub ? (
+                                getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length > 0 ? (
+                                  getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).map((sub2) => (
+                                    <SelectItem key={sub2} value={sub2}>
+                                      {sub2}
+                                    </SelectItem>
+                                  ))
+                                ) : (
+                                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                    No options available
+                                  </div>
+                                )
+                              ) : (
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  {!formData.upsellConstraint ? "Select Upsell Constraint first" : !formData.upsellConstraintType ? "Select Type first" : "Select Sub first"}
+                                </div>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                    </>
+                  )}
                   </div>
                 </CardContent>
               </Card>

@@ -1052,30 +1052,6 @@ export default function Contacts() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="firstName">
-                      First Name <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="firstName"
-                      value={formData.firstName}
-                      onChange={(e) => handleInputChange("firstName", e.target.value)}
-                      placeholder="John"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lastName">
-                      Last Name <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="lastName"
-                      value={formData.lastName}
-                      onChange={(e) => handleInputChange("lastName", e.target.value)}
-                      placeholder="Doe"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
                     <Label htmlFor="email">
                       Email <span className="text-destructive">*</span>
                     </Label>
@@ -1089,6 +1065,18 @@ export default function Contacts() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="firstName">
+                      First Name <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="firstName"
+                      value={formData.firstName}
+                      onChange={(e) => handleInputChange("firstName", e.target.value)}
+                      placeholder="John"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="phoneNumber">
                       Phone Number <span className="text-destructive">*</span>
                     </Label>
@@ -1097,6 +1085,18 @@ export default function Contacts() {
                       value={formData.phoneNumber}
                       onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
                       placeholder="9876543210"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">
+                      Last Name <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="lastName"
+                      value={formData.lastName}
+                      onChange={(e) => handleInputChange("lastName", e.target.value)}
+                      placeholder="Doe"
                       required
                     />
                   </div>
@@ -1122,14 +1122,6 @@ export default function Contacts() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="kra">KRA (Key Responsibility Area)</Label>
-                    <Input
-                      id="kra"
-                      value={formData.kra}
-                      onChange={(e) => handleInputChange("kra", e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
                     <Label htmlFor="title">
                       Title <span className="text-destructive">*</span>
                     </Label>
@@ -1139,6 +1131,14 @@ export default function Contacts() {
                       onChange={(e) => handleInputChange("title", e.target.value)}
                       placeholder="Head of Procurement"
                       required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="kra">KRA</Label>
+                    <Input
+                      id="kra"
+                      value={formData.kra}
+                      onChange={(e) => handleInputChange("kra", e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1187,17 +1187,6 @@ export default function Contacts() {
                       </SelectContent>
                     </Select>
                   </div>
-                  {formData.zone === "Regional" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="region">Region</Label>
-                      <Input
-                        id="region"
-                        value={formData.region}
-                        onChange={(e) => handleInputChange("region", e.target.value)}
-                        placeholder="North 2"
-                      />
-                    </div>
-                  )}
                   <div className="space-y-2">
                     <Label htmlFor="reportsTo">Reports To</Label>
                     <Select
@@ -1249,6 +1238,17 @@ export default function Contacts() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {formData.zone === "Regional" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="region">Region</Label>
+                      <Input
+                        id="region"
+                        value={formData.region}
+                        onChange={(e) => handleInputChange("region", e.target.value)}
+                        placeholder="North 2"
+                      />
+                    </div>
+                  )}
                   </div>
                 </CardContent>
               </Card>
@@ -1605,28 +1605,6 @@ export default function Contacts() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">First Name:</Label>
-                      {isEditMode ? (
-                        <Input
-                          value={editContactData.firstName}
-                          onChange={(e) => setEditContactData({ ...editContactData, firstName: e.target.value })}
-                        />
-                      ) : (
-                        <p className="mt-1">{selectedContact.first_name || "N/A"}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Last Name:</Label>
-                      {isEditMode ? (
-                        <Input
-                          value={editContactData.lastName}
-                          onChange={(e) => setEditContactData({ ...editContactData, lastName: e.target.value })}
-                        />
-                      ) : (
-                        <p className="mt-1">{selectedContact.last_name || "N/A"}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Email:</Label>
                       {isEditMode ? (
                         <Input
@@ -1639,6 +1617,17 @@ export default function Contacts() {
                       )}
                     </div>
                     <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">First Name:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editContactData.firstName}
+                          onChange={(e) => setEditContactData({ ...editContactData, firstName: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedContact.first_name || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Phone Number:</Label>
                       {isEditMode ? (
                         <Input
@@ -1647,6 +1636,17 @@ export default function Contacts() {
                         />
                       ) : (
                         <p className="mt-1">{selectedContact.phone_number || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Last Name:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editContactData.lastName}
+                          onChange={(e) => setEditContactData({ ...editContactData, lastName: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedContact.last_name || "N/A"}</p>
                       )}
                     </div>
                   </div>
@@ -1670,17 +1670,6 @@ export default function Contacts() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">KRA (Key Responsibility Area):</Label>
-                      {isEditMode ? (
-                        <Input
-                          value={editContactData.kra}
-                          onChange={(e) => setEditContactData({ ...editContactData, kra: e.target.value })}
-                        />
-                      ) : (
-                        <p className="mt-1">{selectedContact.kra || "N/A"}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Title:</Label>
                       {isEditMode ? (
                         <Input
@@ -1689,6 +1678,17 @@ export default function Contacts() {
                         />
                       ) : (
                         <p className="mt-1">{selectedContact.title || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">KRA:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editContactData.kra}
+                          onChange={(e) => setEditContactData({ ...editContactData, kra: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedContact.kra || "N/A"}</p>
                       )}
                     </div>
                     <div className="space-y-2">
@@ -1739,20 +1739,6 @@ export default function Contacts() {
                         <p className="mt-1">{selectedContact.zone || "N/A"}</p>
                       )}
                     </div>
-                    {((isEditMode && editContactData.zone === "Regional") || (!isEditMode && selectedContact.zone === "Regional")) && (
-                      <div className="space-y-2">
-                        <Label className="font-medium text-muted-foreground">Region:</Label>
-                        {isEditMode ? (
-                          <Input
-                            value={editContactData.region}
-                            onChange={(e) => setEditContactData({ ...editContactData, region: e.target.value })}
-                            placeholder="North 2"
-                          />
-                        ) : (
-                          <p className="mt-1">{selectedContact.region || "N/A"}</p>
-                        )}
-                      </div>
-                    )}
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Reports To:</Label>
                       {isEditMode ? (
@@ -1817,6 +1803,20 @@ export default function Contacts() {
                         </p>
                       )}
                     </div>
+                    {((isEditMode && editContactData.zone === "Regional") || (!isEditMode && selectedContact.zone === "Regional")) && (
+                      <div className="space-y-2">
+                        <Label className="font-medium text-muted-foreground">Region:</Label>
+                        {isEditMode ? (
+                          <Input
+                            value={editContactData.region}
+                            onChange={(e) => setEditContactData({ ...editContactData, region: e.target.value })}
+                            placeholder="North 2"
+                          />
+                        ) : (
+                          <p className="mt-1">{selectedContact.region || "N/A"}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
