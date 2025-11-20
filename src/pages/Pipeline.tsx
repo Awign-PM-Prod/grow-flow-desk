@@ -2125,6 +2125,27 @@ export default function Pipeline() {
                     </Select>
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="lob">
+                      LoB <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.lob}
+                      onValueChange={(value) => handleInputChange("lob", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select LoB" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lobOptions.map((lob) => (
+                          <SelectItem key={lob} value={lob}>
+                            {lob}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="spocId">
                       SPOC <span className="text-destructive">*</span>
                     </Label>
@@ -2178,6 +2199,49 @@ export default function Pipeline() {
                     </Select>
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="useCase">
+                      Use Case <span className="text-destructive">*</span>
+                    </Label>
+                    {formData.lob && hasOnlyDashUseCase(formData.lob) ? (
+                      <Input
+                        id="useCase"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
+                    ) : (
+                      <Select
+                        value={formData.useCase}
+                        onValueChange={(value) => handleInputChange("useCase", value)}
+                        required
+                        disabled={!formData.lob || hasOnlyDashUseCase(formData.lob)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Use Case" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.lob ? (
+                            getUseCasesForLob(formData.lob).length > 0 ? (
+                              getUseCasesForLob(formData.lob).map((useCase) => (
+                                <SelectItem key={useCase} value={useCase}>
+                                  {useCase}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No use cases available
+                              </div>
+                            )
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              Select LoB first
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="spoc2Id">SPOC 2</Label>
                     <Select
                       value={formData.spoc2Id || undefined}
@@ -2226,6 +2290,49 @@ export default function Pipeline() {
                         )}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="subUseCase">
+                      Sub Use Case <span className="text-destructive">*</span>
+                    </Label>
+                    {formData.lob && formData.useCase && hasOnlyDashSubUseCase(formData.lob, formData.useCase) ? (
+                      <Input
+                        id="subUseCase"
+                        value="-"
+                        readOnly
+                        className="bg-muted"
+                      />
+                    ) : (
+                      <Select
+                        value={formData.subUseCase}
+                        onValueChange={(value) => handleInputChange("subUseCase", value)}
+                        required
+                        disabled={!formData.lob || !formData.useCase || hasOnlyDashSubUseCase(formData.lob, formData.useCase)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Sub Use Case" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.lob && formData.useCase ? (
+                            getSubUseCasesForUseCase(formData.lob, formData.useCase).length > 0 ? (
+                              getSubUseCasesForUseCase(formData.lob, formData.useCase).map((subUseCase) => (
+                                <SelectItem key={subUseCase} value={subUseCase}>
+                                  {subUseCase}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No sub use cases available
+                              </div>
+                            )
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {!formData.lob ? "Select LoB first" : "Select Use Case first"}
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="spoc3Id">SPOC 3</Label>
@@ -2277,112 +2384,50 @@ export default function Pipeline() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lob">
-                      LoB <span className="text-destructive">*</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Revenue Info Section */}
+            <Card className="border-purple-200 bg-purple-50/50">
+              <CardContent className="pt-6">
+                <h3 className="font-semibold text-lg mb-4 text-purple-900">Revenue Info</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="mpv">
+                      MPV <span className="text-destructive">*</span>
                     </Label>
-                    <Select
-                      value={formData.lob}
-                      onValueChange={(value) => handleInputChange("lob", value)}
+                    <Input
+                      id="mpv"
+                      value={formData.mpv}
+                      placeholder="Auto"
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="maxMpv">
+                      Max MPV <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="maxMpv"
+                      value={formData.maxMpv}
+                      placeholder="Auto"
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="expectedRevenue">
+                      Expected Revenue <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="expectedRevenue"
+                      type="number"
+                      value={formData.expectedRevenue}
+                      onChange={(e) => handleInputChange("expectedRevenue", e.target.value)}
                       required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select LoB" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {lobOptions.map((lob) => (
-                          <SelectItem key={lob} value={lob}>
-                            {lob}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="useCase">
-                      Use Case <span className="text-destructive">*</span>
-                    </Label>
-                    {formData.lob && hasOnlyDashUseCase(formData.lob) ? (
-                      <Input
-                        id="useCase"
-                        value="-"
-                        readOnly
-                        className="bg-muted"
-                      />
-                    ) : (
-                      <Select
-                        value={formData.useCase}
-                        onValueChange={(value) => handleInputChange("useCase", value)}
-                        required
-                        disabled={!formData.lob || hasOnlyDashUseCase(formData.lob)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Use Case" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {formData.lob ? (
-                            getUseCasesForLob(formData.lob).length > 0 ? (
-                              getUseCasesForLob(formData.lob).map((useCase) => (
-                                <SelectItem key={useCase} value={useCase}>
-                                  {useCase}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No use cases available
-                              </div>
-                            )
-                          ) : (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              Select LoB first
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="subUseCase">
-                      Sub Use Case <span className="text-destructive">*</span>
-                    </Label>
-                    {formData.lob && formData.useCase && hasOnlyDashSubUseCase(formData.lob, formData.useCase) ? (
-                      <Input
-                        id="subUseCase"
-                        value="-"
-                        readOnly
-                        className="bg-muted"
-                      />
-                    ) : (
-                      <Select
-                        value={formData.subUseCase}
-                        onValueChange={(value) => handleInputChange("subUseCase", value)}
-                        required
-                        disabled={!formData.lob || !formData.useCase || hasOnlyDashSubUseCase(formData.lob, formData.useCase)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Sub Use Case" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {formData.lob && formData.useCase ? (
-                            getSubUseCasesForUseCase(formData.lob, formData.useCase).length > 0 ? (
-                              getSubUseCasesForUseCase(formData.lob, formData.useCase).map((subUseCase) => (
-                                <SelectItem key={subUseCase} value={subUseCase}>
-                                  {subUseCase}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No sub use cases available
-                              </div>
-                            )
-                          ) : (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              {!formData.lob ? "Select LoB first" : "Select Use Case first"}
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    )}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="monthlyVolume">
@@ -2397,87 +2442,6 @@ export default function Pipeline() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="maxMonthlyVolume">
-                      Maximum Monthly Volume <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="maxMonthlyVolume"
-                      type="number"
-                      value={formData.maxMonthlyVolume}
-                      onChange={(e) => handleInputChange("maxMonthlyVolume", e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="commercialPerHead">
-                      Commercial per head/task <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="commercialPerHead"
-                      type="number"
-                      value={formData.commercialPerHead}
-                      onChange={(e) => handleInputChange("commercialPerHead", e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="expectedRevenue">
-                      Expected Revenue <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="expectedRevenue"
-                      type="number"
-                      value={formData.expectedRevenue}
-                      onChange={(e) => handleInputChange("expectedRevenue", e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="mpv">
-                      MPV <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="mpv"
-                      value={formData.mpv}
-                      placeholder="Auto"
-                      readOnly
-                      className="bg-muted"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="maxMpv">
-                      Max MPV <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="maxMpv"
-                      value={formData.maxMpv}
-                      placeholder="Auto"
-                      readOnly
-                      className="bg-muted"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="prjDurationMonths">
-                      PRJ duration (months) <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.prjDurationMonths}
-                      onValueChange={(value) => handleInputChange("prjDurationMonths", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select duration" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {prjDurationOptions.map((duration) => (
-                          <SelectItem key={duration} value={duration}>
-                            {duration}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
                     <Label htmlFor="gmThreshold">
                       GM Threshold <span className="text-destructive">*</span>
                     </Label>
@@ -2486,6 +2450,18 @@ export default function Pipeline() {
                       type="number"
                       value={formData.gmThreshold}
                       onChange={(e) => handleInputChange("gmThreshold", e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxMonthlyVolume">
+                      Maximum Monthly Volume <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="maxMonthlyVolume"
+                      type="number"
+                      value={formData.maxMonthlyVolume}
+                      onChange={(e) => handleInputChange("maxMonthlyVolume", e.target.value)}
                       required
                     />
                   </div>
@@ -2510,6 +2486,47 @@ export default function Pipeline() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="commercialPerHead">
+                      Commercial per head/task <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="commercialPerHead"
+                      type="number"
+                      value={formData.commercialPerHead}
+                      onChange={(e) => handleInputChange("commercialPerHead", e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="prjDurationMonths">
+                      PRJ duration (months) <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.prjDurationMonths}
+                      onValueChange={(value) => handleInputChange("prjDurationMonths", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select duration" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {prjDurationOptions.map((duration) => (
+                          <SelectItem key={duration} value={duration}>
+                            {duration}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Status Based Details Section */}
+            <Card className="border-orange-200 bg-orange-50/50">
+              <CardContent className="pt-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="status">
                       STATUS <span className="text-destructive">*</span>
@@ -2533,15 +2550,16 @@ export default function Pipeline() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="prjStartDate">
-                      PRJ Start Date <span className="text-destructive">*</span>
+                    <Label htmlFor="expectedContractSignDate">
+                      Expected Contract Sign Date <span className="text-destructive">*</span>
                     </Label>
                     <Input
-                      id="prjStartDate"
+                      id="expectedContractSignDate"
                       type="date"
-                      value={formData.prjStartDate}
-                      onChange={(e) => handleInputChange("prjStartDate", e.target.value)}
-                      required
+                      value={formData.expectedContractSignDate}
+                      onChange={(e) => handleInputChange("expectedContractSignDate", e.target.value)}
+                      required={showProposalBlock}
+                      className={!formData.expectedContractSignDate ? "bg-muted" : ""}
                     />
                   </div>
                   <div className="space-y-2">
@@ -2554,14 +2572,49 @@ export default function Pipeline() {
                       className="bg-muted"
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="contractSignDate">
+                      Contract Sign Date <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="contractSignDate"
+                      type="date"
+                      value={formData.contractSignDate}
+                      onChange={(e) => handleInputChange("contractSignDate", e.target.value)}
+                      required={showClosedWonBlock}
+                      className={!formData.contractSignDate ? "bg-muted" : ""}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="prjStartDate">
+                      PRJ Start Date <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="prjStartDate"
+                      type="date"
+                      value={formData.prjStartDate}
+                      onChange={(e) => handleInputChange("prjStartDate", e.target.value)}
+                      required
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Status Based Details */}
-            <div>
-              <h3 className="font-semibold text-lg mb-4">Status Based Details</h3>
-              <div className="space-y-6">
+            {/* Status Based Details - Additional Fields */}
+            {(
+              formData.solutionProposalSlides ||
+              formData.ganttChartUrl ||
+              formData.expectedContractSignDate ||
+              formData.finalProposalSlides ||
+              formData.contractSignDate ||
+              formData.signedContractLink ||
+              formData.droppedReason ||
+              formData.droppedReasonOthers
+            ) && (
+              <div>
+                <h3 className="font-semibold text-lg mb-4">Status Based Details</h3>
+                <div className="space-y-6">
                 {/* Proposal Stage Block */}
                 {showProposalBlock && (
                   <Card className="border rounded-xl bg-slate-50">
@@ -2589,18 +2642,6 @@ export default function Pipeline() {
                             placeholder="URL"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="expectedContractSignDate">
-                            Expected Contract Sign Date <span className="text-destructive">*</span>
-                          </Label>
-                          <Input
-                            id="expectedContractSignDate"
-                            type="date"
-                            value={formData.expectedContractSignDate}
-                            onChange={(e) => handleInputChange("expectedContractSignDate", e.target.value)}
-                            required={showProposalBlock}
-                          />
-                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -2612,18 +2653,6 @@ export default function Pipeline() {
                     <CardContent className="pt-6">
                       <h4 className="font-semibold mb-4">Closed Won Details</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="contractSignDate">
-                            Contract Sign Date <span className="text-destructive">*</span>
-                          </Label>
-                          <Input
-                            id="contractSignDate"
-                            type="date"
-                            value={formData.contractSignDate}
-                            onChange={(e) => handleInputChange("contractSignDate", e.target.value)}
-                            required={showClosedWonBlock}
-                          />
-                        </div>
                         <div className="space-y-2">
                           <Label htmlFor="signedContractLink">
                             Signed Contract Link <span className="text-destructive">*</span>
@@ -2681,8 +2710,9 @@ export default function Pipeline() {
                     </CardContent>
                   </Card>
                 )}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex justify-end gap-2">
               <Button
