@@ -1732,7 +1732,7 @@ export default function Pipeline() {
     setViewDetailsDialogOpen(false);
     setDealForStatusUpdate(deal);
     setStatusUpdateForm({
-      newStatus: deal.status || "",
+      newStatus: "", // Empty to show placeholder
       discoveryMeetingSlides: deal.discovery_meeting_slides || "",
       discoveryMeetingSlidesFile: null,
       solutionProposalSlides: deal.solution_proposal_slides || "",
@@ -1761,7 +1761,7 @@ export default function Pipeline() {
   const handleUpdateStatus = (deal: any) => {
     setDealForStatusUpdate(deal);
     setStatusUpdateForm({
-      newStatus: deal.status || "",
+      newStatus: "", // Empty to show placeholder
       discoveryMeetingSlides: deal.discovery_meeting_slides || "",
       discoveryMeetingSlidesFile: null,
       solutionProposalSlides: deal.solution_proposal_slides || "",
