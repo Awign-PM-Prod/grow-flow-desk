@@ -209,6 +209,24 @@ const formatStatusWithNumber = (status: string): string => {
   return `${index}. ${status}`;
 };
 
+// Helper function to get valid status options based on current status
+// Forward: can only go to next sequential status
+// Backward: can go to any previous status (excluding current status)
+const getValidStatusOptions = (currentStatus: string): string[] => {
+  const currentIndex = statusOptions.indexOf(currentStatus);
+  if (currentIndex === -1) return statusOptions; // If status not found, show all
+  
+  // Forward: can only go to next status (currentIndex + 1)
+  const forwardOption = currentIndex < statusOptions.length - 1 ? [statusOptions[currentIndex + 1]] : [];
+  
+  // Backward: can go to any status from 0 to currentIndex - 1 (excluding current)
+  const backwardOptions = statusOptions.slice(0, currentIndex);
+  
+  // Combine and sort by index
+  const validOptions = [...forwardOption, ...backwardOptions];
+  return validOptions.sort((a, b) => statusOptions.indexOf(a) - statusOptions.indexOf(b));
+};
+
 const getStatusBadgeStyle = (status: string): { variant: "default" | "secondary" | "destructive" | "outline"; className?: string } => {
   const statusStyleMap: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
     "Listed": { variant: "outline", className: "bg-gray-100 text-gray-700 border-gray-300" },
@@ -759,12 +777,12 @@ export default function Pipeline() {
       const salesModuleNames = dealsToInsert.map((d: any) => d.sales_module_name);
       const { data: existingDeals } = await supabase
         .from("pipeline_deals")
-        .select("id, sales_module_name")
+        .select("id, sales_module_name, status")
         .in("sales_module_name", salesModuleNames);
 
-      const existingDealMap: Record<string, string> = {};
+      const existingDealMap: Record<string, { id: string; status: string }> = {};
       existingDeals?.forEach((deal: any) => {
-        existingDealMap[deal.sales_module_name] = deal.id;
+        existingDealMap[deal.sales_module_name] = { id: deal.id, status: deal.status };
       });
 
       for (let i = 0; i < dealsToInsert.length; i += batchSize) {
@@ -788,6 +806,10 @@ export default function Pipeline() {
         // Update existing deals
         for (const deal of toUpdate) {
           const { id, ...updateData } = deal;
+          const existingDeal = existingDealMap[deal.sales_module_name];
+          const oldStatus = existingDeal?.status;
+          const newStatus = updateData.status || "Listed";
+          
           const { error } = await supabase
             .from("pipeline_deals")
             .update(updateData)
@@ -800,6 +822,23 @@ export default function Pipeline() {
           } else {
             updateCount++;
             successCount++;
+            
+            // Track status change in history if status changed
+            if (oldStatus && oldStatus !== newStatus) {
+              const { error: historyError } = await supabase
+                .from("deal_status_history")
+                .insert({
+                  deal_id: id,
+                  sales_module_name: deal.sales_module_name,
+                  old_status: oldStatus,
+                  new_status: newStatus,
+                  changed_by: user.id,
+                });
+              
+              if (historyError) {
+                console.error("Error saving status history for bulk update:", historyError);
+              }
+            }
           }
         }
 
@@ -815,6 +854,25 @@ export default function Pipeline() {
           } else {
             insertCount += (data?.length || 0);
             successCount += (data?.length || 0);
+            
+            // Track initial status for all newly inserted deals
+            if (data && data.length > 0) {
+              const historyRecords = data.map((deal: any) => ({
+                deal_id: deal.id,
+                sales_module_name: deal.sales_module_name,
+                old_status: null,
+                new_status: deal.status || "Listed",
+                changed_by: user.id,
+              }));
+              
+              const { error: historyError } = await supabase
+                .from("deal_status_history")
+                .insert(historyRecords);
+              
+              if (historyError) {
+                console.error("Error saving status history for bulk insert:", historyError);
+              }
+            }
           }
         }
       }
@@ -1317,11 +1375,29 @@ export default function Pipeline() {
         created_by: user.id,
       };
 
-      const { error: insertError } = await supabase
+      const { data: newDeal, error: insertError } = await supabase
         .from("pipeline_deals")
-        .insert([dealData]);
+        .insert([dealData])
+        .select()
+        .single();
 
       if (insertError) throw insertError;
+
+      // Track initial status in history
+      const { error: historyError } = await supabase
+        .from("deal_status_history")
+        .insert({
+          deal_id: newDeal.id,
+          sales_module_name: formData.salesModuleName,
+          old_status: null,
+          new_status: formData.status || "Listed",
+          changed_by: user.id,
+        });
+
+      if (historyError) {
+        console.error("Error saving status history:", historyError);
+        // Don't fail the creation if history fails, but log it
+      }
 
       toast({
         title: "Success!",
@@ -1723,9 +1799,33 @@ export default function Pipeline() {
     setUpdatingStatus(true);
     try {
       const dealId = dealForStatusUpdate.id;
+      const oldStatus = dealForStatusUpdate.status;
+      const newStatus = statusUpdateForm.newStatus;
+      const salesModuleName = dealForStatusUpdate.sales_module_name;
+      
       const updateData: any = {
-        status: statusUpdateForm.newStatus,
+        status: newStatus,
       };
+
+      // Track status change in history (only if status actually changed)
+      if (oldStatus !== newStatus) {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        const { error: historyError } = await supabase
+          .from("deal_status_history")
+          .insert({
+            deal_id: dealId,
+            sales_module_name: salesModuleName,
+            old_status: oldStatus,
+            new_status: newStatus,
+            changed_by: user?.id || null,
+          });
+
+        if (historyError) {
+          console.error("Error saving status history:", historyError);
+          // Don't fail the update if history fails, but log it
+        }
+      }
 
       // Upload files and update URLs
       if (statusUpdateForm.discoveryMeetingSlidesFile) {
@@ -3379,6 +3479,16 @@ export default function Pipeline() {
             <DialogTitle>Update Deal Status</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleStatusUpdateSubmit} className="space-y-6">
+            {/* Current Status Display */}
+            {dealForStatusUpdate && (
+              <div className="space-y-2">
+                <Label>Current Status</Label>
+                <div className="px-3 py-2 bg-muted rounded-md border">
+                  <span className="font-medium">{formatStatusWithNumber(dealForStatusUpdate.status || "")}</span>
+                </div>
+              </div>
+            )}
+            
             {/* Status Selection */}
             <div className="space-y-2">
               <Label htmlFor="newStatus">
@@ -3390,10 +3500,10 @@ export default function Pipeline() {
                 required
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select status" />
+                  <SelectValue placeholder="Click for Status Dropdown" />
                 </SelectTrigger>
                 <SelectContent>
-                  {statusOptions.map((status) => (
+                  {dealForStatusUpdate && getValidStatusOptions(dealForStatusUpdate.status || "").map((status) => (
                     <SelectItem key={status} value={status}>
                       {formatStatusWithNumber(status)}
                     </SelectItem>
