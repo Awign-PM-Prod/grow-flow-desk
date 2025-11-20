@@ -1566,17 +1566,6 @@ export default function Accounts() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Website:</Label>
-                      {isEditMode ? (
-                        <Input
-                          value={editAccountData.website}
-                          onChange={(e) => setEditAccountData({ ...editAccountData, website: e.target.value })}
-                        />
-                      ) : (
-                        <p className="mt-1">{selectedAccount.website || "N/A"}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
                       <Label className="font-medium text-muted-foreground">Address:</Label>
                       {isEditMode ? (
                         <Input
@@ -1585,6 +1574,17 @@ export default function Accounts() {
                         />
                       ) : (
                         <p className="mt-1">{selectedAccount.address || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Website:</Label>
+                      {isEditMode ? (
+                        <Input
+                          value={editAccountData.website}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, website: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.website || "N/A"}</p>
                       )}
                     </div>
                     <div className="space-y-2">
@@ -1599,6 +1599,18 @@ export default function Accounts() {
                       )}
                     </div>
                     <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Founded Year:</Label>
+                      {isEditMode ? (
+                        <Input
+                          type="number"
+                          value={editAccountData.foundedYear}
+                          onChange={(e) => setEditAccountData({ ...editAccountData, foundedYear: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedAccount.founded_year || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">State:</Label>
                       {isEditMode ? (
                         <Input
@@ -1610,6 +1622,28 @@ export default function Accounts() {
                       )}
                     </div>
                     <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Company Size (Revenue Range):</Label>
+                      {isEditMode ? (
+                        <Select
+                          value={editAccountData.revenueRange}
+                          onValueChange={(value) => setEditAccountData({ ...editAccountData, revenueRange: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select revenue range" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {revenueRanges.map((range) => (
+                              <SelectItem key={range} value={range}>
+                                {range}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="mt-1">{selectedAccount.revenue_range || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Country:</Label>
                       {isEditMode ? (
                         <Input
@@ -1618,18 +1652,6 @@ export default function Accounts() {
                         />
                       ) : (
                         <p className="mt-1">{selectedAccount.country || "N/A"}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Founded Year:</Label>
-                      {isEditMode ? (
-                        <Input
-                          type="number"
-                          value={editAccountData.foundedYear}
-                          onChange={(e) => setEditAccountData({ ...editAccountData, foundedYear: e.target.value })}
-                        />
-                      ) : (
-                        <p className="mt-1">{selectedAccount.founded_year || "N/A"}</p>
                       )}
                     </div>
                   </div>
@@ -1666,7 +1688,7 @@ export default function Accounts() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Sub Category:</Label>
+                      <Label className="font-medium text-muted-foreground">Industry - Sub Category:</Label>
                       {isEditMode ? (
                         <Select
                           value={editAccountData.subCategory}
@@ -1696,28 +1718,6 @@ export default function Accounts() {
                         </Select>
                       ) : (
                         <p className="mt-1">{selectedAccount.sub_category || "N/A"}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Revenue Range:</Label>
-                      {isEditMode ? (
-                        <Select
-                          value={editAccountData.revenueRange}
-                          onValueChange={(value) => setEditAccountData({ ...editAccountData, revenueRange: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select revenue range" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {revenueRanges.map((range) => (
-                              <SelectItem key={range} value={range}>
-                                {range}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="mt-1">{selectedAccount.revenue_range || "N/A"}</p>
                       )}
                     </div>
                   </div>

@@ -1153,6 +1153,8 @@ export default function Pipeline() {
         account: deal.account_id ? (accountMap[deal.account_id] || "N/A") : "N/A",
         kam: deal.kam_id ? (kamMap[deal.kam_id] || "N/A") : "N/A",
         spoc: deal.spoc_id ? (contactMap[deal.spoc_id] || "N/A") : "N/A",
+        spoc2: deal.spoc2_id ? (contactMap[deal.spoc2_id] || "N/A") : "N/A",
+        spoc3: deal.spoc3_id ? (contactMap[deal.spoc3_id] || "N/A") : "N/A",
         useCase: deal.use_case,
         expectedRevenue: deal.expected_revenue,
       }));
@@ -2650,19 +2652,6 @@ export default function Pipeline() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="expectedContractSignDate">
-                      Expected Contract Sign Date <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="expectedContractSignDate"
-                      type="date"
-                      value={formData.expectedContractSignDate}
-                      onChange={(e) => handleInputChange("expectedContractSignDate", e.target.value)}
-                      required={showProposalBlock}
-                      className={!formData.expectedContractSignDate ? "bg-muted" : ""}
-                    />
-                  </div>
-                  <div className="space-y-2">
                     <Label htmlFor="probability">Probability (Auto)</Label>
                     <Input
                       id="probability"
@@ -2670,19 +2659,6 @@ export default function Pipeline() {
                       placeholder="Auto"
                       readOnly
                       className="bg-muted"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="contractSignDate">
-                      Contract Sign Date <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="contractSignDate"
-                      type="date"
-                      value={formData.contractSignDate}
-                      onChange={(e) => handleInputChange("contractSignDate", e.target.value)}
-                      required={showClosedWonBlock}
-                      className={!formData.contractSignDate ? "bg-muted" : ""}
                     />
                   </div>
                   <div className="space-y-2">
@@ -2705,9 +2681,7 @@ export default function Pipeline() {
             {(
               formData.solutionProposalSlides ||
               formData.ganttChartUrl ||
-              formData.expectedContractSignDate ||
               formData.finalProposalSlides ||
-              formData.contractSignDate ||
               formData.signedContractLink ||
               formData.droppedReason ||
               formData.droppedReasonOthers
@@ -3079,10 +3053,10 @@ export default function Pipeline() {
           </DialogHeader>
           {selectedDealForView && (
             <div className="space-y-6">
-              {/* Sales Module Section */}
+              {/* Deal Information Section */}
               <Card className="border-blue-200 bg-blue-50/50">
                 <CardContent className="pt-6">
-                  <h3 className="font-semibold text-lg mb-4 text-blue-900">Sales Module</h3>
+                  <h3 className="font-semibold text-lg mb-4 text-blue-900">Deal Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Sales Module Name:</Label>
@@ -3092,22 +3066,9 @@ export default function Pipeline() {
                       <Label className="font-medium text-muted-foreground">KAM:</Label>
                       <p className="mt-1">{selectedDealForView.kam || "N/A"}</p>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Deal Details Section */}
-              <Card className="border-green-200 bg-green-50/50">
-                <CardContent className="pt-6">
-                  <h3 className="font-semibold text-lg mb-4 text-green-900">Deal Details</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Account:</Label>
                       <p className="mt-1">{selectedDealForView.account || "N/A"}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">SPOC:</Label>
-                      <p className="mt-1">{selectedDealForView.spoc || "N/A"}</p>
                     </div>
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">LoB:</Label>
@@ -3122,18 +3083,35 @@ export default function Pipeline() {
                       <p className="mt-1">{selectedDealForView.sub_use_case || "N/A"}</p>
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Monthly Volume:</Label>
-                      <p className="mt-1">{selectedDealForView.monthly_volume ? selectedDealForView.monthly_volume.toLocaleString("en-IN") : "N/A"}</p>
+                      <Label className="font-medium text-muted-foreground">SPOC:</Label>
+                      <p className="mt-1">{selectedDealForView.spoc || "N/A"}</p>
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Max Monthly Volume:</Label>
-                      <p className="mt-1">{selectedDealForView.max_monthly_volume ? selectedDealForView.max_monthly_volume.toLocaleString("en-IN") : "N/A"}</p>
+                      <Label className="font-medium text-muted-foreground">SPOC 2:</Label>
+                      <p className="mt-1">{selectedDealForView.spoc2 || "N/A"}</p>
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Commercial per head:</Label>
-                      <p className="mt-1">{selectedDealForView.commercial_per_head ? selectedDealForView.commercial_per_head.toLocaleString("en-IN") : "N/A"}</p>
+                      <Label className="font-medium text-muted-foreground">SPOC 3:</Label>
+                      <p className="mt-1">{selectedDealForView.spoc3 || "N/A"}</p>
                     </div>
-                    <div className="space-y-2">
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Revenue Info Section */}
+              <Card className="border-purple-200 bg-purple-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-purple-900">Revenue Info</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label className="font-medium text-muted-foreground">MPV:</Label>
+                      <p className="mt-1">{selectedDealForView.mpv ? selectedDealForView.mpv.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label className="font-medium text-muted-foreground">Max MPV:</Label>
+                      <p className="mt-1">{selectedDealForView.max_mpv ? selectedDealForView.max_mpv.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
                       <Label className="font-medium text-muted-foreground">Expected Revenue:</Label>
                       <p className="mt-1">
                         {selectedDealForView.expected_revenue
@@ -3142,134 +3120,72 @@ export default function Pipeline() {
                       </p>
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">MPV:</Label>
-                      <p className="mt-1">{selectedDealForView.mpv ? selectedDealForView.mpv.toLocaleString("en-IN") : "N/A"}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Max MPV:</Label>
-                      <p className="mt-1">{selectedDealForView.max_mpv ? selectedDealForView.max_mpv.toLocaleString("en-IN") : "N/A"}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">PRJ Duration (months):</Label>
-                      <p className="mt-1">{selectedDealForView.prj_duration_months || "N/A"}</p>
+                      <Label className="font-medium text-muted-foreground">Monthly Volume:</Label>
+                      <p className="mt-1">{selectedDealForView.monthly_volume ? selectedDealForView.monthly_volume.toLocaleString("en-IN") : "N/A"}</p>
                     </div>
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">GM Threshold:</Label>
                       <p className="mt-1">{selectedDealForView.gm_threshold ? selectedDealForView.gm_threshold.toLocaleString("en-IN") : "N/A"}</p>
                     </div>
                     <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Maximum Monthly Volume:</Label>
+                      <p className="mt-1">{selectedDealForView.max_monthly_volume ? selectedDealForView.max_monthly_volume.toLocaleString("en-IN") : "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">PRJ Frequency:</Label>
                       <p className="mt-1">{selectedDealForView.prj_frequency || "N/A"}</p>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Status:</Label>
-                      <p className="mt-1">
-                        <Badge variant="outline">{selectedDealForView.status ? formatStatusWithNumber(selectedDealForView.status) : "N/A"}</Badge>
-                      </p>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label className="font-medium text-muted-foreground">Commercial per head/task:</Label>
+                      <p className="mt-1">{selectedDealForView.commercial_per_head ? selectedDealForView.commercial_per_head.toLocaleString("en-IN") : "N/A"}</p>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">PRJ Start Date:</Label>
-                      <p className="mt-1">{selectedDealForView.prj_start_date || "N/A"}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Probability:</Label>
-                      <p className="mt-1">{selectedDealForView.probability || "N/A"}%</p>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label className="font-medium text-muted-foreground">PRJ duration (months):</Label>
+                      <p className="mt-1">{selectedDealForView.prj_duration_months || "N/A"}</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Status-based Details */}
-              {(selectedDealForView.discovery_meeting_slides || 
-                selectedDealForView.solution_proposal_slides || 
-                selectedDealForView.gantt_chart_url || 
-                selectedDealForView.expected_contract_sign_date ||
-                selectedDealForView.final_proposal_slides ||
-                selectedDealForView.contract_sign_date ||
-                selectedDealForView.signed_contract_link ||
-                selectedDealForView.dropped_reason) && (
-                <Card className="border-orange-200 bg-orange-50/50">
-                  <CardContent className="pt-6">
-                    <h3 className="font-semibold text-lg mb-4 text-orange-900">Status-based Details</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {selectedDealForView.discovery_meeting_slides && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Discovery Meeting Slides:</Label>
-                          <p className="mt-1">
-                            <a href={selectedDealForView.discovery_meeting_slides} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                              View File
-                            </a>
-                          </p>
-                        </div>
-                      )}
-                      {selectedDealForView.solution_proposal_slides && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Solution Proposal Slides:</Label>
-                          <p className="mt-1">
-                            <a href={selectedDealForView.solution_proposal_slides} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                              View File
-                            </a>
-                          </p>
-                        </div>
-                      )}
-                      {selectedDealForView.gantt_chart_url && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Gantt Chart URL:</Label>
-                          <p className="mt-1">
-                            <a href={selectedDealForView.gantt_chart_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                              View File
-                            </a>
-                          </p>
-                        </div>
-                      )}
-                      {selectedDealForView.expected_contract_sign_date && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Expected Contract Sign Date:</Label>
-                          <p className="mt-1">{selectedDealForView.expected_contract_sign_date}</p>
-                        </div>
-                      )}
-                      {selectedDealForView.final_proposal_slides && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Final Proposal Slides:</Label>
-                          <p className="mt-1">
-                            <a href={selectedDealForView.final_proposal_slides} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                              View File
-                            </a>
-                          </p>
-                        </div>
-                      )}
-                      {selectedDealForView.contract_sign_date && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Contract Sign Date:</Label>
-                          <p className="mt-1">{selectedDealForView.contract_sign_date}</p>
-                        </div>
-                      )}
-                      {selectedDealForView.signed_contract_link && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Signed Contract Link:</Label>
-                          <p className="mt-1">
-                            <a href={selectedDealForView.signed_contract_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                              View File
-                            </a>
-                          </p>
-                        </div>
-                      )}
-                      {selectedDealForView.dropped_reason && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Dropped Reason:</Label>
-                          <p className="mt-1">{selectedDealForView.dropped_reason}</p>
-                        </div>
-                      )}
-                      {selectedDealForView.dropped_reason_others && (
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Dropped Reason - Others:</Label>
-                          <p className="mt-1">{selectedDealForView.dropped_reason_others}</p>
-                        </div>
-                      )}
+              {/* Status Based Details Section */}
+              <Card className="border-orange-200 bg-orange-50/50">
+                <CardContent className="pt-6">
+                  <h3 className="font-semibold text-lg mb-4 text-orange-900">Status Based Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">STATUS:</Label>
+                      <p className="mt-1">
+                        <Badge variant="outline">{selectedDealForView.status ? formatStatusWithNumber(selectedDealForView.status) : "N/A"}</Badge>
+                      </p>
                     </div>
-                  </CardContent>
-                </Card>
-              )}
+                    <div className="space-y-2">
+                      <Label className={`font-medium ${selectedDealForView.expected_contract_sign_date ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
+                        Expected Contract Sign Date:
+                      </Label>
+                      <p className={`mt-1 ${selectedDealForView.expected_contract_sign_date ? "" : "text-muted-foreground/50 italic"}`}>
+                        {selectedDealForView.expected_contract_sign_date || "Not set"}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Probability:</Label>
+                      <p className="mt-1">{selectedDealForView.probability || "N/A"}%</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className={`font-medium ${selectedDealForView.contract_sign_date ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
+                        Contract Sign Date:
+                      </Label>
+                      <p className={`mt-1 ${selectedDealForView.contract_sign_date ? "" : "text-muted-foreground/50 italic"}`}>
+                        {selectedDealForView.contract_sign_date || "Not set"}
+                      </p>
+                    </div>
+                    <div className="space-y-2"></div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">PRJ Start Date:</Label>
+                      <p className="mt-1">{selectedDealForView.prj_start_date || "N/A"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Attached Documents Section */}
               {(selectedDealForView.discovery_meeting_slides || 
@@ -3567,7 +3483,6 @@ export default function Pipeline() {
                             setStatusUpdateForm({ ...statusUpdateForm, solutionProposalSlidesFile: file });
                           }
                         }}
-                        required
                       />
                       <Input
                         placeholder="Or enter URL"
@@ -3642,7 +3557,6 @@ export default function Pipeline() {
                           setStatusUpdateForm({ ...statusUpdateForm, finalProposalSlidesFile: file });
                         }
                       }}
-                      required
                     />
                     <Input
                       placeholder="Or enter URL"
@@ -3691,7 +3605,6 @@ export default function Pipeline() {
                             setStatusUpdateForm({ ...statusUpdateForm, signedContractFile: file });
                           }
                         }}
-                        required
                       />
                       <Input
                         placeholder="Or enter URL"
