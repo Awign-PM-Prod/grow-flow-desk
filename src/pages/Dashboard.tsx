@@ -26,6 +26,23 @@ export default function Dashboard() {
   const [totalAccounts, setTotalAccounts] = useState(0);
   const [avgAwignShare, setAvgAwignShare] = useState<number | null>(null);
   const [overlapFactor, setOverlapFactor] = useState<number | null>(null);
+  const [mcvPlanned, setMcvPlanned] = useState<number>(0);
+  const [ffmAchieved, setFfmAchieved] = useState<number>(0);
+  const [ffmAchievedFyPercentage, setFfmAchievedFyPercentage] = useState<number>(0);
+  const [mcvThisQuarter, setMcvThisQuarter] = useState<number>(0);
+  const [mcvTierData, setMcvTierData] = useState<Array<{
+    category: string;
+    tier: string;
+    [key: string]: string | number;
+  }>>([]);
+  const [tierMonthColumns, setTierMonthColumns] = useState<Array<{
+    month: number;
+    year: number;
+    key: string;
+    label: string;
+  }>>([]);
+  const [mcvTierFilter, setMcvTierFilter] = useState<string>("all");
+  const [companySizeTierFilter, setCompanySizeTierFilter] = useState<string>("all");
   const [upsellGroupB, setUpsellGroupB] = useState<Array<{ status: string; count: number; revenue: string; accounts: number }>>([]);
   const [upsellGroupC, setUpsellGroupC] = useState<Array<{ status: string; count: number; revenue: string; accounts: number }>>([]);
   const [upsellPerformance, setUpsellPerformance] = useState<Array<{ 
@@ -677,6 +694,281 @@ export default function Dashboard() {
 
       setKamSalesPerformance(formattedKamData);
 
+      // Calculate MCV Planned and FFM Achieved for current month
+      const currentMonthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      let totalMcvPlanned = 0;
+      let totalFfmAchieved = 0;
+
+      // Fetch all mandates with monthly_data to calculate MCV Planned and FFM Achieved
+      const { data: allMandatesForMcv, error: mcvError } = await supabase
+        .from("mandates")
+        .select("monthly_data");
+
+      if (!mcvError && allMandatesForMcv) {
+        allMandatesForMcv.forEach((mandate: any) => {
+          const monthlyData = mandate.monthly_data;
+          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
+                const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                
+                // Sum for current month only
+                if (monthYear === currentMonthYear) {
+                  totalMcvPlanned += plannedMcv;
+                  totalFfmAchieved += achievedMcv;
+                }
+              }
+            });
+          }
+        });
+      }
+
+      // Calculate FFM Achieved percentage: (FFM Achieved / MCV Planned) * 100
+      const ffmPercentage = totalMcvPlanned > 0 
+        ? (totalFfmAchieved / totalMcvPlanned) * 100 
+        : 0;
+
+      // Calculate MCV This Quarter (sum of achieved MCV for current quarter)
+      // Financial year quarters: Q1 (Apr-Jun), Q2 (Jul-Sep), Q3 (Oct-Dec), Q4 (Jan-Mar)
+      const currentMonth = now.getMonth() + 1; // 1-12
+      const currentYear = now.getFullYear();
+      let quarterMonths: number[] = [];
+      let quarterYear: number; // The calendar year that contains the quarter months
+      
+      if (currentMonth >= 4 && currentMonth <= 6) {
+        // Q1: April, May, June - months are in current year
+        quarterMonths = [4, 5, 6];
+        quarterYear = currentYear;
+      } else if (currentMonth >= 7 && currentMonth <= 9) {
+        // Q2: July, August, September - months are in current year
+        quarterMonths = [7, 8, 9];
+        quarterYear = currentYear;
+      } else if (currentMonth >= 10 && currentMonth <= 12) {
+        // Q3: October, November, December - months are in current year
+        quarterMonths = [10, 11, 12];
+        quarterYear = currentYear;
+      } else {
+        // Q4: January, February, March - months are in current year
+        quarterMonths = [1, 2, 3];
+        quarterYear = currentYear;
+      }
+
+      let totalMcvThisQuarter = 0;
+
+      // Calculate sum of achieved MCV for current quarter months
+      if (!mcvError && allMandatesForMcv) {
+        allMandatesForMcv.forEach((mandate: any) => {
+          const monthlyData = mandate.monthly_data;
+          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                const [year, month] = monthYear.split('-');
+                const yearNum = parseInt(year);
+                const monthNum = parseInt(month);
+                const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                
+                // Check if this month belongs to the current quarter
+                if (quarterMonths.includes(monthNum) && yearNum === quarterYear) {
+                  totalMcvThisQuarter += achievedMcv;
+                }
+              }
+            });
+          }
+        });
+      }
+
+      setMcvPlanned(totalMcvPlanned);
+      setFfmAchieved(totalFfmAchieved);
+      setFfmAchievedFyPercentage(ffmPercentage);
+      setMcvThisQuarter(totalMcvThisQuarter);
+
+      // Calculate MCV Tier and Company Size Tier data
+      // Generate month columns from April to current month
+      const fyStartMonth = 4; // April
+      const currentMonthNum = now.getMonth() + 1; // 1-12
+      const currentYearNum = now.getFullYear();
+      
+      // Determine financial year start year
+      const fyStartYear = currentMonthNum >= 4 ? currentYearNum : currentYearNum - 1;
+      
+      // Generate months from April to current month
+      const monthColumns: Array<{ month: number; year: number; key: string; label: string }> = [];
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      
+      if (currentMonthNum >= 4) {
+        // Current month is April or later - all months are in current year
+        for (let month = fyStartMonth; month <= currentMonthNum; month++) {
+          monthColumns.push({
+            month,
+            year: currentYearNum,
+            key: `${currentYearNum}-${String(month).padStart(2, '0')}`,
+            label: `${monthNames[month - 1]} ${currentYearNum}`,
+          });
+        }
+      } else {
+        // Current month is Jan-Mar - include months from previous year's April to current month
+        // April to December of previous year
+        for (let month = fyStartMonth; month <= 12; month++) {
+          monthColumns.push({
+            month,
+            year: fyStartYear,
+            key: `${fyStartYear}-${String(month).padStart(2, '0')}`,
+            label: `${monthNames[month - 1]} ${fyStartYear}`,
+          });
+        }
+        // January to current month of current year
+        for (let month = 1; month <= currentMonthNum; month++) {
+          monthColumns.push({
+            month,
+            year: currentYearNum,
+            key: `${currentYearNum}-${String(month).padStart(2, '0')}`,
+            label: `${monthNames[month - 1]} ${currentYearNum}`,
+          });
+        }
+      }
+
+      // Fetch accounts with their tiers
+      const { data: accountsData, error: accountsTierError } = await supabase
+        .from("accounts")
+        .select("id, mcv_tier, company_size_tier")
+        .not("mcv_tier", "is", null)
+        .not("company_size_tier", "is", null);
+
+      // Fetch mandates with account_id and monthly_data
+      const { data: mandatesTierData, error: mandatesTierError } = await supabase
+        .from("mandates")
+        .select("account_id, monthly_data");
+
+      // Create account tier map
+      const accountTierMap: Record<string, { mcvTier: string | null; companySizeTier: string | null }> = {};
+      if (accountsData) {
+        accountsData.forEach((account: any) => {
+          accountTierMap[account.id] = {
+            mcvTier: account.mcv_tier,
+            companySizeTier: account.company_size_tier,
+          };
+        });
+      }
+
+      // Initialize tier data structure
+      const tierDataMap: Record<string, Record<string, number>> = {
+        "MCV Tier_Tier 1": {},
+        "MCV Tier_Tier 2": {},
+        "Company Size Tier_Tier 1": {},
+        "Company Size Tier_Tier 2": {},
+      };
+
+      // Initialize all months with 0
+      monthColumns.forEach((col) => {
+        Object.keys(tierDataMap).forEach((key) => {
+          tierDataMap[key][col.key] = 0;
+        });
+      });
+
+      // Calculate cumulative achieved MCV for each tier and month
+      // First, collect all achieved MCV values by month and tier
+      const monthlyTierData: Record<string, Record<string, number>> = {
+        "MCV Tier_Tier 1": {},
+        "MCV Tier_Tier 2": {},
+        "Company Size Tier_Tier 1": {},
+        "Company Size Tier_Tier 2": {},
+      };
+
+      if (!mandatesTierError && mandatesTierData) {
+        mandatesTierData.forEach((mandate: any) => {
+          const accountId = mandate.account_id;
+          const accountTiers = accountTierMap[accountId];
+          
+          if (!accountTiers) return;
+
+          const monthlyData = mandate.monthly_data;
+          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                
+                // Check if this month is in our month columns
+                if (monthColumns.some((col) => col.key === monthYear)) {
+                  // Add achieved MCV to the appropriate tier buckets
+                  if (accountTiers.mcvTier === "Tier 1") {
+                    monthlyTierData["MCV Tier_Tier 1"][monthYear] = (monthlyTierData["MCV Tier_Tier 1"][monthYear] || 0) + achievedMcv;
+                  } else if (accountTiers.mcvTier === "Tier 2") {
+                    monthlyTierData["MCV Tier_Tier 2"][monthYear] = (monthlyTierData["MCV Tier_Tier 2"][monthYear] || 0) + achievedMcv;
+                  }
+
+                  if (accountTiers.companySizeTier === "Tier 1") {
+                    monthlyTierData["Company Size Tier_Tier 1"][monthYear] = (monthlyTierData["Company Size Tier_Tier 1"][monthYear] || 0) + achievedMcv;
+                  } else if (accountTiers.companySizeTier === "Tier 2") {
+                    monthlyTierData["Company Size Tier_Tier 2"][monthYear] = (monthlyTierData["Company Size Tier_Tier 2"][monthYear] || 0) + achievedMcv;
+                  }
+                }
+              }
+            });
+          }
+        });
+      }
+
+      // Calculate cumulative values for each tier
+      // Process months in order and accumulate
+      monthColumns.forEach((col, index) => {
+        Object.keys(tierDataMap).forEach((tierKey) => {
+          // Get current month's value
+          const currentMonthValue = monthlyTierData[tierKey][col.key] || 0;
+          
+          // Get previous cumulative value (from previous month)
+          const prevCumulative = index > 0 
+            ? tierDataMap[tierKey][monthColumns[index - 1].key] || 0
+            : 0;
+          
+          // Set cumulative value for this month
+          tierDataMap[tierKey][col.key] = prevCumulative + currentMonthValue;
+        });
+      });
+
+      // Convert to array format for display
+      const formattedTierData = [
+        {
+          category: "MCV Tier",
+          tier: "Tier 1",
+          ...monthColumns.reduce((acc, col) => {
+            const value = tierDataMap["MCV Tier_Tier 1"][col.key] || 0;
+            acc[col.key] = formatCurrency(value);
+            return acc;
+          }, {} as Record<string, string>),
+        },
+        {
+          category: "MCV Tier",
+          tier: "Tier 2",
+          ...monthColumns.reduce((acc, col) => {
+            const value = tierDataMap["MCV Tier_Tier 2"][col.key] || 0;
+            acc[col.key] = formatCurrency(value);
+            return acc;
+          }, {} as Record<string, string>),
+        },
+        {
+          category: "Company Size Tier",
+          tier: "Tier 1",
+          ...monthColumns.reduce((acc, col) => {
+            const value = tierDataMap["Company Size Tier_Tier 1"][col.key] || 0;
+            acc[col.key] = formatCurrency(value);
+            return acc;
+          }, {} as Record<string, string>),
+        },
+        {
+          category: "Company Size Tier",
+          tier: "Tier 2",
+          ...monthColumns.reduce((acc, col) => {
+            const value = tierDataMap["Company Size Tier_Tier 2"][col.key] || 0;
+            acc[col.key] = formatCurrency(value);
+            return acc;
+          }, {} as Record<string, string>),
+        },
+      ];
+
+      setMcvTierData(formattedTierData);
+      setTierMonthColumns(monthColumns);
+
       setTotalMandates(totalCount || 0);
       setMandatesThisMonth(monthCount || 0);
       setTotalAccounts(accountsCount || 0);
@@ -692,13 +984,6 @@ export default function Dashboard() {
     }
   };
 
-  // Placeholder data - will be replaced with real data later
-  const mcvTierData = [
-    { category: "MCV Tier", tier: "Tier 1", apr: "10L", may: "20L", jun: "22L", jul: "24L", aug: "24L", sep: "27L", oct: "28L", nov: "28L" },
-    { category: "MCV Tier", tier: "Tier 2", apr: "10L", may: "20L", jun: "22L", jul: "24L", aug: "24L", sep: "27L", oct: "28L", nov: "28L" },
-    { category: "Company Size Tier", tier: "Tier 1", apr: "10L", may: "20L", jun: "22L", jul: "24L", aug: "24L", sep: "27L", oct: "28L", nov: "28L" },
-    { category: "Company Size Tier", tier: "Tier 2", apr: "10L", may: "20L", jun: "22L", jul: "24L", aug: "24L", sep: "27L", oct: "28L", nov: "28L" },
-  ];
 
 
 
@@ -794,29 +1079,93 @@ export default function Dashboard() {
         {/* MCV Planned */}
         <Card>
           <CardContent className="pt-6">
-            <p className="text-base font-bold mb-2">MCV Planned</p>
-            <div className="text-3xl font-bold">₹0</div>
-            <p className="text-xs text-muted-foreground mt-2">November 2025</p>
-            <p className="text-xs text-muted-foreground">FY26 (0.0%)</p>
+            {loading ? (
+              <div className="flex items-center justify-center h-20">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <p className="text-base font-bold mb-2">MCV Planned</p>
+                <div className="text-3xl font-bold">{formatCurrency(mcvPlanned)}</div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
         {/* FFM Achieved */}
         <Card>
           <CardContent className="pt-6">
-            <p className="text-base font-bold mb-2">FFM Achieved</p>
-            <div className="text-3xl font-bold">₹0</div>
-            <p className="text-xs text-muted-foreground mt-2">November 2025</p>
-            <p className="text-xs text-muted-foreground">FY26 (0.0%)</p>
+            {loading ? (
+              <div className="flex items-center justify-center h-20">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <p className="text-base font-bold mb-2">FFM Achieved</p>
+                <div className="text-3xl font-bold">{formatCurrency(ffmAchieved)}</div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {(() => {
+                    const now = new Date();
+                    const currentYear = now.getFullYear();
+                    const currentMonth = now.getMonth() + 1;
+                    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+                    const fyEndYear = (fyStartYear + 1).toString().slice(-2);
+                    const fyString = `FY${fyEndYear}`;
+                    return `${fyString} (${ffmAchievedFyPercentage.toFixed(1)}% of MCV Planned)`;
+                  })()}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
         {/* MCV This Quarter */}
         <Card>
           <CardContent className="pt-6">
-            <p className="text-base font-bold mb-2">MCV This Quarter</p>
-            <div className="text-3xl font-bold">₹52.9Cr</div>
-            <p className="text-xs text-muted-foreground mt-2">FY26 (2023-2024)</p>
+            {loading ? (
+              <div className="flex items-center justify-center h-20">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <p className="text-base font-bold mb-2">MCV This Quarter</p>
+                <div className="text-3xl font-bold">{formatCurrency(mcvThisQuarter)}</div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {(() => {
+                    const now = new Date();
+                    const currentYear = now.getFullYear();
+                    const currentMonth = now.getMonth() + 1;
+                    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+                    const fyEndYear = (fyStartYear + 1).toString().slice(-2);
+                    const fyString = `FY${fyEndYear}`;
+                    
+                    // Determine quarter months
+                    let quarterMonths: number[] = [];
+                    if (currentMonth >= 4 && currentMonth <= 6) {
+                      quarterMonths = [4, 5, 6];
+                    } else if (currentMonth >= 7 && currentMonth <= 9) {
+                      quarterMonths = [7, 8, 9];
+                    } else if (currentMonth >= 10 && currentMonth <= 12) {
+                      quarterMonths = [10, 11, 12];
+                    } else {
+                      quarterMonths = [1, 2, 3];
+                    }
+                    
+                    // Format month names (abbreviated)
+                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    const quarterMonthNames = quarterMonths.map(m => monthNames[m - 1]).join(', ');
+                    
+                    return `${fyString} (${fyStartYear}-${fyStartYear + 1}) - ${quarterMonthNames}`;
+                  })()}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -859,22 +1208,22 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <CardTitle>MCV Tier and Company Size Tier</CardTitle>
             <div className="flex gap-2">
-              <Select defaultValue="all">
+              <Select value={mcvTierFilter} onValueChange={setMcvTierFilter}>
                 <SelectTrigger className="w-[150px]">
                   <SelectValue placeholder="MCV Tier" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Tiers</SelectItem>
+                  <SelectItem value="all">All MCV Tiers</SelectItem>
                   <SelectItem value="tier1">Tier 1</SelectItem>
                   <SelectItem value="tier2">Tier 2</SelectItem>
                 </SelectContent>
               </Select>
-              <Select defaultValue="all">
+              <Select value={companySizeTierFilter} onValueChange={setCompanySizeTierFilter}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Company Size Tier" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Tiers</SelectItem>
+                  <SelectItem value="all">All Company Size Tiers</SelectItem>
                   <SelectItem value="tier1">Tier 1</SelectItem>
                   <SelectItem value="tier2">Tier 2</SelectItem>
                 </SelectContent>
@@ -883,39 +1232,65 @@ export default function Dashboard() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Category</TableHead>
-                <TableHead>Tier / Condition</TableHead>
-                <TableHead>Apr 2025</TableHead>
-                <TableHead>May 2025</TableHead>
-                <TableHead>Jun 2025</TableHead>
-                <TableHead>Jul 2025</TableHead>
-                <TableHead>Aug 2025</TableHead>
-                <TableHead>Sep 2025</TableHead>
-                <TableHead>Oct 2025</TableHead>
-                <TableHead>Nov 2025</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mcvTierData.map((row, idx) => (
-                <TableRow key={idx}>
-                  <TableCell>{row.category}</TableCell>
-                  <TableCell>{row.tier}</TableCell>
-                  <TableCell>{row.apr}</TableCell>
-                  <TableCell>{row.may}</TableCell>
-                  <TableCell>{row.jun}</TableCell>
-                  <TableCell>{row.jul}</TableCell>
-                  <TableCell>{row.aug}</TableCell>
-                  <TableCell>{row.sep}</TableCell>
-                  <TableCell>{row.oct}</TableCell>
-                  <TableCell>{row.nov}</TableCell>
+          {loading ? (
+            <div className="flex items-center justify-center h-[300px]">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Tier / Condition</TableHead>
+                  {tierMonthColumns.map((col) => (
+                    <TableHead key={col.key}>{col.label}</TableHead>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <p className="text-xs text-muted-foreground mt-2">*This data will be populated once tier definitions are configured.</p>
+              </TableHeader>
+              <TableBody>
+                {(() => {
+                  // Filter the data based on selected filters
+                  // Each filter only affects its own category
+                  const filteredData = mcvTierData.filter((row) => {
+                    if (row.category === "MCV Tier") {
+                      // MCV Tier rows: only filter by MCV Tier filter
+                      if (mcvTierFilter === "all") return true;
+                      return (mcvTierFilter === "tier1" && row.tier === "Tier 1") || 
+                             (mcvTierFilter === "tier2" && row.tier === "Tier 2");
+                    } else if (row.category === "Company Size Tier") {
+                      // Company Size Tier rows: only filter by Company Size Tier filter
+                      if (companySizeTierFilter === "all") return true;
+                      return (companySizeTierFilter === "tier1" && row.tier === "Tier 1") || 
+                             (companySizeTierFilter === "tier2" && row.tier === "Tier 2");
+                    }
+                    return true;
+                  });
+                  
+                  if (filteredData.length === 0) {
+                    return (
+                      <TableRow>
+                        <TableCell colSpan={tierMonthColumns.length + 2} className="text-center text-muted-foreground py-8">
+                          No data available
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+                  
+                  return filteredData.map((row, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{row.category}</TableCell>
+                      <TableCell>{row.tier}</TableCell>
+                      {tierMonthColumns.map((col) => (
+                        <TableCell key={col.key}>
+                          {row[col.key] || "₹0"}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ));
+                })()}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
