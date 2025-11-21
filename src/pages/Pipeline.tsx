@@ -215,6 +215,7 @@ const formatStatusWithNumber = (status: string): string => {
 // Helper function to get valid status options based on current status
 // Forward: can only go to next sequential status
 // Backward: can go to any previous status (excluding current status)
+// Dropped: always available regardless of current status
 const getValidStatusOptions = (currentStatus: string): string[] => {
   const currentIndex = statusOptions.indexOf(currentStatus);
   if (currentIndex === -1) return statusOptions; // If status not found, show all
@@ -225,9 +226,20 @@ const getValidStatusOptions = (currentStatus: string): string[] => {
   // Backward: can go to any status from 0 to currentIndex - 1 (excluding current)
   const backwardOptions = statusOptions.slice(0, currentIndex);
   
-  // Combine and sort by index
-  const validOptions = [...forwardOption, ...backwardOptions];
-  return validOptions.sort((a, b) => statusOptions.indexOf(a) - statusOptions.indexOf(b));
+  // Dropped is always available (unless it's the current status)
+  const droppedOption = currentStatus !== "Dropped" ? ["Dropped"] : [];
+  
+  // Combine all options
+  const validOptions = [...forwardOption, ...backwardOptions, ...droppedOption];
+  
+  // Sort by index, but keep Dropped at the end
+  return validOptions.sort((a, b) => {
+    // If either is Dropped, put it at the end
+    if (a === "Dropped") return 1;
+    if (b === "Dropped") return -1;
+    // Otherwise sort by index
+    return statusOptions.indexOf(a) - statusOptions.indexOf(b);
+  });
 };
 
 const getStatusBadgeStyle = (status: string): { variant: "default" | "secondary" | "destructive" | "outline"; className?: string } => {
