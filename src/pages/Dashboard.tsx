@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
@@ -30,6 +30,18 @@ export default function Dashboard() {
   const [ffmAchieved, setFfmAchieved] = useState<number>(0);
   const [ffmAchievedFyPercentage, setFfmAchievedFyPercentage] = useState<number>(0);
   const [mcvThisQuarter, setMcvThisQuarter] = useState<number>(0);
+  const [targetMcvNextQuarter, setTargetMcvNextQuarter] = useState<number>(0);
+  const [annualAchieved, setAnnualAchieved] = useState<number>(0);
+  const [annualTarget, setAnnualTarget] = useState<number>(0);
+  const [quarterAchieved, setQuarterAchieved] = useState<number>(0);
+  const [quarterTarget, setQuarterTarget] = useState<number>(0);
+  const [currentMonthAchieved, setCurrentMonthAchieved] = useState<number>(0);
+  const [currentMonthTarget, setCurrentMonthTarget] = useState<number>(0);
+  const [droppedSalesData, setDroppedSalesData] = useState<Array<{
+    name: string;
+    value: number;
+    color: string;
+  }>>([]);
   const [mcvTierData, setMcvTierData] = useState<Array<{
     category: string;
     tier: string;
@@ -783,14 +795,282 @@ export default function Dashboard() {
       setFfmAchievedFyPercentage(ffmPercentage);
       setMcvThisQuarter(totalMcvThisQuarter);
 
-      // Calculate MCV Tier and Company Size Tier data
-      // Generate month columns from April to current month
+      // Calculate Target MCV Next Quarter
+      // Determine next quarter months
+      let nextQuarterMonths: number[] = [];
+      let nextQuarterYear: number;
+      
+      if (currentMonth >= 4 && currentMonth <= 6) {
+        // Current is Q1, next is Q2: July, August, September
+        nextQuarterMonths = [7, 8, 9];
+        nextQuarterYear = currentYear;
+      } else if (currentMonth >= 7 && currentMonth <= 9) {
+        // Current is Q2, next is Q3: October, November, December
+        nextQuarterMonths = [10, 11, 12];
+        nextQuarterYear = currentYear;
+      } else if (currentMonth >= 10 && currentMonth <= 12) {
+        // Current is Q3, next is Q4: January, February, March (next year)
+        nextQuarterMonths = [1, 2, 3];
+        nextQuarterYear = currentYear + 1;
+      } else {
+        // Current is Q4, next is Q1: April, May, June (same year)
+        nextQuarterMonths = [4, 5, 6];
+        nextQuarterYear = currentYear;
+      }
+
+      // Fetch targets for next quarter months
+      const { data: nextQuarterTargets, error: targetsError } = await supabase
+        .from("monthly_targets")
+        .select("target")
+        .in("month", nextQuarterMonths)
+        .eq("year", nextQuarterYear);
+
+      let totalTargetNextQuarter = 0;
+      if (!targetsError && nextQuarterTargets) {
+        totalTargetNextQuarter = nextQuarterTargets.reduce((sum, target) => {
+          return sum + (parseFloat(target.target?.toString() || "0") || 0);
+        }, 0);
+      }
+
+      setTargetMcvNextQuarter(totalTargetNextQuarter);
+
+      // Calculate Annual Achieved and Target for current Financial Year
+      // Financial year: April to March
       const fyStartMonth = 4; // April
       const currentMonthNum = now.getMonth() + 1; // 1-12
       const currentYearNum = now.getFullYear();
       
       // Determine financial year start year
       const fyStartYear = currentMonthNum >= 4 ? currentYearNum : currentYearNum - 1;
+      const fyEndYear = fyStartYear + 1;
+      
+      // Calculate Annual Achieved: Sum of achieved MCV for all months in current FY
+      let totalAnnualAchieved = 0;
+      
+      if (!mcvError && allMandatesForMcv) {
+        allMandatesForMcv.forEach((mandate: any) => {
+          const monthlyData = mandate.monthly_data;
+          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                const [year, month] = monthYear.split('-');
+                const yearNum = parseInt(year);
+                const monthNum = parseInt(month);
+                const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                
+                // Check if this month belongs to the current financial year
+                // FY months: April (4) to March (3) of next year
+                if (monthNum >= 4 && yearNum === fyStartYear) {
+                  // April to December of start year
+                  totalAnnualAchieved += achievedMcv;
+                } else if (monthNum >= 1 && monthNum <= 3 && yearNum === fyEndYear) {
+                  // January to March of end year
+                  totalAnnualAchieved += achievedMcv;
+                }
+              }
+            });
+          }
+        });
+      }
+      
+      // Calculate Annual Target: Sum of targets for all months in current FY from monthly_targets table
+      // Get all months in the FY: April to December of start year, and January to March of end year
+      const fyMonths = [
+        { month: 4, year: fyStartYear },
+        { month: 5, year: fyStartYear },
+        { month: 6, year: fyStartYear },
+        { month: 7, year: fyStartYear },
+        { month: 8, year: fyStartYear },
+        { month: 9, year: fyStartYear },
+        { month: 10, year: fyStartYear },
+        { month: 11, year: fyStartYear },
+        { month: 12, year: fyStartYear },
+        { month: 1, year: fyEndYear },
+        { month: 2, year: fyEndYear },
+        { month: 3, year: fyEndYear },
+      ];
+      
+      // Fetch targets for all FY months
+      const fyMonthNumbers = fyMonths.map(m => m.month);
+      const fyYears = [fyStartYear, fyEndYear];
+      
+      const { data: fyTargets, error: fyTargetsError } = await supabase
+        .from("monthly_targets")
+        .select("target, month, year")
+        .in("month", fyMonthNumbers)
+        .in("year", fyYears);
+      
+      let totalAnnualTarget = 0;
+      if (!fyTargetsError && fyTargets) {
+        // Filter to only include targets that match the FY months exactly
+        fyTargets.forEach((target: any) => {
+          const matchesFyMonth = fyMonths.some(
+            (fyMonth) => fyMonth.month === target.month && fyMonth.year === target.year
+          );
+          if (matchesFyMonth) {
+            totalAnnualTarget += parseFloat(target.target?.toString() || "0") || 0;
+          }
+        });
+      }
+      
+      setAnnualAchieved(totalAnnualAchieved);
+      setAnnualTarget(totalAnnualTarget);
+
+      // Calculate Current Quarter Target
+      // Reuse currentMonth and currentYear from the mcvThisQuarter calculation above
+      // Financial year quarters: Q1 (Apr-Jun), Q2 (Jul-Sep), Q3 (Oct-Dec), Q4 (Jan-Mar)
+      // Note: currentMonth and currentYear are already declared above
+      let quarterMonthsForTarget: number[] = [];
+      let quarterYearForTarget: number;
+      
+      if (currentMonth >= 4 && currentMonth <= 6) {
+        quarterMonthsForTarget = [4, 5, 6];
+        quarterYearForTarget = currentYear;
+      } else if (currentMonth >= 7 && currentMonth <= 9) {
+        quarterMonthsForTarget = [7, 8, 9];
+        quarterYearForTarget = currentYear;
+      } else if (currentMonth >= 10 && currentMonth <= 12) {
+        quarterMonthsForTarget = [10, 11, 12];
+        quarterYearForTarget = currentYear;
+      } else {
+        quarterMonthsForTarget = [1, 2, 3];
+        quarterYearForTarget = currentYear;
+      }
+
+      // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table
+      const { data: quarterTargets, error: quarterTargetsError } = await supabase
+        .from("monthly_targets")
+        .select("target")
+        .in("month", quarterMonthsForTarget)
+        .eq("year", quarterYearForTarget);
+
+      let totalQuarterTarget = 0;
+      if (!quarterTargetsError && quarterTargets) {
+        totalQuarterTarget = quarterTargets.reduce((sum, target) => {
+          return sum + (parseFloat(target.target?.toString() || "0") || 0);
+        }, 0);
+      }
+
+      // Reuse mcvThisQuarter for quarterAchieved since they're the same calculation
+      setQuarterAchieved(totalMcvThisQuarter);
+      setQuarterTarget(totalQuarterTarget);
+
+      // Calculate Current Month Achieved and Target
+      // Note: currentMonthYear is already declared above (line 705)
+      
+      // Calculate Current Month Achieved: Sum of achieved MCV for current month from all mandates
+      let totalCurrentMonthAchieved = 0;
+      
+      if (!mcvError && allMandatesForMcv) {
+        allMandatesForMcv.forEach((mandate: any) => {
+          const monthlyData = mandate.monthly_data;
+          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                // Check if this is the current month
+                if (monthYear === currentMonthYear) {
+                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                  totalCurrentMonthAchieved += achievedMcv;
+                }
+              }
+            });
+          }
+        });
+      }
+      
+      // Calculate Current Month Target: Get target for current month from monthly_targets table
+      const { data: currentMonthTargetData, error: currentMonthTargetError } = await supabase
+        .from("monthly_targets")
+        .select("target")
+        .eq("month", currentMonthNum)
+        .eq("year", currentYearNum)
+        .single();
+
+      let totalCurrentMonthTarget = 0;
+      if (!currentMonthTargetError && currentMonthTargetData) {
+        totalCurrentMonthTarget = parseFloat(currentMonthTargetData.target?.toString() || "0") || 0;
+      }
+
+      setCurrentMonthAchieved(totalCurrentMonthAchieved);
+      setCurrentMonthTarget(totalCurrentMonthTarget);
+
+      // Fetch Dropped Sales and Reasons data
+      const { data: droppedDeals, error: droppedDealsError } = await supabase
+        .from("pipeline_deals")
+        .select("dropped_reason")
+        .eq("status", "Dropped")
+        .not("dropped_reason", "is", null);
+
+      // Count deals by dropped reason
+      const reasonCounts: Record<string, number> = {
+        "Client Unresponsive": 0,
+        "Requirement not Feasible": 0,
+        "Commercials above Client's Threshold": 0,
+        "Others": 0,
+      };
+
+      if (!droppedDealsError && droppedDeals) {
+        droppedDeals.forEach((deal: any) => {
+          const reason = deal.dropped_reason;
+          if (reason) {
+            // Normalize the reason text for matching (case-insensitive, handle variations)
+            const normalizedReason = reason.trim();
+            
+            // Map variations to standard names
+            if (normalizedReason.toLowerCase() === "client unresponsive") {
+              reasonCounts["Client Unresponsive"]++;
+            } else if (
+              normalizedReason.toLowerCase() === "requirement not feasible" ||
+              normalizedReason.toLowerCase() === "requirement not feasable" // Handle typo
+            ) {
+              reasonCounts["Requirement not Feasible"]++;
+            } else if (
+              normalizedReason.toLowerCase() === "commercials above client's threshold" ||
+              normalizedReason.toLowerCase().includes("commercials above")
+            ) {
+              reasonCounts["Commercials above Client's Threshold"]++;
+            } else if (
+              normalizedReason.toLowerCase() === "others" ||
+              normalizedReason.toLowerCase().startsWith("others")
+            ) {
+              reasonCounts["Others"]++;
+            } else {
+              // If reason doesn't match any standard, count it as "Others"
+              reasonCounts["Others"]++;
+            }
+          }
+        });
+      }
+
+      // Format data for pie chart with colors
+      const droppedSalesChartData = [
+        {
+          name: "Client Unresponsive",
+          value: reasonCounts["Client Unresponsive"],
+          color: "#FFA500", // Orange
+        },
+        {
+          name: "Requirement not Feasible",
+          value: reasonCounts["Requirement not Feasible"],
+          color: "#FF6B6B", // Red/Coral - different color
+        },
+        {
+          name: "Others",
+          value: reasonCounts["Others"],
+          color: "#32CD32", // Green
+        },
+        {
+          name: "Commercials above Client's Threshold",
+          value: reasonCounts["Commercials above Client's Threshold"],
+          color: "#9370DB", // Purple
+        },
+      ].filter((item) => item.value > 0); // Only show reasons that have deals
+
+      setDroppedSalesData(droppedSalesChartData);
+
+      // Calculate MCV Tier and Company Size Tier data
+      // Generate month columns from April to current month
+      // Note: fyStartMonth, currentMonthNum, currentYearNum, and fyStartYear are already declared above
       
       // Generate months from April to current month
       const monthColumns: Array<{ month: number; year: number; key: string; label: string }> = [];
@@ -987,26 +1267,22 @@ export default function Dashboard() {
 
 
 
-  const droppedSalesData = [
-    { name: "Requirement not feasible", value: 37, color: "#FFA500" },
-    { name: "Budget", value: 27, color: "#4169E1" },
-    { name: "Lost to Competitor", value: 20, color: "#32CD32" },
-    { name: "Internal Issues", value: 16, color: "#9370DB" },
-  ];
-
+  // Calculate actualVsTargetAnnual dynamically based on state
   const actualVsTargetAnnual = [
-    { name: "Achieved", value: 758, fill: "#4169E1" },
-    { name: "Target", value: 1000, fill: "#E0E0E0" },
+    { name: "Achieved", value: annualAchieved, fill: "#4169E1" },
+    { name: "Target", value: annualTarget, fill: "#E0E0E0" },
   ];
 
+  // Calculate actualVsTargetQ2 dynamically based on state
   const actualVsTargetQ2 = [
-    { name: "Achieved", value: 75, fill: "#4169E1" },
-    { name: "Target", value: 250, fill: "#E0E0E0" },
+    { name: "Achieved", value: quarterAchieved, fill: "#4169E1" },
+    { name: "Target", value: quarterTarget, fill: "#E0E0E0" },
   ];
 
+  // Calculate actualVsTargetCurrent dynamically based on state
   const actualVsTargetCurrent = [
-    { name: "Achieved", value: 12, fill: "#4169E1" },
-    { name: "Target", value: 50, fill: "#E0E0E0" },
+    { name: "Achieved", value: currentMonthAchieved, fill: "#4169E1" },
+    { name: "Target", value: currentMonthTarget, fill: "#E0E0E0" },
   ];
 
   const formatCurrency = (value: number | string): string => {
@@ -1172,10 +1448,47 @@ export default function Dashboard() {
         {/* Target MCV Next Quarter */}
         <Card>
           <CardContent className="pt-6">
-            <p className="text-base font-bold mb-2">Target MCV Next Quarter</p>
-            <div className="text-3xl font-bold">₹61.7Cr</div>
-            <p className="text-xs text-muted-foreground mt-2">26.7% Growth Expectation</p>
-            <p className="text-xs text-muted-foreground">Next Quarter vs Current Quarter</p>
+            {loading ? (
+              <div className="flex items-center justify-center h-20">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <p className="text-base font-bold mb-2">Target MCV Next Quarter</p>
+                <div className="text-3xl font-bold">{formatCurrency(targetMcvNextQuarter)}</div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {(() => {
+                    const now = new Date();
+                    const currentYear = now.getFullYear();
+                    const currentMonth = now.getMonth() + 1;
+                    
+                    // Determine next quarter months and year
+                    let nextQuarterMonths: number[] = [];
+                    let nextQuarterYear: number;
+                    
+                    if (currentMonth >= 4 && currentMonth <= 6) {
+                      nextQuarterMonths = [7, 8, 9];
+                      nextQuarterYear = currentYear;
+                    } else if (currentMonth >= 7 && currentMonth <= 9) {
+                      nextQuarterMonths = [10, 11, 12];
+                      nextQuarterYear = currentYear;
+                    } else if (currentMonth >= 10 && currentMonth <= 12) {
+                      nextQuarterMonths = [1, 2, 3];
+                      nextQuarterYear = currentYear + 1;
+                    } else {
+                      nextQuarterMonths = [4, 5, 6];
+                      nextQuarterYear = currentYear;
+                    }
+                    
+                    // Format month names (abbreviated)
+                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    const quarterMonthNames = nextQuarterMonths.map(m => monthNames[m - 1]).join(', ');
+                    
+                    return `${quarterMonthNames} ${nextQuarterYear}`;
+                  })()}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -1530,54 +1843,109 @@ export default function Dashboard() {
           {/* Annual */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">FY26 Actual vs Target (Annual)</CardTitle>
+              <CardTitle className="text-base">
+                {(() => {
+                  const now = new Date();
+                  const currentYear = now.getFullYear();
+                  const currentMonth = now.getMonth() + 1;
+                  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+                  const fyEndYear = (fyStartYear + 1).toString().slice(-2);
+                  return `FY${fyEndYear} Actual vs Target (Annual)`;
+                })()}
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={actualVsTargetAnnual} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={80} />
-                  <Tooltip />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {actualVsTargetAnnual.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="mt-4 space-y-1">
-                <p className="text-sm">Target: ₹1,000</p>
-                <p className="text-sm">Achieved: ₹758</p>
-                <p className="text-sm font-medium">75.8% of Target</p>
-              </div>
+              {loading ? (
+                <div className="flex items-center justify-center h-[200px]">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={actualVsTargetAnnual} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis dataKey="name" type="category" width={80} />
+                      <Tooltip />
+                      <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                        {actualVsTargetAnnual.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-4 space-y-1">
+                    <p className="text-sm">Target: {formatCurrency(annualTarget)}</p>
+                    <p className="text-sm">Achieved: {formatCurrency(annualAchieved)}</p>
+                    <p className="text-sm font-medium">
+                      {annualTarget > 0 
+                        ? `${((annualAchieved / annualTarget) * 100).toFixed(1)}% of Target`
+                        : "N/A"}
+                    </p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
-          {/* Q2 */}
+          {/* Current Quarter */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">FY26 Actual vs Target (Q2)</CardTitle>
+              <CardTitle className="text-base">
+                {(() => {
+                  const now = new Date();
+                  const currentYear = now.getFullYear();
+                  const currentMonth = now.getMonth() + 1;
+                  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+                  const fyEndYear = (fyStartYear + 1).toString().slice(-2);
+                  
+                  // Determine current quarter
+                  let quarterLabel = "";
+                  if (currentMonth >= 4 && currentMonth <= 6) {
+                    quarterLabel = "Q1";
+                  } else if (currentMonth >= 7 && currentMonth <= 9) {
+                    quarterLabel = "Q2";
+                  } else if (currentMonth >= 10 && currentMonth <= 12) {
+                    quarterLabel = "Q3";
+                  } else {
+                    quarterLabel = "Q4";
+                  }
+                  
+                  return `FY${fyEndYear} Actual vs Target (${quarterLabel})`;
+                })()}
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={actualVsTargetQ2} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={80} />
-                  <Tooltip />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {actualVsTargetQ2.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="mt-4 space-y-1">
-                <p className="text-sm">Target: ₹250L</p>
-                <p className="text-sm">Achieved: ₹75L</p>
-                <p className="text-sm font-medium">30.0% of Target</p>
-              </div>
+              {loading ? (
+                <div className="flex items-center justify-center h-[200px]">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={actualVsTargetQ2} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis dataKey="name" type="category" width={80} />
+                      <Tooltip />
+                      <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                        {actualVsTargetQ2.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-4 space-y-1">
+                    <p className="text-sm">Target: {formatCurrency(quarterTarget)}</p>
+                    <p className="text-sm">Achieved: {formatCurrency(quarterAchieved)}</p>
+                    <p className="text-sm font-medium">
+                      {quarterTarget > 0 
+                        ? `${((quarterAchieved / quarterTarget) * 100).toFixed(1)}% of Target`
+                        : "N/A"}
+                    </p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -1587,27 +1955,49 @@ export default function Dashboard() {
           {/* Current Month */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">FY26 Actual vs Target (Current Month)</CardTitle>
+              <CardTitle className="text-base">
+                {(() => {
+                  const now = new Date();
+                  const currentYear = now.getFullYear();
+                  const currentMonth = now.getMonth() + 1;
+                  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+                  const fyEndYear = (fyStartYear + 1).toString().slice(-2);
+                  const monthName = now.toLocaleString('default', { month: 'long' });
+                  return `FY${fyEndYear} Actual vs Target (${monthName})`;
+                })()}
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={actualVsTargetCurrent} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={80} />
-                  <Tooltip />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {actualVsTargetCurrent.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="mt-4 space-y-1">
-                <p className="text-sm">Target: ₹50L</p>
-                <p className="text-sm">Achieved: ₹12L</p>
-                <p className="text-sm font-medium">24.0% of Target</p>
-              </div>
+              {loading ? (
+                <div className="flex items-center justify-center h-[200px]">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={actualVsTargetCurrent} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis dataKey="name" type="category" width={80} />
+                      <Tooltip />
+                      <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                        {actualVsTargetCurrent.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-4 space-y-1">
+                    <p className="text-sm">Target: {formatCurrency(currentMonthTarget)}</p>
+                    <p className="text-sm">Achieved: {formatCurrency(currentMonthAchieved)}</p>
+                    <p className="text-sm font-medium">
+                      {currentMonthTarget > 0 
+                        ? `${((currentMonthAchieved / currentMonthTarget) * 100).toFixed(1)}% of Target`
+                        : "N/A"}
+                    </p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -1617,29 +2007,106 @@ export default function Dashboard() {
               <CardTitle>Dropped Sales and Reasons</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={droppedSalesData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {droppedSalesData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    formatter={(value, entry: any) => `${value} (${entry.payload.value}%)`}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              {loading ? (
+                <div className="flex items-center justify-center h-[300px]">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : droppedSalesData.length === 0 ? (
+                <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                  No dropped deals found
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={400}>
+                  <PieChart>
+                    <Pie
+                      data={droppedSalesData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={(props: any) => {
+                        const { cx, cy, midAngle, innerRadius, outerRadius, value, name, fill } = props;
+                        const total = droppedSalesData.reduce((sum, item) => sum + item.value, 0);
+                        const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : "0.00";
+                        
+                        // Capitalize first letter of each word
+                        const capitalizeWords = (text: string) => {
+                          return text
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                            .join(' ');
+                        };
+                        
+                        const capitalizedName = capitalizeWords(name);
+                        
+                        const RADIAN = Math.PI / 180;
+                        // Point on the outer edge of the pie segment
+                        const radius = outerRadius;
+                        const xLabel = cx + radius * Math.cos(-midAngle * RADIAN);
+                        const yLabel = cy + radius * Math.sin(-midAngle * RADIAN);
+                        
+                        // Calculate label position (outside the pie with gap)
+                        const gap = 15; // Gap between line end and text
+                        const labelRadius = outerRadius + 30;
+                        const labelX = cx + (labelRadius + gap) * Math.cos(-midAngle * RADIAN);
+                        const labelY = cy + (labelRadius + gap) * Math.sin(-midAngle * RADIAN);
+                        
+                        // Line end position (before the gap)
+                        const lineEndX = cx + labelRadius * Math.cos(-midAngle * RADIAN);
+                        const lineEndY = cy + labelRadius * Math.sin(-midAngle * RADIAN);
+                        
+                        // Determine text anchor based on position
+                        const textAnchor = xLabel > cx ? "start" : "end";
+                        
+                        return (
+                          <g>
+                            {/* Line from segment edge to label (with gap before text) */}
+                            <line
+                              x1={xLabel}
+                              y1={yLabel}
+                              x2={lineEndX}
+                              y2={lineEndY}
+                              stroke={fill}
+                              strokeWidth={1.5}
+                            />
+                            {/* Label text - reason name */}
+                            <text
+                              x={labelX}
+                              y={labelY}
+                              textAnchor={textAnchor}
+                              fill={fill}
+                              fontSize={14}
+                              fontWeight={500}
+                              dy={-8}
+                            >
+                              {capitalizedName}
+                            </text>
+                            {/* Label text - count and percentage */}
+                            <text
+                              x={labelX}
+                              y={labelY}
+                              textAnchor={textAnchor}
+                              fill={fill}
+                              fontSize={13}
+                              dy={8}
+                            >
+                              {value} ({percentage}%)
+                            </text>
+                          </g>
+                        );
+                      }}
+                      labelLine={false}
+                    >
+                      {droppedSalesData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
       </div>
@@ -1796,57 +2263,204 @@ export default function Dashboard() {
             <CardTitle className="text-base">Funnel Stage_Count of Sales Module</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="text-center bg-gray-100 p-3 rounded mb-4">
-                <div className="text-2xl font-bold">Total: <span>27</span></div>
-              </div>
-              <div className="flex flex-col items-center space-y-0">
-                {/* TOFU - Inverted trapezoid (wider at top, narrower at bottom) */}
-                {/* Top: 280px, Bottom: 220px (to match BOFU top) */}
-                <div className="flex items-center gap-4 mb-0">
-                  <div 
-                    className="h-20 bg-green-400 rounded-t-lg flex-shrink-0"
-                    style={{ 
-                      width: '280px',
-                      clipPath: 'polygon(30px 0, calc(100% - 30px) 0, calc(100% - 30px) 100%, 30px 100%)'
-                    }}
-                  />
-                  <span className="font-medium text-gray-800 whitespace-nowrap">TOFU : <span className="font-bold">14</span></span>
-                </div>
-                {/* BOFU - Trapezoid (continues narrowing) */}
-                {/* Top: 220px (matches TOFU bottom), Bottom: 180px (to match Closed Won top) */}
-                <div className="flex items-center gap-4 mb-0">
-                  <div 
-                    className="h-20 bg-blue-300 flex-shrink-0"
-                    style={{ 
-                      width: '220px',
-                      clipPath: 'polygon(0 0, 100% 0, calc(100% - 20px) 100%, 20px 100%)'
-                    }}
-                  />
-                  <span className="font-medium text-gray-800 whitespace-nowrap">BOFU : <span className="font-bold">2</span></span>
-                </div>
-                {/* Closed Won - Trapezoid (widens outward) */}
-                {/* Top: 180px (matches BOFU bottom), Bottom: 192px (to match Dropped) */}
-                <div className="flex items-center gap-4 mb-0">
-                  <div 
-                    className="h-20 bg-blue-600 flex-shrink-0"
-                    style={{ 
-                      width: '192px',
-                      clipPath: 'polygon(6px 0, calc(100% - 6px) 0, 0 100%, 100% 100%)'
-                    }}
-                  />
-                  <span className="font-medium text-gray-800 whitespace-nowrap">Closed Won : <span className="font-bold">5</span></span>
-                </div>
-                {/* Dropped - Rectangle (consistent width) */}
-                {/* Width: 192px (matches Closed Won bottom) */}
-                <div className="flex items-center gap-4">
-                  <div 
-                    className="h-20 bg-yellow-400 rounded-b-lg flex-shrink-0"
-                    style={{ width: '192px' }}
-                  />
-                  <span className="font-medium text-gray-800 whitespace-nowrap">Dropped : <span className="font-bold">6</span></span>
-                </div>
-              </div>
+            <div className="flex gap-4">
+              {(() => {
+                const values = { tofu: 14, bofu: 2, closedWon: 5, dropped: 6 };
+                const maxValue = Math.max(...Object.values(values));
+                const maxWidth = 200; // Maximum line width in pixels
+                
+                const calculateWidth = (value: number) => {
+                  return (value / maxValue) * maxWidth;
+                };
+                
+                return (
+                  <>
+                    {/* Left Section - Lines */}
+                    <div className="flex flex-col items-start relative">
+                      {(() => {
+                        const barHeight = 1;
+                        const gapBetweenBars = 60; // Increased from 40px
+                        const gapBetweenDuplicates = 8; // Kept same
+                        const squareSize = calculateWidth(values.dropped);
+                        
+                        // Calculate Y positions for each bar
+                        const y1Top = 0;
+                        const y1Bottom = barHeight;
+                        const y2Top = y1Bottom + gapBetweenBars;
+                        const y2Bottom = y2Top + barHeight;
+                        const y3Top = y2Bottom + gapBetweenDuplicates;
+                        const y3Bottom = y3Top + barHeight;
+                        const y4Top = y3Bottom + gapBetweenBars;
+                        const y4Bottom = y4Top + barHeight;
+                        const y5Top = y4Bottom + gapBetweenDuplicates;
+                        const y5Bottom = y5Top + barHeight;
+                        const y6Top = y5Bottom + gapBetweenBars;
+                        const y6Bottom = y6Top + barHeight;
+                        const squareY = y6Bottom + 8; // Reduced gap to 8px
+                        const totalHeight = squareY + squareSize;
+                        
+                        return (
+                          <svg className="absolute top-0 left-0" style={{ width: `${maxWidth}px`, height: `${totalHeight}px`, pointerEvents: 'none' }}>
+                            {/* Green funnel segment: Line 1 to Line 2 */}
+                            <polygon
+                              points={`
+                                ${maxWidth / 2 - calculateWidth(values.tofu) / 2},${y1Top}
+                                ${maxWidth / 2 + calculateWidth(values.tofu) / 2},${y1Top}
+                                ${maxWidth / 2 + calculateWidth(values.bofu) / 2},${y2Bottom}
+                                ${maxWidth / 2 - calculateWidth(values.bofu) / 2},${y2Bottom}
+                              `}
+                              fill="#4ade80"
+                            />
+                            
+                            {/* Light blue funnel segment: Line 3 to Line 4 */}
+                            <polygon
+                              points={`
+                                ${maxWidth / 2 - calculateWidth(values.bofu) / 2},${y3Top}
+                                ${maxWidth / 2 + calculateWidth(values.bofu) / 2},${y3Top}
+                                ${maxWidth / 2 + calculateWidth(values.closedWon) / 2},${y4Bottom}
+                                ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y4Bottom}
+                              `}
+                              fill="#93c5fd"
+                            />
+                            
+                            {/* Dark blue funnel segment: Line 5 to Line 6 */}
+                            <polygon
+                              points={`
+                                ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y5Top}
+                                ${maxWidth / 2 + calculateWidth(values.closedWon) / 2},${y5Top}
+                                ${maxWidth / 2 + calculateWidth(values.dropped) / 2},${y6Bottom}
+                                ${maxWidth / 2 - calculateWidth(values.dropped) / 2},${y6Bottom}
+                              `}
+                              fill="#2563eb"
+                            />
+                            
+                            {/* Line 1: TOFU */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.tofu) / 2}
+                              y={y1Top}
+                              width={calculateWidth(values.tofu)}
+                              height={barHeight}
+                              fill="#4ade80"
+                            />
+                            
+                            {/* Line 2: BOFU's 1st */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.bofu) / 2}
+                              y={y2Top}
+                              width={calculateWidth(values.bofu)}
+                              height={barHeight}
+                              fill="#4ade80"
+                            />
+                            
+                            {/* Line 3: BOFU's 2nd */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.bofu) / 2}
+                              y={y3Top}
+                              width={calculateWidth(values.bofu)}
+                              height={barHeight}
+                              fill="#93c5fd"
+                            />
+                            
+                            {/* Line 4: Closed Won's 1st */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.closedWon) / 2}
+                              y={y4Top}
+                              width={calculateWidth(values.closedWon)}
+                              height={barHeight}
+                              fill="#93c5fd"
+                            />
+                            
+                            {/* Line 5: Closed Won's 2nd */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.closedWon) / 2}
+                              y={y5Top}
+                              width={calculateWidth(values.closedWon)}
+                              height={barHeight}
+                              fill="#2563eb"
+                            />
+                            
+                            {/* Line 6: Dropped's 1st */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.dropped) / 2}
+                              y={y6Top}
+                              width={calculateWidth(values.dropped)}
+                              height={barHeight}
+                              fill="#2563eb"
+                            />
+                            
+                            {/* Square at the bottom with side length equal to dropped value */}
+                            <rect
+                              x={maxWidth / 2 - squareSize / 2}
+                              y={squareY}
+                              width={squareSize}
+                              height={squareSize}
+                              fill="#facc15"
+                            />
+                          </svg>
+                        );
+                      })()}
+                    </div>
+                    
+                    {/* Right Section - Labels */}
+                    {(() => {
+                      const barHeight = 1;
+                      const gapBetweenBars = 60;
+                      const gapBetweenDuplicates = 8;
+                      const squareSize = calculateWidth(values.dropped);
+                      
+                      // Calculate Y positions for each bar
+                      const y1Top = 0;
+                      const y1Bottom = barHeight;
+                      const y2Top = y1Bottom + gapBetweenBars;
+                      const y2Bottom = y2Top + barHeight;
+                      const y3Top = y2Bottom + gapBetweenDuplicates;
+                      const y3Bottom = y3Top + barHeight;
+                      const y4Top = y3Bottom + gapBetweenBars;
+                      const y4Bottom = y4Top + barHeight;
+                      const y5Top = y4Bottom + gapBetweenDuplicates;
+                      const y5Bottom = y5Top + barHeight;
+                      const y6Top = y5Bottom + gapBetweenBars;
+                      const y6Bottom = y6Top + barHeight;
+                      const squareY = y6Bottom + 8;
+                      
+                      // Calculate vertical centers of each colored shape
+                      const greenShapeCenter = (y1Top + y2Bottom) / 2;
+                      const lightBlueShapeCenter = (y3Top + y4Bottom) / 2;
+                      const darkBlueShapeCenter = (y5Top + y6Bottom) / 2;
+                      const yellowSquareCenter = squareY + squareSize / 2;
+                      
+                      return (
+                        <div className="flex flex-col relative ml-auto" style={{ height: `${squareY + squareSize}px` }}>
+                          <span 
+                            className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
+                            style={{ top: `${greenShapeCenter}px`, transform: 'translateY(-50%)' }}
+                          >
+                            TOFU : <span className="font-bold">14</span>
+                          </span>
+                          <span 
+                            className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
+                            style={{ top: `${lightBlueShapeCenter}px`, transform: 'translateY(-50%)' }}
+                          >
+                            BOFU : <span className="font-bold">4</span>
+                          </span>
+                          <span 
+                            className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
+                            style={{ top: `${darkBlueShapeCenter}px`, transform: 'translateY(-50%)' }}
+                          >
+                            Closed Won : <span className="font-bold">5</span>
+                          </span>
+                          <span 
+                            className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
+                            style={{ top: `${yellowSquareCenter}px`, transform: 'translateY(-50%)' }}
+                          >
+                            Dropped : <span className="font-bold">6</span>
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -1857,57 +2471,204 @@ export default function Dashboard() {
             <CardTitle className="text-base">Funnel Stage_Expected Revenue</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="text-center bg-gray-100 p-3 rounded mb-4">
-                <div className="text-2xl font-bold">Total: <span>₹1.3Cr</span></div>
-              </div>
-              <div className="flex flex-col items-center space-y-0">
-                {/* TOFU - Inverted trapezoid (wider at top, narrower at bottom) */}
-                {/* Top: 280px, Bottom: 220px (to match BOFU top) */}
-                <div className="flex items-center gap-4 mb-0">
-                  <div 
-                    className="h-20 bg-green-400 rounded-t-lg flex-shrink-0"
-                    style={{ 
-                      width: '280px',
-                      clipPath: 'polygon(30px 0, calc(100% - 30px) 0, calc(100% - 30px) 100%, 30px 100%)'
-                    }}
-                  />
-                  <span className="font-medium text-gray-800 whitespace-nowrap">TOFU : <span className="font-bold">₹55.6L</span></span>
-                </div>
-                {/* BOFU - Trapezoid (continues narrowing) */}
-                {/* Top: 220px (matches TOFU bottom), Bottom: 180px (to match Closed Won top) */}
-                <div className="flex items-center gap-4 mb-0">
-                  <div 
-                    className="h-20 bg-blue-300 flex-shrink-0"
-                    style={{ 
-                      width: '220px',
-                      clipPath: 'polygon(0 0, 100% 0, calc(100% - 20px) 100%, 20px 100%)'
-                    }}
-                  />
-                  <span className="font-medium text-gray-800 whitespace-nowrap">BOFU : <span className="font-bold">₹15.0L</span></span>
-                </div>
-                {/* Closed Won - Trapezoid (widens outward) */}
-                {/* Top: 180px (matches BOFU bottom), Bottom: 192px (to match Dropped) */}
-                <div className="flex items-center gap-4 mb-0">
-                  <div 
-                    className="h-20 bg-blue-600 flex-shrink-0"
-                    style={{ 
-                      width: '192px',
-                      clipPath: 'polygon(6px 0, calc(100% - 6px) 0, 0 100%, 100% 100%)'
-                    }}
-                  />
-                  <span className="font-medium text-gray-800 whitespace-nowrap">Closed Won : <span className="font-bold">₹29.5L</span></span>
-                </div>
-                {/* Dropped - Rectangle (consistent width) */}
-                {/* Width: 192px (matches Closed Won bottom) */}
-                <div className="flex items-center gap-4">
-                  <div 
-                    className="h-20 bg-yellow-400 rounded-b-lg flex-shrink-0"
-                    style={{ width: '192px' }}
-                  />
-                  <span className="font-medium text-gray-800 whitespace-nowrap">Dropped : <span className="font-bold">₹30.0L</span></span>
-                </div>
-              </div>
+            <div className="flex gap-4">
+              {(() => {
+                const values = { tofu: 55.6, bofu: 15.0, closedWon: 29.5, dropped: 30 };
+                const maxValue = Math.max(...Object.values(values));
+                const maxWidth = 200; // Maximum line width in pixels
+                
+                const calculateWidth = (value: number) => {
+                  return (value / maxValue) * maxWidth;
+                };
+                
+                return (
+                  <>
+                    {/* Left Section - Lines */}
+                    <div className="flex flex-col items-start relative">
+                      {(() => {
+                        const barHeight = 1;
+                        const gapBetweenBars = 60; // Increased from 40px
+                        const gapBetweenDuplicates = 8; // Kept same
+                        const squareSize = calculateWidth(values.dropped);
+                        
+                        // Calculate Y positions for each bar
+                        const y1Top = 0;
+                        const y1Bottom = barHeight;
+                        const y2Top = y1Bottom + gapBetweenBars;
+                        const y2Bottom = y2Top + barHeight;
+                        const y3Top = y2Bottom + gapBetweenDuplicates;
+                        const y3Bottom = y3Top + barHeight;
+                        const y4Top = y3Bottom + gapBetweenBars;
+                        const y4Bottom = y4Top + barHeight;
+                        const y5Top = y4Bottom + gapBetweenDuplicates;
+                        const y5Bottom = y5Top + barHeight;
+                        const y6Top = y5Bottom + gapBetweenBars;
+                        const y6Bottom = y6Top + barHeight;
+                        const squareY = y6Bottom + 8; // Reduced gap to 8px
+                        const totalHeight = squareY + squareSize;
+                        
+                        return (
+                          <svg className="absolute top-0 left-0" style={{ width: `${maxWidth}px`, height: `${totalHeight}px`, pointerEvents: 'none' }}>
+                            {/* Green funnel segment: Line 1 to Line 2 */}
+                            <polygon
+                              points={`
+                                ${maxWidth / 2 - calculateWidth(values.tofu) / 2},${y1Top}
+                                ${maxWidth / 2 + calculateWidth(values.tofu) / 2},${y1Top}
+                                ${maxWidth / 2 + calculateWidth(values.bofu) / 2},${y2Bottom}
+                                ${maxWidth / 2 - calculateWidth(values.bofu) / 2},${y2Bottom}
+                              `}
+                              fill="#4ade80"
+                            />
+                            
+                            {/* Light blue funnel segment: Line 3 to Line 4 */}
+                            <polygon
+                              points={`
+                                ${maxWidth / 2 - calculateWidth(values.bofu) / 2},${y3Top}
+                                ${maxWidth / 2 + calculateWidth(values.bofu) / 2},${y3Top}
+                                ${maxWidth / 2 + calculateWidth(values.closedWon) / 2},${y4Bottom}
+                                ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y4Bottom}
+                              `}
+                              fill="#93c5fd"
+                            />
+                            
+                            {/* Dark blue funnel segment: Line 5 to Line 6 */}
+                            <polygon
+                              points={`
+                                ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y5Top}
+                                ${maxWidth / 2 + calculateWidth(values.closedWon) / 2},${y5Top}
+                                ${maxWidth / 2 + calculateWidth(values.dropped) / 2},${y6Bottom}
+                                ${maxWidth / 2 - calculateWidth(values.dropped) / 2},${y6Bottom}
+                              `}
+                              fill="#2563eb"
+                            />
+                            
+                            {/* Line 1: TOFU */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.tofu) / 2}
+                              y={y1Top}
+                              width={calculateWidth(values.tofu)}
+                              height={barHeight}
+                              fill="#4ade80"
+                            />
+                            
+                            {/* Line 2: BOFU's 1st */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.bofu) / 2}
+                              y={y2Top}
+                              width={calculateWidth(values.bofu)}
+                              height={barHeight}
+                              fill="#4ade80"
+                            />
+                            
+                            {/* Line 3: BOFU's 2nd */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.bofu) / 2}
+                              y={y3Top}
+                              width={calculateWidth(values.bofu)}
+                              height={barHeight}
+                              fill="#93c5fd"
+                            />
+                            
+                            {/* Line 4: Closed Won's 1st */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.closedWon) / 2}
+                              y={y4Top}
+                              width={calculateWidth(values.closedWon)}
+                              height={barHeight}
+                              fill="#93c5fd"
+                            />
+                            
+                            {/* Line 5: Closed Won's 2nd */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.closedWon) / 2}
+                              y={y5Top}
+                              width={calculateWidth(values.closedWon)}
+                              height={barHeight}
+                              fill="#2563eb"
+                            />
+                            
+                            {/* Line 6: Dropped's 1st */}
+                            <rect
+                              x={maxWidth / 2 - calculateWidth(values.dropped) / 2}
+                              y={y6Top}
+                              width={calculateWidth(values.dropped)}
+                              height={barHeight}
+                              fill="#2563eb"
+                            />
+                            
+                            {/* Square at the bottom with side length equal to dropped value */}
+                            <rect
+                              x={maxWidth / 2 - squareSize / 2}
+                              y={squareY}
+                              width={squareSize}
+                              height={squareSize}
+                              fill="#facc15"
+                            />
+                          </svg>
+                        );
+                      })()}
+                    </div>
+                    
+                    {/* Right Section - Labels */}
+                    {(() => {
+                      const barHeight = 1;
+                      const gapBetweenBars = 60;
+                      const gapBetweenDuplicates = 8;
+                      const squareSize = calculateWidth(values.dropped);
+                      
+                      // Calculate Y positions for each bar
+                      const y1Top = 0;
+                      const y1Bottom = barHeight;
+                      const y2Top = y1Bottom + gapBetweenBars;
+                      const y2Bottom = y2Top + barHeight;
+                      const y3Top = y2Bottom + gapBetweenDuplicates;
+                      const y3Bottom = y3Top + barHeight;
+                      const y4Top = y3Bottom + gapBetweenBars;
+                      const y4Bottom = y4Top + barHeight;
+                      const y5Top = y4Bottom + gapBetweenDuplicates;
+                      const y5Bottom = y5Top + barHeight;
+                      const y6Top = y5Bottom + gapBetweenBars;
+                      const y6Bottom = y6Top + barHeight;
+                      const squareY = y6Bottom + 8;
+                      
+                      // Calculate vertical centers of each colored shape
+                      const greenShapeCenter = (y1Top + y2Bottom) / 2;
+                      const lightBlueShapeCenter = (y3Top + y4Bottom) / 2;
+                      const darkBlueShapeCenter = (y5Top + y6Bottom) / 2;
+                      const yellowSquareCenter = squareY + squareSize / 2;
+                      
+                      return (
+                        <div className="flex flex-col relative ml-auto" style={{ height: `${squareY + squareSize}px` }}>
+                          <span 
+                            className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
+                            style={{ top: `${greenShapeCenter}px`, transform: 'translateY(-50%)' }}
+                          >
+                            TOFU : <span className="font-bold">₹55.6L</span>
+                          </span>
+                          <span 
+                            className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
+                            style={{ top: `${lightBlueShapeCenter}px`, transform: 'translateY(-50%)' }}
+                          >
+                            BOFU : <span className="font-bold">₹15.0L</span>
+                          </span>
+                          <span 
+                            className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
+                            style={{ top: `${darkBlueShapeCenter}px`, transform: 'translateY(-50%)' }}
+                          >
+                            Closed Won : <span className="font-bold">₹29.5L</span>
+                          </span>
+                          <span 
+                            className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
+                            style={{ top: `${yellowSquareCenter}px`, transform: 'translateY(-50%)' }}
+                          >
+                            Dropped : <span className="font-bold">₹30L</span>
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
