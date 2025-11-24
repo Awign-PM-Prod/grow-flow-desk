@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus, Loader2, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -56,6 +56,7 @@ interface MonthlyTargetFormData {
   year: string;
   target: string;
   financialYear: string;
+  kamId: string;
 }
 
 interface MonthlyTarget {
@@ -64,8 +65,14 @@ interface MonthlyTarget {
   year: number;
   financial_year: string;
   target: number;
+  kam_id: string | null;
   created_by: string;
   created_at: string;
+}
+
+interface KAM {
+  id: string;
+  full_name: string | null;
 }
 
 export default function Targets() {
@@ -74,14 +81,18 @@ export default function Targets() {
   const { toast } = useToast();
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editingTarget, setEditingTarget] = useState<MonthlyTarget | null>(null);
   const [formData, setFormData] = useState<MonthlyTargetFormData>({
     month: "",
     year: "",
     target: "",
     financialYear: "",
+    kamId: "",
   });
   const [monthlyTargets, setMonthlyTargets] = useState<MonthlyTarget[]>([]);
   const [loadingTargets, setLoadingTargets] = useState(false);
+  const [kams, setKams] = useState<KAM[]>([]);
+  const [loadingKams, setLoadingKams] = useState(false);
 
   const fetchMonthlyTargets = async () => {
     setLoadingTargets(true);
@@ -120,6 +131,29 @@ export default function Targets() {
     }
   };
 
+  const fetchKAMs = async () => {
+    setLoadingKams(true);
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .order("full_name");
+
+      if (error) {
+        console.error("Error fetching KAMs:", error);
+        setKams([]);
+      } else {
+        setKams(data || []);
+      }
+    } catch (error: any) {
+      console.error("Error fetching KAMs:", error);
+      setKams([]);
+    } finally {
+      setLoadingKams(false);
+    }
+  };
+
   useEffect(() => {
     if (!loading && userRoles.length > 0) {
       // Only allow manager, leadership, and superadmin roles
@@ -129,8 +163,9 @@ export default function Targets() {
       if (!hasAccess) {
         navigate("/dashboard");
       } else {
-        // Fetch targets when user has access
+        // Fetch targets and KAMs when user has access
         fetchMonthlyTargets();
+        fetchKAMs();
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,8 +234,8 @@ export default function Targets() {
 
       // Prepare data for insertion
       // Expected table structure: monthly_targets
-      // Columns: month (integer), year (integer), financial_year (text), target (numeric), created_by (uuid), created_at (timestamp)
-      const targetData = {
+      // Columns: month (integer), year (integer), financial_year (text), target (numeric), kam_id (uuid), created_by (uuid), created_at (timestamp)
+      const targetData: any = {
         month: parseInt(formData.month),
         year: parseInt(formData.year),
         financial_year: formData.financialYear,
@@ -209,14 +244,41 @@ export default function Targets() {
         created_at: new Date().toISOString(),
       };
 
-      // Insert into monthly_targets table
-      const { error: insertError } = await supabase
-        .from("monthly_targets")
-        .insert([targetData]);
+      // Set kam_id to null if "Overall" is selected, otherwise use the selected KAM ID
+      if (formData.kamId === "overall" || formData.kamId === "") {
+        targetData.kam_id = null;
+      } else {
+        targetData.kam_id = formData.kamId;
+      }
+
+      // Update or insert into monthly_targets table
+      let error;
+      if (editingTarget) {
+        // Update existing target
+        const { error: updateError } = await supabase
+          .from("monthly_targets")
+          .update({
+            month: targetData.month,
+            year: targetData.year,
+            financial_year: targetData.financial_year,
+            target: targetData.target,
+            kam_id: targetData.kam_id,
+          })
+          .eq("id", editingTarget.id);
+        
+        error = updateError;
+      } else {
+        // Insert new target
+        const { error: insertError } = await supabase
+          .from("monthly_targets")
+          .insert([targetData]);
+        
+        error = insertError;
+      }
       
-      if (insertError) {
+      if (error) {
         // If table doesn't exist, show a helpful message
-        if (insertError.code === "42P01" || insertError.message.includes("does not exist")) {
+        if (error.code === "42P01" || error.message.includes("does not exist")) {
           toast({
             title: "Table Not Found",
             description: "The monthly_targets table needs to be created first. Please create the table in your database.",
@@ -225,12 +287,12 @@ export default function Targets() {
           setSubmitting(false);
           return;
         }
-        throw insertError;
+        throw error;
       }
 
       toast({
         title: "Success!",
-        description: `Target for ${getMonthName(parseInt(formData.month))} ${formData.year} (FY: ${formData.financialYear}) saved successfully.`,
+        description: `Target for ${getMonthName(parseInt(formData.month))} ${formData.year} (FY: ${formData.financialYear}) ${editingTarget ? "updated" : "saved"} successfully.`,
       });
 
       // Reset form
@@ -239,10 +301,12 @@ export default function Targets() {
         year: "",
         target: "",
         financialYear: "",
+        kamId: "",
       });
 
       // Close dialog
       setFormDialogOpen(false);
+      setEditingTarget(null);
       
       // Refresh targets list
       fetchMonthlyTargets();
@@ -303,13 +367,15 @@ export default function Targets() {
         <Dialog open={formDialogOpen} onOpenChange={(open) => {
           setFormDialogOpen(open);
           if (!open) {
-            // Reset form when dialog closes
+            // Reset form and editing state when dialog closes
             setFormData({
               month: "",
               year: "",
               target: "",
               financialYear: "",
+              kamId: "",
             });
+            setEditingTarget(null);
           }
         }}>
           <DialogTrigger asChild>
@@ -321,9 +387,11 @@ export default function Targets() {
           <DialogContent className="sm:max-w-[500px]">
             <form onSubmit={handleSubmit}>
               <DialogHeader>
-                <DialogTitle>Add Monthly Target</DialogTitle>
+                <DialogTitle>{editingTarget ? "Edit Monthly Target" : "Add Monthly Target"}</DialogTitle>
                 <DialogDescription>
-                  Add a target for a specific month. The financial year will be calculated automatically.
+                  {editingTarget 
+                    ? "Update the target for this month. The financial year will be calculated automatically."
+                    : "Add a target for a specific month. The financial year will be calculated automatically."}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
@@ -393,6 +461,25 @@ export default function Targets() {
                     </div>
                   </div>
                 )}
+                <div className="grid gap-2">
+                  <Label htmlFor="kam">KAM</Label>
+                  <Select
+                    value={formData.kamId}
+                    onValueChange={(value) => handleInputChange("kamId", value)}
+                  >
+                    <SelectTrigger id="kam">
+                      <SelectValue placeholder="Select KAM or Overall" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="overall">Overall</SelectItem>
+                      {kams.map((kam) => (
+                        <SelectItem key={kam.id} value={kam.id}>
+                          {kam.full_name || "Unnamed KAM"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <DialogFooter>
                 <Button
@@ -407,10 +494,10 @@ export default function Targets() {
                   {submitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving...
+                      {editingTarget ? "Updating..." : "Saving..."}
                     </>
                   ) : (
-                    "Save Target"
+                    editingTarget ? "Update Target" : "Save Target"
                   )}
                 </Button>
               </DialogFooter>
@@ -445,33 +532,69 @@ export default function Targets() {
                   <TableHead>Month</TableHead>
                   <TableHead>Year</TableHead>
                   <TableHead>Financial Year</TableHead>
+                  <TableHead>KAM</TableHead>
                   <TableHead className="text-right">Target Value</TableHead>
                   <TableHead>Created At</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {monthlyTargets.map((target) => (
-                  <TableRow key={target.id}>
-                    <TableCell className="font-medium">
-                      {getMonthName(target.month)}
-                    </TableCell>
-                    <TableCell>{target.year}</TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-sm font-medium text-primary">
-                        {target.financial_year}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right font-semibold">
-                      {target.target.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {new Date(target.created_at).toLocaleDateString()}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {(() => {
+                  // Create a map of KAM IDs to names for quick lookup (created once outside the map)
+                  const kamMap = new Map(kams.map(kam => [kam.id, kam.full_name || "Unnamed KAM"]));
+                  
+                  return monthlyTargets.map((target) => {
+                    const kamName = target.kam_id ? kamMap.get(target.kam_id) || "Unknown KAM" : "Overall";
+                    
+                    return (
+                      <TableRow key={target.id}>
+                        <TableCell className="font-medium">
+                          {getMonthName(target.month)}
+                        </TableCell>
+                        <TableCell>{target.year}</TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-sm font-medium text-primary">
+                            {target.financial_year}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className={target.kam_id ? "" : "text-muted-foreground font-medium"}>
+                            {kamName}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {target.target.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {new Date(target.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => {
+                              setEditingTarget(target);
+                              setFormData({
+                                month: target.month.toString(),
+                                year: target.year.toString(),
+                                target: target.target.toString(),
+                                financialYear: target.financial_year,
+                                kamId: target.kam_id || "overall",
+                              });
+                              setFormDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  });
+                })()}
               </TableBody>
             </Table>
           )}

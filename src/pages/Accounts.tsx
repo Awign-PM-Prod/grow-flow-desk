@@ -147,7 +147,8 @@ export default function Accounts() {
   // Auto-calculate Company Size Tier based on revenue range
   useEffect(() => {
     if (formData.revenueRange) {
-      const isTier1 = formData.revenueRange.includes("500CR") || formData.revenueRange.includes("100~500CR");
+      const isTier1 = formData.revenueRange.includes("100~500CR") || 
+                     formData.revenueRange.includes("500CR &above");
       setFormData((prev) => ({
         ...prev,
         companySizeTier: isTier1 ? "Tier 1" : "Tier 2",
@@ -268,13 +269,31 @@ export default function Accounts() {
       let accountsWithTotals = data;
       
       try {
+        // Calculate previous month and financial year start
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1; // 1-12
+        const currentYear = now.getFullYear();
+        
+        // Calculate previous month
+        let prevMonth = currentMonth - 1;
+        let prevYear = currentYear;
+        if (prevMonth === 0) {
+          prevMonth = 12;
+          prevYear = currentYear - 1;
+        }
+        const prevMonthYear = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+        
+        // Calculate financial year start (April)
+        const fyStartMonth = 4; // April
+        const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+        
         // Try to fetch mandates and calculate totals
         accountsWithTotals = await Promise.all(
           data.map(async (account) => {
             try {
               const { data: mandates, error: mandatesError } = await supabase
                 .from("mandates")
-                .select("revenue_acv, revenue_mcv")
+                .select("monthly_data")
                 .eq("account_id", account.id);
 
               // If mandates table doesn't exist, just return account as-is
@@ -282,12 +301,113 @@ export default function Accounts() {
                 return account;
               }
 
-              const totalACV = mandates?.reduce((sum, m) => sum + (parseFloat(String(m.revenue_acv || 0)) || 0), 0) || 0;
-              const totalMCV = mandates?.reduce((sum, m) => sum + (parseFloat(String(m.revenue_mcv || 0)) || 0), 0) || 0;
-              const mcvTier = totalMCV >= 1000000 ? "Tier 1" : totalMCV > 0 ? "Tier 2" : null;
+              if (!mandates || mandates.length === 0) {
+                // No mandates for this account, set values to 0
+                const totalACV = 0;
+                const totalMCV = 0;
+                const mcvTier = null;
+                
+                // Calculate Company Size Tier based on revenue range
+                let companySizeTier = account.company_size_tier;
+                if (account.revenue_range) {
+                  const revenueRange = account.revenue_range;
+                  const isTier1 = revenueRange.includes("100~500CR") || 
+                                 revenueRange.includes("500CR &above");
+                  companySizeTier = isTier1 ? "Tier 1" : "Tier 2";
+                }
+
+                // Update account in database with calculated values (only if values changed)
+                if (account.total_acv !== totalACV || 
+                    account.total_mcv !== totalMCV || 
+                    account.mcv_tier !== mcvTier ||
+                    account.company_size_tier !== companySizeTier) {
+                  try {
+                    await supabase
+                      .from("accounts")
+                      .update({
+                        total_acv: totalACV,
+                        total_mcv: totalMCV,
+                        mcv_tier: mcvTier,
+                        company_size_tier: companySizeTier,
+                      })
+                      .eq("id", account.id);
+                  } catch (updateErr) {
+                    // Ignore update errors
+                    console.warn("Error updating account totals:", updateErr);
+                  }
+                }
+
+                return {
+                  ...account,
+                  total_acv: totalACV,
+                  total_mcv: totalMCV,
+                  mcv_tier: mcvTier,
+                  company_size_tier: companySizeTier,
+                };
+              }
+
+              // Calculate Total MCV: Sum of achieved MCVs for previous month only
+              let totalMCV = 0;
+              
+              // Calculate Total ACV: Sum of achieved MCVs from April (FY start) to previous month
+              let totalACV = 0;
+
+              // Helper function to check if a month is within FY start to previous month range
+              const isMonthInACVRange = (year: number, month: number): boolean => {
+                // Create date objects for comparison
+                const monthDate = new Date(year, month - 1, 1); // month is 1-12, Date uses 0-11
+                const fyStartDate = new Date(fyStartYear, fyStartMonth - 1, 1);
+                const prevMonthDate = new Date(prevYear, prevMonth - 1, 1);
+                
+                // Check if month is between FY start and previous month (inclusive)
+                return monthDate >= fyStartDate && monthDate <= prevMonthDate;
+              };
+
+              mandates.forEach((mandate: any) => {
+                const monthlyData = mandate.monthly_data;
+                if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                  Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                    if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                      const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                      
+                      // Extract year and month from monthYear (format: "YYYY-MM")
+                      const [yearStr, monthStr] = monthYear.split('-');
+                      const year = parseInt(yearStr);
+                      const month = parseInt(monthStr);
+                      
+                      // Add to Total MCV if it's the previous month
+                      if (monthYear === prevMonthYear) {
+                        totalMCV += achievedMcv;
+                      }
+                      
+                      // Add to Total ACV if it's from FY start (April) to previous month
+                      if (isMonthInACVRange(year, month)) {
+                        totalACV += achievedMcv;
+                      }
+                    }
+                  });
+                }
+              });
+
+              // Calculate MCV Tier based on Total MCV
+              // Tier 1: if achieved MCV is above 1 CR (10,000,000)
+              const mcvTier = totalMCV > 10000000 ? "Tier 1" : totalMCV > 0 ? "Tier 2" : null;
+              
+              // Calculate Company Size Tier based on revenue range
+              // Tier 1: if revenue range is "100~500CR" or "500CR &above"
+              let companySizeTier = account.company_size_tier;
+              if (account.revenue_range) {
+                const revenueRange = account.revenue_range;
+                const isTier1 = revenueRange.includes("100~500CR") || 
+                               revenueRange.includes("500CR &above");
+                companySizeTier = isTier1 ? "Tier 1" : "Tier 2";
+              }
 
               // Update account in database with calculated values (only if values changed)
-              if (account.total_acv !== totalACV || account.total_mcv !== totalMCV || account.mcv_tier !== mcvTier) {
+              if (account.total_acv !== totalACV || 
+                  account.total_mcv !== totalMCV || 
+                  account.mcv_tier !== mcvTier ||
+                  account.company_size_tier !== companySizeTier) {
                 try {
                   await supabase
                     .from("accounts")
@@ -295,6 +415,7 @@ export default function Accounts() {
                       total_acv: totalACV,
                       total_mcv: totalMCV,
                       mcv_tier: mcvTier,
+                      company_size_tier: companySizeTier,
                     })
                     .eq("id", account.id);
                 } catch (updateErr) {
@@ -308,6 +429,7 @@ export default function Accounts() {
                 total_acv: totalACV,
                 total_mcv: totalMCV,
                 mcv_tier: mcvTier,
+                company_size_tier: companySizeTier,
               };
             } catch (err) {
               // If error calculating, just return account as-is
@@ -756,7 +878,8 @@ export default function Accounts() {
         let companySizeTier = null;
         if (row["Revenue Range"]) {
           const revenueRange = row["Revenue Range"];
-          const isTier1 = revenueRange.includes("500CR") || revenueRange.includes("100~500CR");
+          const isTier1 = revenueRange.includes("100~500CR") || 
+                         revenueRange.includes("500CR &above");
           companySizeTier = isTier1 ? "Tier 1" : "Tier 2";
         }
 

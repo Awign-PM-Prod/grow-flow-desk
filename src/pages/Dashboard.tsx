@@ -88,6 +88,18 @@ export default function Dashboard() {
     dropped: number;
     maxRecords?: number;
   }>>([]);
+  const [funnelCounts, setFunnelCounts] = useState<{
+    tofu: number;
+    bofu: number;
+    closedWon: number;
+    dropped: number;
+  }>({ tofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+  const [funnelRevenue, setFunnelRevenue] = useState<{
+    tofu: number;
+    bofu: number;
+    closedWon: number;
+    dropped: number;
+  }>({ tofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
   
   // Filter states
   const [filterFinancialYear, setFilterFinancialYear] = useState<string>("FY26");
@@ -1068,9 +1080,118 @@ export default function Dashboard() {
 
       setDroppedSalesData(droppedSalesChartData);
 
+      // Fetch Funnel Counts for "Funnel Stage_Count of Sales Module"
+      const { data: allDeals, error: dealsError } = await supabase
+        .from("pipeline_deals" as any)
+        .select("status") as any;
+
+      if (!dealsError && allDeals) {
+        // Status order matching Pipeline.tsx
+        const statusOrder = [
+          "Listed",                                    // 1
+          "Pre-Appointment Prep Done",                 // 2
+          "Discovery Meeting Done",                    // 3
+          "Requirement Gathering Done",                 // 4
+          "Solution Proposal Made",                    // 5
+          "SOW Handshake Done",                        // 6
+          "Final Proposal Done",                       // 7
+          "Commercial Agreed",                         // 8
+          "Closed Won",                                // 9
+          "Dropped",                                   // 10
+        ];
+
+        // Count deals by status
+        const statusCounts: Record<string, number> = {};
+        allDeals.forEach((deal: any) => {
+          const status = deal.status;
+          if (status) {
+            statusCounts[status] = (statusCounts[status] || 0) + 1;
+          }
+        });
+
+        // Calculate TOFU: statuses 1-5 (indices 0-4)
+        const tofuStatuses = statusOrder.slice(0, 5);
+        const tofu = tofuStatuses.reduce((sum, status) => sum + (statusCounts[status] || 0), 0);
+
+        // Calculate BOFU: statuses 6-8 (indices 5-7)
+        const bofuStatuses = statusOrder.slice(5, 8);
+        const bofu = bofuStatuses.reduce((sum, status) => sum + (statusCounts[status] || 0), 0);
+
+        // Calculate Closed Won: status 9 (index 8)
+        const closedWon = statusCounts["Closed Won"] || 0;
+
+        // Calculate Dropped: status 10 (index 9)
+        const dropped = statusCounts["Dropped"] || 0;
+
+        setFunnelCounts({ tofu, bofu, closedWon, dropped });
+      }
+
+      // Fetch Funnel Revenue for "Funnel Stage_Expected Revenue"
+      const { data: allDealsWithRevenue, error: dealsRevenueError } = await supabase
+        .from("pipeline_deals" as any)
+        .select("status, expected_revenue") as any;
+
+      if (!dealsRevenueError && allDealsWithRevenue) {
+        // Status order matching Pipeline.tsx
+        const statusOrder = [
+          "Listed",                                    // 1
+          "Pre-Appointment Prep Done",                 // 2
+          "Discovery Meeting Done",                    // 3
+          "Requirement Gathering Done",                 // 4
+          "Solution Proposal Made",                    // 5
+          "SOW Handshake Done",                        // 6
+          "Final Proposal Done",                       // 7
+          "Commercial Agreed",                         // 8
+          "Closed Won",                                // 9
+          "Dropped",                                   // 10
+        ];
+
+        // Sum expected_revenue by status
+        const statusRevenue: Record<string, number> = {};
+        allDealsWithRevenue.forEach((deal: any) => {
+          const status = deal.status;
+          const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
+          if (status) {
+            statusRevenue[status] = (statusRevenue[status] || 0) + expectedRevenue;
+          }
+        });
+
+        // Calculate TOFU: sum of expected_revenue for statuses 1-5 (indices 0-4)
+        const tofuStatuses = statusOrder.slice(0, 5);
+        const tofuRevenue = tofuStatuses.reduce((sum, status) => sum + (statusRevenue[status] || 0), 0);
+
+        // Calculate BOFU: sum of expected_revenue for statuses 6-8 (indices 5-7)
+        const bofuStatuses = statusOrder.slice(5, 8);
+        const bofuRevenue = bofuStatuses.reduce((sum, status) => sum + (statusRevenue[status] || 0), 0);
+
+        // Calculate Closed Won: sum of expected_revenue for status 9 (index 8)
+        const closedWonRevenue = statusRevenue["Closed Won"] || 0;
+
+        // Calculate Dropped: sum of expected_revenue for status 10 (index 9)
+        const droppedRevenue = statusRevenue["Dropped"] || 0;
+
+        setFunnelRevenue({ 
+          tofu: tofuRevenue, 
+          bofu: bofuRevenue, 
+          closedWon: closedWonRevenue, 
+          dropped: droppedRevenue 
+        });
+      }
+
       // Calculate MCV Tier and Company Size Tier data
       // Generate month columns from April to current month
       // Note: fyStartMonth, currentMonthNum, currentYearNum, and fyStartYear are already declared above
+      
+      // Calculate previous month for MCV Tier calculation
+      const prevMonthForTier = currentMonthNum - 1;
+      const prevYearForTier = currentYearNum;
+      let actualPrevMonth = prevMonthForTier;
+      let actualPrevYear = prevYearForTier;
+      if (prevMonthForTier === 0) {
+        actualPrevMonth = 12;
+        actualPrevYear = currentYearNum - 1;
+      }
+      const prevMonthYearForTier = `${actualPrevYear}-${String(actualPrevMonth).padStart(2, '0')}`;
       
       // Generate months from April to current month
       const monthColumns: Array<{ month: number; year: number; key: string; label: string }> = [];
@@ -1108,11 +1229,10 @@ export default function Dashboard() {
         }
       }
 
-      // Fetch accounts with their tiers
+      // Fetch accounts with their company size tier (MCV Tier will be calculated dynamically)
       const { data: accountsData, error: accountsTierError } = await supabase
         .from("accounts")
-        .select("id, mcv_tier, company_size_tier")
-        .not("mcv_tier", "is", null)
+        .select("id, company_size_tier")
         .not("company_size_tier", "is", null);
 
       // Fetch mandates with account_id and monthly_data
@@ -1120,12 +1240,34 @@ export default function Dashboard() {
         .from("mandates")
         .select("account_id, monthly_data");
 
-      // Create account tier map
+      // Calculate last month's achieved MCV for each account to determine MCV Tier dynamically
+      const accountLastMonthMcv: Record<string, number> = {};
+      if (!mandatesTierError && mandatesTierData) {
+        mandatesTierData.forEach((mandate: any) => {
+          const accountId = mandate.account_id;
+          if (!accountId) return;
+          
+          const monthlyData = mandate.monthly_data;
+          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+            const lastMonthRecord = monthlyData[prevMonthYearForTier];
+            if (Array.isArray(lastMonthRecord) && lastMonthRecord.length >= 2) {
+              const achievedMcv = parseFloat(lastMonthRecord[1]?.toString() || "0") || 0;
+              accountLastMonthMcv[accountId] = (accountLastMonthMcv[accountId] || 0) + achievedMcv;
+            }
+          }
+        });
+      }
+
+      // Create account tier map with dynamically calculated MCV Tier
       const accountTierMap: Record<string, { mcvTier: string | null; companySizeTier: string | null }> = {};
       if (accountsData) {
         accountsData.forEach((account: any) => {
+          // Calculate MCV Tier dynamically based on last month's achieved MCV
+          const lastMonthMcv = accountLastMonthMcv[account.id] || 0;
+          const mcvTier = lastMonthMcv > 10000000 ? "Tier 1" : (lastMonthMcv > 0 ? "Tier 2" : null);
+          
           accountTierMap[account.id] = {
-            mcvTier: account.mcv_tier,
+            mcvTier: mcvTier,
             companySizeTier: account.company_size_tier,
           };
         });
@@ -1288,9 +1430,9 @@ export default function Dashboard() {
   const formatCurrency = (value: number | string): string => {
     if (typeof value === "string") return value;
     if (value >= 10000000) {
-      return `₹${(value / 10000000).toFixed(1)}Cr`;
+      return `₹${(value / 10000000).toFixed(2)} Cr`;
     } else if (value >= 100000) {
-      return `₹${(value / 100000).toFixed(0)}L`;
+      return `₹${(value / 100000).toFixed(2)} L`;
     }
     return `₹${value.toLocaleString("en-IN")}`;
   };
@@ -1328,25 +1470,6 @@ export default function Dashboard() {
                 <p className="text-base font-bold mb-2">Total Accounts</p>
                 <div className="text-3xl font-bold">{totalAccounts.toLocaleString("en-IN")}</div>
                 <p className="text-xs text-muted-foreground mt-2">Unique accounts from mandates</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Avg Awign Share */}
-        <Card>
-          <CardContent className="pt-6">
-            {loading ? (
-              <div className="flex items-center justify-center h-20">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <>
-                <p className="text-base font-bold mb-2">Avg Awign Share</p>
-                <div className="text-3xl font-bold">
-                  {avgAwignShare !== null ? `${avgAwignShare.toFixed(1)}%` : "N/A"}
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">Average of all accounts</p>
               </>
             )}
           </CardContent>
@@ -2265,8 +2388,13 @@ export default function Dashboard() {
           <CardContent>
             <div className="flex gap-4">
               {(() => {
-                const values = { tofu: 14, bofu: 2, closedWon: 5, dropped: 6 };
-                const maxValue = Math.max(...Object.values(values));
+                const values = { 
+                  tofu: funnelCounts.tofu, 
+                  bofu: funnelCounts.bofu, 
+                  closedWon: funnelCounts.closedWon, 
+                  dropped: funnelCounts.dropped 
+                };
+                const maxValue = Math.max(...Object.values(values), 1); // Use 1 as minimum to avoid division by zero
                 const maxWidth = 200; // Maximum line width in pixels
                 
                 const calculateWidth = (value: number) => {
@@ -2435,25 +2563,25 @@ export default function Dashboard() {
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${greenShapeCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            TOFU : <span className="font-bold">14</span>
+                            TOFU : <span className="font-bold">{values.tofu}</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${lightBlueShapeCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            BOFU : <span className="font-bold">4</span>
+                            BOFU : <span className="font-bold">{values.bofu}</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${darkBlueShapeCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            Closed Won : <span className="font-bold">5</span>
+                            Closed Won : <span className="font-bold">{values.closedWon}</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${yellowSquareCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            Dropped : <span className="font-bold">6</span>
+                            Dropped : <span className="font-bold">{values.dropped}</span>
                           </span>
                         </div>
                       );
@@ -2473,8 +2601,14 @@ export default function Dashboard() {
           <CardContent>
             <div className="flex gap-4">
               {(() => {
-                const values = { tofu: 55.6, bofu: 15.0, closedWon: 29.5, dropped: 30 };
-                const maxValue = Math.max(...Object.values(values));
+                // Convert revenue from rupees to lakhs (divide by 100000)
+                const values = { 
+                  tofu: funnelRevenue.tofu / 100000, 
+                  bofu: funnelRevenue.bofu / 100000, 
+                  closedWon: funnelRevenue.closedWon / 100000, 
+                  dropped: funnelRevenue.dropped / 100000 
+                };
+                const maxValue = Math.max(...Object.values(values), 1); // Use 1 as minimum to avoid division by zero
                 const maxWidth = 200; // Maximum line width in pixels
                 
                 const calculateWidth = (value: number) => {
@@ -2643,25 +2777,25 @@ export default function Dashboard() {
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${greenShapeCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            TOFU : <span className="font-bold">₹55.6L</span>
+                            TOFU : <span className="font-bold">₹{values.tofu.toFixed(1)}L</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${lightBlueShapeCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            BOFU : <span className="font-bold">₹15.0L</span>
+                            BOFU : <span className="font-bold">₹{values.bofu.toFixed(1)}L</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${darkBlueShapeCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            Closed Won : <span className="font-bold">₹29.5L</span>
+                            Closed Won : <span className="font-bold">₹{values.closedWon.toFixed(1)}L</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${yellowSquareCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            Dropped : <span className="font-bold">₹30L</span>
+                            Dropped : <span className="font-bold">₹{values.dropped.toFixed(1)}L</span>
                           </span>
                         </div>
                       );

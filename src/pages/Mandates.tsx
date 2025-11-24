@@ -662,6 +662,55 @@ export default function Mandates() {
     }
   }, [monthlyRecordForm.month, monthlyRecordForm.year]);
 
+  // Check for existing monthly record when month/year changes
+  useEffect(() => {
+    if (monthlyRecordForm.month && monthlyRecordForm.year && mandateForUpdate) {
+      const month = parseInt(monthlyRecordForm.month);
+      const year = parseInt(monthlyRecordForm.year);
+      if (!isNaN(month) && !isNaN(year)) {
+        const monthYear = `${year}-${String(month).padStart(2, '0')}`;
+        
+        // Check if mandate has monthly_data and if record exists for this month/year
+        const monthlyData = mandateForUpdate.monthly_data;
+        if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+          const existingRecord = monthlyData[monthYear];
+          if (existingRecord && Array.isArray(existingRecord) && existingRecord.length >= 2) {
+            // Record exists, populate the form fields
+            const plannedMcv = parseFloat(existingRecord[0]?.toString() || "0") || 0;
+            const achievedMcv = parseFloat(existingRecord[1]?.toString() || "0") || 0;
+            
+            setMonthlyRecordForm(prev => ({
+              ...prev,
+              plannedMcv: plannedMcv > 0 ? plannedMcv.toString() : "",
+              achievedMcv: achievedMcv > 0 ? achievedMcv.toString() : "",
+            }));
+          } else {
+            // No record exists for this month/year, clear the fields
+            setMonthlyRecordForm(prev => ({
+              ...prev,
+              plannedMcv: "",
+              achievedMcv: "",
+            }));
+          }
+        } else {
+          // No monthly_data exists, clear fields
+          setMonthlyRecordForm(prev => ({
+            ...prev,
+            plannedMcv: "",
+            achievedMcv: "",
+          }));
+        }
+      }
+    } else if (!monthlyRecordForm.month || !monthlyRecordForm.year) {
+      // If month or year is cleared, clear the MCV fields
+      setMonthlyRecordForm(prev => ({
+        ...prev,
+        plannedMcv: "",
+        achievedMcv: "",
+      }));
+    }
+  }, [monthlyRecordForm.month, monthlyRecordForm.year, mandateForUpdate]);
+
   // Reset dependent fields when Mandate Health changes in edit mode
   useEffect(() => {
     if (editMandateData) {
@@ -4218,8 +4267,26 @@ export default function Mandates() {
             <Button
               variant="outline"
               className="w-full justify-start h-auto py-6"
-              onClick={() => {
+              onClick={async () => {
                 setUpdateOptionsDialogOpen(false);
+                
+                // Fetch latest mandate data to ensure we have up-to-date monthly_data
+                if (mandateForUpdate) {
+                  try {
+                    const { data: updatedMandate, error } = await supabase
+                      .from("mandates")
+                      .select("*")
+                      .eq("id", mandateForUpdate.id)
+                      .single();
+                    
+                    if (!error && updatedMandate) {
+                      setMandateForUpdate(updatedMandate);
+                    }
+                  } catch (error) {
+                    console.error("Error fetching latest mandate data:", error);
+                  }
+                }
+                
                 const now = new Date();
                 const currentYear = now.getFullYear();
                 const currentMonth = now.getMonth() + 1;
@@ -4243,7 +4310,7 @@ export default function Mandates() {
       </Dialog>
 
       {/* Monthly Record Dialog */}
-      <Dialog open={monthlyRecordDialogOpen} onOpenChange={(open) => {
+      <Dialog open={monthlyRecordDialogOpen} onOpenChange={async (open) => {
         setMonthlyRecordDialogOpen(open);
         if (!open) {
           setMonthlyRecordForm({
@@ -4254,6 +4321,23 @@ export default function Mandates() {
             achievedMcv: "",
           });
         } else {
+          // Fetch latest mandate data when dialog opens to ensure we have up-to-date monthly_data
+          if (mandateForUpdate) {
+            try {
+              const { data: updatedMandate, error } = await supabase
+                .from("mandates")
+                .select("*")
+                .eq("id", mandateForUpdate.id)
+                .single();
+              
+              if (!error && updatedMandate) {
+                setMandateForUpdate(updatedMandate);
+              }
+            } catch (error) {
+              console.error("Error fetching latest mandate data:", error);
+            }
+          }
+          
           // Auto-fill year when dialog opens
           const now = new Date();
           const currentYear = now.getFullYear();
