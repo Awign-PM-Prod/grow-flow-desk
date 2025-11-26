@@ -102,8 +102,23 @@ export default function Dashboard() {
   }>({ tofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
   
   // Filter states
-  const [filterFinancialYear, setFilterFinancialYear] = useState<string>("FY26");
-  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("all");
+  const [filterFinancialYear, setFilterFinancialYear] = useState<string>(() => {
+    // Calculate current financial year on component mount
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    
+    // Financial year starts in April (month 4)
+    // If current month is April or later, FY started in current year
+    // If current month is Jan-Mar, FY started in previous year
+    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+    
+    // Convert to 2-digit format (e.g., 2025 -> 25)
+    const fyYearDigits = fyStartYear.toString().slice(-2);
+    
+    return `FY${fyYearDigits}`;
+  });
+  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("Existing");
   const [filterKam, setFilterKam] = useState<string>("");
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
@@ -112,7 +127,24 @@ export default function Dashboard() {
     fetchDashboardData();
     fetchKams();
     fetchConversionTableData();
-  }, []);
+  }, [filterFinancialYear, filterUpsellStatus]);
+
+  // Helper function to get current financial year in FY format (e.g., "FY25")
+  const getCurrentFinancialYear = (): string => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    
+    // Financial year starts in April (month 4)
+    // If current month is April or later, FY started in current year
+    // If current month is Jan-Mar, FY started in previous year
+    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+    
+    // Convert to 2-digit format (e.g., 2025 -> 25)
+    const fyYearDigits = fyStartYear.toString().slice(-2);
+    
+    return `FY${fyYearDigits}`;
+  };
 
   // Helper function to convert FY string to date range
   const getFinancialYearDateRange = (fyString: string): { start: Date; end: Date } => {
@@ -138,6 +170,38 @@ export default function Dashboard() {
       start: new Date(startYear, 3, 1), // April 1
       end: new Date(startYear + 1, 2, 31, 23, 59, 59, 999), // March 31
     };
+  };
+
+  // Helper function to apply status filter to a Supabase query
+  const applyStatusFilter = (query: any, statusFilter: string): any => {
+    if (statusFilter === "all") {
+      return query; // No filter applied
+    } else if (statusFilter === "Existing") {
+      return query.eq("type", "Existing");
+    } else if (statusFilter === "All Cross Sell") {
+      return query.in("retention_type", ["B", "C"]);
+    } else if (statusFilter === "All Cross Sell + Existing") {
+      return query.in("retention_type", ["B", "C", "Existing"]);
+    } else if (statusFilter === "new Acquisitions") {
+      return query.eq("retention_type", "new Acquisitions");
+    }
+    return query; // Default: no filter
+  };
+
+  // Helper function to apply target type filter to a Supabase query
+  // Note: For each month/year combination, there can be maximum 2 targets:
+  // 1 with target_type = 'existing' and 1 with target_type = 'new_cross_sell'
+  const applyTargetTypeFilter = (query: any, statusFilter: string): any => {
+    if (statusFilter === "Existing") {
+      return query.eq("target_type", "existing");
+    } else if (statusFilter === "All Cross Sell") {
+      return query.eq("target_type", "new_cross_sell");
+    } else if (statusFilter === "All Cross Sell + Existing") {
+      // For "All Cross Sell + Existing", include both target types
+      return query.in("target_type", ["existing", "new_cross_sell"]);
+    }
+    // For other statuses, don't filter by target_type (show all targets)
+    return query;
   };
 
   const fetchConversionTableData = async () => {
@@ -327,6 +391,22 @@ export default function Dashboard() {
     try {
       setLoading(true);
       
+      // Get financial year date range from filter
+      const fyDateRange = getFinancialYearDateRange(filterFinancialYear);
+      const fyStartYear = fyDateRange.start.getFullYear();
+      const fyEndYear = fyDateRange.end.getFullYear();
+      
+      // Convert FY filter to financial_year format used in monthly_targets (e.g., "FY25" -> "2025-26", "FY26" -> "2026-27")
+      // FY format: FY25 means financial year 2025-26 (April 2025 to March 2026)
+      const fyYearMatch = filterFinancialYear.match(/FY(\d{2})/);
+      const financialYearString = fyYearMatch 
+        ? (() => {
+            const startYear = 2000 + parseInt(fyYearMatch[1], 10);
+            const endYearDigits = String(parseInt(fyYearMatch[1], 10) + 1).padStart(2, '0');
+            return `${startYear}-${endYearDigits}`;
+          })()
+        : null;
+      
       // Get current month start and end dates
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -336,7 +416,7 @@ export default function Dashboard() {
       const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
       
-      // Fetch total mandates count
+      // Fetch total mandates count (NOT filtered by financial year - always shows total)
       const { count: totalCount, error: totalError } = await supabase
         .from("mandates")
         .select("*", { count: "exact", head: true });
@@ -352,7 +432,7 @@ export default function Dashboard() {
 
       if (monthError) throw monthError;
 
-      // Fetch total accounts count
+      // Fetch total accounts count (NOT filtered by financial year - always shows total)
       const { count: accountsCount, error: accountsError } = await supabase
         .from("accounts")
         .select("*", { count: "exact", head: true });
@@ -621,17 +701,26 @@ export default function Dashboard() {
             
             // Check if monthly_data exists and is an object
             if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-              // Sum up all monthly records for this mandate
+              // Sum up all monthly records for this mandate within selected FY
               Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
                 if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                  const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
-                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                  // Check if this month falls within the selected financial year
+                  const [yearStr, monthStr] = monthYear.split('-');
+                  const year = parseInt(yearStr);
+                  const month = parseInt(monthStr);
+                  const monthDate = new Date(year, month - 1, 1);
                   
-                  // Target MPV is sum of planned MCV
-                  lobData[lob].targetMpv += plannedMcv;
-                  
-                  // Achieved MPV is sum of achieved MCV
-                  lobData[lob].achievedMpv += achievedMcv;
+                  // Only include if within selected FY date range
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Target MPV is sum of planned MCV
+                    lobData[lob].targetMpv += plannedMcv;
+                    
+                    // Achieved MPV is sum of achieved MCV
+                    lobData[lob].achievedMpv += achievedMcv;
+                  }
                 }
               });
             }
@@ -688,17 +777,26 @@ export default function Dashboard() {
             
             // Check if monthly_data exists and is an object
             if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-              // Sum up all monthly records for this mandate
+              // Sum up all monthly records for this mandate within selected FY
               Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
                 if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                  const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
-                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                  // Check if this month falls within the selected financial year
+                  const [yearStr, monthStr] = monthYear.split('-');
+                  const year = parseInt(yearStr);
+                  const month = parseInt(monthStr);
+                  const monthDate = new Date(year, month - 1, 1);
                   
-                  // Target MPV is sum of planned MCV
-                  kamData[kamId].targetMpv += plannedMcv;
-                  
-                  // Achieved MPV is sum of achieved MCV
-                  kamData[kamId].achievedMpv += achievedMcv;
+                  // Only include if within selected FY date range
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Target MPV is sum of planned MCV
+                    kamData[kamId].targetMpv += plannedMcv;
+                    
+                    // Achieved MPV is sum of achieved MCV
+                    kamData[kamId].achievedMpv += achievedMcv;
+                  }
                 }
               });
             }
@@ -718,34 +816,105 @@ export default function Dashboard() {
 
       setKamSalesPerformance(formattedKamData);
 
-      // Calculate MCV Planned and FFM Achieved for current month
-      const currentMonthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      // Calculate MCV Planned from monthly_targets table for current month
+      const currentMonth = now.getMonth() + 1; // 1-12
+      const currentYear = now.getFullYear();
+      const currentMonthYear = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
       let totalMcvPlanned = 0;
       let totalFfmAchieved = 0;
 
-      // Fetch all mandates with monthly_data to calculate MCV Planned and FFM Achieved
-      const { data: allMandatesForMcv, error: mcvError } = await supabase
-        .from("mandates")
-        .select("monthly_data");
+      // Fetch MCV Planned from monthly_targets table for current month within selected FY
+      // Sum all targets for the current month (there may be multiple targets with different types)
+      let query = supabase
+        .from("monthly_targets")
+        .select("target, month, year, financial_year")
+        .eq("month", currentMonth)
+        .eq("year", currentYear);
+      
+      // Filter by financial_year if available
+      if (financialYearString) {
+        query = query.eq("financial_year", financialYearString);
+      }
+      
+      // Apply target type filter based on status filter
+      query = applyTargetTypeFilter(query, filterUpsellStatus);
+      
+      const { data: currentMonthTargets, error: targetsError } = await query;
 
-      if (!mcvError && allMandatesForMcv) {
-        allMandatesForMcv.forEach((mandate: any) => {
-          const monthlyData = mandate.monthly_data;
-          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
-                const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                
-                // Sum for current month only
-                if (monthYear === currentMonthYear) {
-                  totalMcvPlanned += plannedMcv;
-                  totalFfmAchieved += achievedMcv;
-                }
+      if (targetsError) {
+        console.error("Error fetching monthly targets for MCV Planned:", targetsError);
+      }
+
+      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'any'}`);
+      console.log(`MCV Planned Results:`, currentMonthTargets);
+
+      if (!targetsError && currentMonthTargets && currentMonthTargets.length > 0) {
+        totalMcvPlanned = currentMonthTargets.reduce((sum, targetRecord) => {
+          const targetValue = parseFloat(targetRecord.target?.toString() || "0") || 0;
+          return sum + targetValue;
+        }, 0);
+        console.log(`MCV Planned for ${currentMonth}/${currentYear} (${filterFinancialYear}):`, totalMcvPlanned, "from", currentMonthTargets.length, "target(s)");
+      } else {
+        console.log(`No targets found for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'any'}`);
+        totalMcvPlanned = 0;
+      }
+
+      // Fetch all mandates with monthly_data to calculate FFM Achieved for current month within selected FY
+      // Apply status filter based on filterUpsellStatus
+      let mandatesQuery = supabase
+        .from("mandates")
+        .select("monthly_data, type");
+      mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus);
+      const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
+
+      if (filterUpsellStatus === "All Cross Sell") {
+        // For "All Cross Sell", calculate from deals with status = 'Closed Won'
+        const { data: closedWonDeals, error: dealsError } = await supabase
+          .from("pipeline_deals")
+          .select("expected_revenue, contract_sign_date")
+          .eq("status", "Closed Won")
+          .not("contract_sign_date", "is", null);
+        
+        if (!dealsError && closedWonDeals) {
+          closedWonDeals.forEach((deal: any) => {
+            if (deal.contract_sign_date) {
+              const contractDate = new Date(deal.contract_sign_date);
+              const contractMonth = contractDate.getMonth() + 1;
+              const contractYear = contractDate.getFullYear();
+              const contractMonthYear = `${contractYear}-${String(contractMonth).padStart(2, '0')}`;
+              
+              // Only include if within selected FY date range and current month
+              if (contractDate >= fyDateRange.start && contractDate <= fyDateRange.end && contractMonthYear === currentMonthYear) {
+                const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
+                totalFfmAchieved += expectedRevenue;
               }
-            });
-          }
-        });
+            }
+          });
+        }
+      } else {
+        // For other statuses, use mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            const monthlyData = mandate.monthly_data;
+            if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                  // Check if this month falls within the selected financial year
+                  const [yearStr, monthStr] = monthYear.split('-');
+                  const year = parseInt(yearStr);
+                  const month = parseInt(monthStr);
+                  const monthDate = new Date(year, month - 1, 1);
+                  
+                  // Only include if within selected FY date range and current month
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    totalFfmAchieved += achievedMcv;
+                  }
+                }
+              });
+            }
+          });
+        }
       }
 
       // Calculate FFM Achieved percentage: (FFM Achieved / MCV Planned) * 100
@@ -755,8 +924,7 @@ export default function Dashboard() {
 
       // Calculate MCV This Quarter (sum of achieved MCV for current quarter)
       // Financial year quarters: Q1 (Apr-Jun), Q2 (Jul-Sep), Q3 (Oct-Dec), Q4 (Jan-Mar)
-      const currentMonth = now.getMonth() + 1; // 1-12
-      const currentYear = now.getFullYear();
+      // Reuse currentMonth and currentYear already declared above
       let quarterMonths: number[] = [];
       let quarterYear: number; // The calendar year that contains the quarter months
       
@@ -781,25 +949,66 @@ export default function Dashboard() {
       let totalMcvThisQuarter = 0;
 
       // Calculate sum of achieved MCV for current quarter months
-      if (!mcvError && allMandatesForMcv) {
-        allMandatesForMcv.forEach((mandate: any) => {
-          const monthlyData = mandate.monthly_data;
-          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                const [year, month] = monthYear.split('-');
-                const yearNum = parseInt(year);
-                const monthNum = parseInt(month);
-                const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                
-                // Check if this month belongs to the current quarter
-                if (quarterMonths.includes(monthNum) && yearNum === quarterYear) {
-                  totalMcvThisQuarter += achievedMcv;
-                }
+      if (filterUpsellStatus === "All Cross Sell") {
+        // For "All Cross Sell", calculate from deals with status = 'Closed Won'
+        const { data: closedWonDeals, error: dealsError } = await supabase
+          .from("pipeline_deals")
+          .select("expected_revenue, contract_sign_date")
+          .eq("status", "Closed Won")
+          .not("contract_sign_date", "is", null);
+        
+        if (!dealsError && closedWonDeals) {
+          let totalExpectedRevenue = 0;
+          closedWonDeals.forEach((deal: any) => {
+            if (deal.contract_sign_date) {
+              const contractDate = new Date(deal.contract_sign_date);
+              const contractMonth = contractDate.getMonth() + 1;
+              const contractYear = contractDate.getFullYear();
+              
+              // Check if this deal belongs to the current quarter and selected FY
+              if (quarterMonths.includes(contractMonth) && contractYear === quarterYear && 
+                  contractDate >= fyDateRange.start && contractDate <= fyDateRange.end) {
+                const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
+                totalExpectedRevenue += expectedRevenue;
               }
-            });
-          }
-        });
+            }
+          });
+          
+          // Divide expected revenue by 3 to get per-month value
+          const perMonthValue = totalExpectedRevenue / 3;
+          
+          // Find which month in the quarter we're in (1st, 2nd, or 3rd)
+          // currentMonth is already declared above
+          const currentMonthIndex = quarterMonths.indexOf(currentMonth);
+          const monthsUpToCurrent = currentMonthIndex + 1; // +1 because index is 0-based
+          
+          // Show cumulative value up to current month
+          totalMcvThisQuarter = perMonthValue * monthsUpToCurrent;
+        }
+      } else {
+        // For other statuses, use mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            const monthlyData = mandate.monthly_data;
+            if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                  const [year, month] = monthYear.split('-');
+                  const yearNum = parseInt(year);
+                  const monthNum = parseInt(month);
+                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                  
+                  // Check if this month belongs to the current quarter and selected FY
+                  const monthDate = new Date(yearNum, monthNum - 1, 1);
+                  if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                      monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    totalMcvThisQuarter += achievedMcv;
+                  }
+                }
+              });
+            }
+          });
+        }
       }
 
       setMcvPlanned(totalMcvPlanned);
@@ -830,15 +1039,25 @@ export default function Dashboard() {
         nextQuarterYear = currentYear;
       }
 
-      // Fetch targets for next quarter months
-      const { data: nextQuarterTargets, error: targetsError } = await supabase
+      // Fetch targets for next quarter months within selected FY
+      let nextQuarterQuery = supabase
         .from("monthly_targets")
         .select("target")
         .in("month", nextQuarterMonths)
         .eq("year", nextQuarterYear);
+      
+      // Filter by financial_year if available
+      if (financialYearString) {
+        nextQuarterQuery = nextQuarterQuery.eq("financial_year", financialYearString);
+      }
+      
+      // Apply target type filter based on status filter
+      nextQuarterQuery = applyTargetTypeFilter(nextQuarterQuery, filterUpsellStatus);
+      
+      const { data: nextQuarterTargets, error: nextQuarterTargetsError } = await nextQuarterQuery;
 
       let totalTargetNextQuarter = 0;
-      if (!targetsError && nextQuarterTargets) {
+      if (!nextQuarterTargetsError && nextQuarterTargets) {
         totalTargetNextQuarter = nextQuarterTargets.reduce((sum, target) => {
           return sum + (parseFloat(target.target?.toString() || "0") || 0);
         }, 0);
@@ -846,46 +1065,108 @@ export default function Dashboard() {
 
       setTargetMcvNextQuarter(totalTargetNextQuarter);
 
-      // Calculate Annual Achieved and Target for current Financial Year
-      // Financial year: April to March
-      const fyStartMonth = 4; // April
-      const currentMonthNum = now.getMonth() + 1; // 1-12
-      const currentYearNum = now.getFullYear();
+      // Calculate Annual Achieved and Target for selected Financial Year
+      // Use the selected FY date range (fyStartYear and fyEndYear already declared above)
       
-      // Determine financial year start year
-      const fyStartYear = currentMonthNum >= 4 ? currentYearNum : currentYearNum - 1;
-      const fyEndYear = fyStartYear + 1;
-      
-      // Calculate Annual Achieved: Sum of achieved MCV for all months in current FY
+      // Calculate Annual Achieved: Sum of achieved MCV for all months in selected FY
       let totalAnnualAchieved = 0;
       
-      if (!mcvError && allMandatesForMcv) {
-        allMandatesForMcv.forEach((mandate: any) => {
-          const monthlyData = mandate.monthly_data;
-          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                const [year, month] = monthYear.split('-');
-                const yearNum = parseInt(year);
-                const monthNum = parseInt(month);
-                const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                
-                // Check if this month belongs to the current financial year
-                // FY months: April (4) to March (3) of next year
-                if (monthNum >= 4 && yearNum === fyStartYear) {
-                  // April to December of start year
-                  totalAnnualAchieved += achievedMcv;
-                } else if (monthNum >= 1 && monthNum <= 3 && yearNum === fyEndYear) {
-                  // January to March of end year
-                  totalAnnualAchieved += achievedMcv;
-                }
+      if (filterUpsellStatus === "All Cross Sell") {
+        // For "All Cross Sell", calculate from deals with status = 'Closed Won'
+        const { data: closedWonDeals, error: dealsError } = await supabase
+          .from("pipeline_deals")
+          .select("expected_revenue, contract_sign_date")
+          .eq("status", "Closed Won")
+          .not("contract_sign_date", "is", null);
+        
+        if (!dealsError && closedWonDeals) {
+          let totalExpectedRevenue = 0;
+          closedWonDeals.forEach((deal: any) => {
+            if (deal.contract_sign_date) {
+              const contractDate = new Date(deal.contract_sign_date);
+              // Only include if within selected FY date range
+              if (contractDate >= fyDateRange.start && contractDate <= fyDateRange.end) {
+                const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
+                totalExpectedRevenue += expectedRevenue;
               }
-            });
+            }
+          });
+          
+          // Calculate months remaining in financial year (include current month if date > 15)
+          const now = new Date();
+          const currentDay = now.getDate();
+          const currentMonth = now.getMonth() + 1;
+          const currentYear = now.getFullYear();
+          
+          // Check if current date is within the selected FY range
+          const isCurrentDateInFY = now >= fyDateRange.start && now <= fyDateRange.end;
+          
+          if (isCurrentDateInFY) {
+            // Determine if current month should be included
+            const includeCurrentMonth = currentDay > 15;
+            
+            // Calculate months remaining from current month (or next month if current day <= 15) to end of FY
+            // Financial year runs from April (month 4) to March (month 3 of next year)
+            let monthsRemaining = 0;
+            
+            // Get FY end date
+            const fyEndMonth = fyDateRange.end.getMonth() + 1; // March = 3
+            const fyEndYear = fyDateRange.end.getFullYear();
+            
+            if (currentMonth >= 4 && currentMonth <= 12) {
+              // Current month is April-December (FY start year)
+              // Months from (current or next) to December + Jan-Mar of next year
+              const startMonth = includeCurrentMonth ? currentMonth : currentMonth + 1;
+              if (startMonth <= 12) {
+                monthsRemaining = (12 - startMonth + 1) + 3; // Remaining months in current year + 3 months of next year
+              } else {
+                // If startMonth > 12, we're already in next year (shouldn't happen, but handle it)
+                monthsRemaining = 3; // Only Jan-Mar remaining
+              }
+            } else if (currentMonth >= 1 && currentMonth <= 3) {
+              // Current month is January-March (FY end year)
+              const startMonth = includeCurrentMonth ? currentMonth : currentMonth + 1;
+              if (startMonth <= 3) {
+                monthsRemaining = (3 - startMonth + 1); // Remaining months in current year
+              } else {
+                // If startMonth > 3, FY has ended
+                monthsRemaining = 0;
+              }
+            }
+            
+            // Divide total expected revenue by months remaining
+            totalAnnualAchieved = monthsRemaining > 0 ? totalExpectedRevenue / monthsRemaining : totalExpectedRevenue;
+          } else {
+            // Current date is outside FY range, use total expected revenue as is
+            totalAnnualAchieved = totalExpectedRevenue;
           }
-        });
+        }
+      } else {
+        // For other statuses, use mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            const monthlyData = mandate.monthly_data;
+            if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                  const [year, month] = monthYear.split('-');
+                  const yearNum = parseInt(year);
+                  const monthNum = parseInt(month);
+                  const monthDate = new Date(yearNum, monthNum - 1, 1);
+                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                  
+                  // Only include if within selected FY date range
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    totalAnnualAchieved += achievedMcv;
+                  }
+                }
+              });
+            }
+          });
+        }
       }
       
-      // Calculate Annual Target: Sum of targets for all months in current FY from monthly_targets table
+      // Calculate Annual Target: Sum of targets for all months in selected FY from monthly_targets table
       // Get all months in the FY: April to December of start year, and January to March of end year
       const fyMonths = [
         { month: 4, year: fyStartYear },
@@ -906,11 +1187,21 @@ export default function Dashboard() {
       const fyMonthNumbers = fyMonths.map(m => m.month);
       const fyYears = [fyStartYear, fyEndYear];
       
-      const { data: fyTargets, error: fyTargetsError } = await supabase
+      let fyTargetsQuery = supabase
         .from("monthly_targets")
         .select("target, month, year")
         .in("month", fyMonthNumbers)
         .in("year", fyYears);
+      
+      // Filter by financial_year if available
+      if (financialYearString) {
+        fyTargetsQuery = fyTargetsQuery.eq("financial_year", financialYearString);
+      }
+      
+      // Apply target type filter based on status filter
+      fyTargetsQuery = applyTargetTypeFilter(fyTargetsQuery, filterUpsellStatus);
+      
+      const { data: fyTargets, error: fyTargetsError } = await fyTargetsQuery;
       
       let totalAnnualTarget = 0;
       if (!fyTargetsError && fyTargets) {
@@ -949,12 +1240,22 @@ export default function Dashboard() {
         quarterYearForTarget = currentYear;
       }
 
-      // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table
-      const { data: quarterTargets, error: quarterTargetsError } = await supabase
+      // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table within selected FY
+      let quarterTargetsQuery = supabase
         .from("monthly_targets")
         .select("target")
         .in("month", quarterMonthsForTarget)
         .eq("year", quarterYearForTarget);
+      
+      // Filter by financial_year if available
+      if (financialYearString) {
+        quarterTargetsQuery = quarterTargetsQuery.eq("financial_year", financialYearString);
+      }
+      
+      // Apply target type filter based on status filter
+      quarterTargetsQuery = applyTargetTypeFilter(quarterTargetsQuery, filterUpsellStatus);
+      
+      const { data: quarterTargets, error: quarterTargetsError } = await quarterTargetsQuery;
 
       let totalQuarterTarget = 0;
       if (!quarterTargetsError && quarterTargets) {
@@ -973,34 +1274,83 @@ export default function Dashboard() {
       // Calculate Current Month Achieved: Sum of achieved MCV for current month from all mandates
       let totalCurrentMonthAchieved = 0;
       
-      if (!mcvError && allMandatesForMcv) {
-        allMandatesForMcv.forEach((mandate: any) => {
-          const monthlyData = mandate.monthly_data;
-          if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-            Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                // Check if this is the current month
-                if (monthYear === currentMonthYear) {
-                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                  totalCurrentMonthAchieved += achievedMcv;
-                }
+      if (filterUpsellStatus === "All Cross Sell") {
+        // For "All Cross Sell", calculate from deals with status = 'Closed Won'
+        const { data: closedWonDeals, error: dealsError } = await supabase
+          .from("pipeline_deals")
+          .select("expected_revenue, contract_sign_date")
+          .eq("status", "Closed Won")
+          .not("contract_sign_date", "is", null);
+        
+        if (!dealsError && closedWonDeals) {
+          closedWonDeals.forEach((deal: any) => {
+            if (deal.contract_sign_date) {
+              const contractDate = new Date(deal.contract_sign_date);
+              const contractMonth = contractDate.getMonth() + 1;
+              const contractYear = contractDate.getFullYear();
+              const contractMonthYear = `${contractYear}-${String(contractMonth).padStart(2, '0')}`;
+              
+              // Check if this is the current month and within selected FY
+              if (contractMonthYear === currentMonthYear && 
+                  contractDate >= fyDateRange.start && contractDate <= fyDateRange.end) {
+                const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
+                totalCurrentMonthAchieved += expectedRevenue;
               }
-            });
-          }
-        });
+            }
+          });
+        }
+      } else {
+        // For other statuses, use mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            const monthlyData = mandate.monthly_data;
+            if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                  // Check if this is the current month and within selected FY
+                  if (monthYear === currentMonthYear) {
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                      totalCurrentMonthAchieved += achievedMcv;
+                    }
+                  }
+                }
+              });
+            }
+          });
+        }
       }
       
-      // Calculate Current Month Target: Get target for current month from monthly_targets table
-      const { data: currentMonthTargetData, error: currentMonthTargetError } = await supabase
+      // Calculate Current Month Target: Get target for current month from monthly_targets table within selected FY
+      // Sum all targets for the current month (there may be multiple targets with different types)
+      let currentMonthTargetQuery = supabase
         .from("monthly_targets")
         .select("target")
-        .eq("month", currentMonthNum)
-        .eq("year", currentYearNum)
-        .single();
+        .eq("month", currentMonth)
+        .eq("year", currentYear);
+      
+      // Filter by financial_year if available
+      if (financialYearString) {
+        currentMonthTargetQuery = currentMonthTargetQuery.eq("financial_year", financialYearString);
+      }
+      
+      // Apply target type filter based on status filter
+      currentMonthTargetQuery = applyTargetTypeFilter(currentMonthTargetQuery, filterUpsellStatus);
+      
+      const { data: currentMonthTargetsData, error: currentMonthTargetError } = await currentMonthTargetQuery;
 
       let totalCurrentMonthTarget = 0;
-      if (!currentMonthTargetError && currentMonthTargetData) {
-        totalCurrentMonthTarget = parseFloat(currentMonthTargetData.target?.toString() || "0") || 0;
+      if (!currentMonthTargetError && currentMonthTargetsData && currentMonthTargetsData.length > 0) {
+        totalCurrentMonthTarget = currentMonthTargetsData.reduce((sum, targetRecord) => {
+          const targetValue = parseFloat(targetRecord.target?.toString() || "0") || 0;
+          return sum + targetValue;
+        }, 0);
       }
 
       setCurrentMonthAchieved(totalCurrentMonthAchieved);
@@ -1180,7 +1530,10 @@ export default function Dashboard() {
 
       // Calculate MCV Tier and Company Size Tier data
       // Generate month columns from April to current month
-      // Note: fyStartMonth, currentMonthNum, currentYearNum, and fyStartYear are already declared above
+      // Use currentMonth and currentYear already declared above
+      const currentMonthNum = currentMonth; // Alias for consistency
+      const currentYearNum = currentYear; // Alias for consistency
+      const fyStartMonth = 4; // April
       
       // Calculate previous month for MCV Tier calculation
       const prevMonthForTier = currentMonthNum - 1;
@@ -1427,21 +1780,136 @@ export default function Dashboard() {
     { name: "Target", value: currentMonthTarget, fill: "#E0E0E0" },
   ];
 
+  // Helper function to format number with Indian style commas (first comma after 3 digits, then every 2 digits)
+  const formatIndianNumber = (num: number): string => {
+    // Round to 2 decimal places
+    const rounded = Math.round(num * 100) / 100;
+    
+    // Split into integer and decimal parts
+    const parts = rounded.toString().split('.');
+    let integerPart = parts[0];
+    const decimalPart = parts.length > 1 ? parts[1] : '';
+    
+    // Add Indian style commas
+    // First comma after 3 digits from right, then every 2 digits
+    let formatted = '';
+    const len = integerPart.length;
+    
+    if (len <= 3) {
+      formatted = integerPart;
+    } else {
+      // First 3 digits
+      formatted = integerPart.slice(-3);
+      integerPart = integerPart.slice(0, -3);
+      
+      // Then every 2 digits
+      while (integerPart.length > 0) {
+        if (integerPart.length >= 2) {
+          formatted = integerPart.slice(-2) + ',' + formatted;
+          integerPart = integerPart.slice(0, -2);
+        } else {
+          formatted = integerPart + ',' + formatted;
+          integerPart = '';
+        }
+      }
+    }
+    
+    // Add decimal part if exists, pad to 2 decimal places if needed
+    if (decimalPart) {
+      const paddedDecimal = decimalPart.padEnd(2, '0').slice(0, 2);
+      return formatted + '.' + paddedDecimal;
+    }
+    
+    return formatted;
+  };
+
   const formatCurrency = (value: number | string): string => {
     if (typeof value === "string") return value;
-    if (value >= 10000000) {
-      return `₹${(value / 10000000).toFixed(2)} Cr`;
-    } else if (value >= 100000) {
-      return `₹${(value / 100000).toFixed(2)} L`;
+    
+    // Round to 2 decimal places first
+    const roundedValue = Math.round(value * 100) / 100;
+    
+    if (roundedValue >= 10000000) {
+      return `₹${formatIndianNumber(roundedValue / 10000000)} Cr`;
+    } else if (roundedValue >= 100000) {
+      return `₹${formatIndianNumber(roundedValue / 100000)} L`;
     }
-    return `₹${value.toLocaleString("en-IN")}`;
+    return `₹${formatIndianNumber(roundedValue)}`;
+  };
+
+  // Formatter for tooltip values (without currency symbol)
+  const formatTooltipValue = (value: number): string => {
+    return formatIndianNumber(value);
   };
 
   return (
     <div className="space-y-6 p-6">
+      {/* Filters */}
+      <div className="flex items-center justify-end gap-4">
+        {/* Financial Year Filter */}
+        <Select value={filterFinancialYear} onValueChange={setFilterFinancialYear}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="Financial Year" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="FY24">FY24</SelectItem>
+            <SelectItem value="FY25">FY25</SelectItem>
+            <SelectItem value="FY26">FY26</SelectItem>
+            <SelectItem value="FY27">FY27</SelectItem>
+            <SelectItem value="FY28">FY28</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Status Filter */}
+        <Select value={filterUpsellStatus} onValueChange={(value) => setFilterUpsellStatus(value)}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="Existing">Existing</SelectItem>
+            <SelectItem value="All Cross Sell">All Cross Sell</SelectItem>
+            <SelectItem value="All Cross Sell + Existing">All Cross Sell + Existing</SelectItem>
+            <SelectItem value="new Acquisitions">new Acquisitions</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* KAM Filter with Search */}
+        <Select value={filterKam || "all"} onValueChange={(value) => setFilterKam(value === "all" ? "" : value)}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="All KAMs" />
+          </SelectTrigger>
+          <SelectContent>
+            <div className="px-2 pb-2">
+              <Input
+                placeholder="Search KAM..."
+                value={kamSearch}
+                onChange={(e) => setKamSearch(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                className="h-8"
+              />
+            </div>
+            <SelectItem value="all">All KAMs</SelectItem>
+            {kams
+              .filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase()))
+              .map((kam) => (
+                <SelectItem key={kam.id} value={kam.id}>
+                  {kam.full_name}
+                </SelectItem>
+              ))}
+            {kams.filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase())).length === 0 && (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                No KAMs found
+              </div>
+            )}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Key Metrics Cards - 8 cards in 2 rows */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Mandates */}
+        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -1457,8 +1925,10 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* Total Accounts */}
+        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -1474,6 +1944,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* MCV Planned */}
         <Card>
@@ -1495,6 +1966,7 @@ export default function Dashboard() {
         </Card>
 
         {/* FFM Achieved */}
+        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -1523,8 +1995,10 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* MCV This Quarter */}
+        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -1567,6 +2041,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* Target MCV Next Quarter */}
         <Card>
@@ -1616,6 +2091,7 @@ export default function Dashboard() {
         </Card>
 
         {/* Overlap Factor */}
+        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -1636,7 +2112,410 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
+
+      {/* FY26 Actual vs Target Charts - Annual and Q2 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Annual */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {`${filterFinancialYear} Actual vs Target (Annual)`}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={actualVsTargetAnnual} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis dataKey="name" type="category" width={80} />
+                    <Tooltip formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)} />
+                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                      {actualVsTargetAnnual.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-4 space-y-1">
+                  <p className="text-sm">Target: {formatCurrency(annualTarget)}</p>
+                  <p className="text-sm">Achieved: {formatCurrency(annualAchieved)}</p>
+                  <p className="text-sm font-medium">
+                    {annualTarget > 0 
+                      ? `${((annualAchieved / annualTarget) * 100).toFixed(1)}% of Target`
+                      : "N/A"}
+                  </p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Current Quarter */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {(() => {
+                const now = new Date();
+                const currentMonth = now.getMonth() + 1;
+                
+                // Determine current quarter
+                let quarterLabel = "";
+                if (currentMonth >= 4 && currentMonth <= 6) {
+                  quarterLabel = "Q1";
+                } else if (currentMonth >= 7 && currentMonth <= 9) {
+                  quarterLabel = "Q2";
+                } else if (currentMonth >= 10 && currentMonth <= 12) {
+                  quarterLabel = "Q3";
+                } else {
+                  quarterLabel = "Q4";
+                }
+                
+                return `${filterFinancialYear} Actual vs Target (${quarterLabel})`;
+              })()}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={actualVsTargetQ2} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis dataKey="name" type="category" width={80} />
+                    <Tooltip formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)} />
+                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                      {actualVsTargetQ2.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-4 space-y-1">
+                  <p className="text-sm">Target: {formatCurrency(quarterTarget)}</p>
+                  <p className="text-sm">Achieved: {formatCurrency(quarterAchieved)}</p>
+                  <p className="text-sm font-medium">
+                    {quarterTarget > 0 
+                      ? `${((quarterAchieved / quarterTarget) * 100).toFixed(1)}% of Target`
+                      : "N/A"}
+                  </p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Current Month and Dropped Sales */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Current Month */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {(() => {
+                const now = new Date();
+                const monthName = now.toLocaleString('default', { month: 'long' });
+                return `${filterFinancialYear} Actual vs Target (${monthName})`;
+              })()}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={actualVsTargetCurrent} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis dataKey="name" type="category" width={80} />
+                    <Tooltip formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)} />
+                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                      {actualVsTargetCurrent.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-4 space-y-1">
+                  <p className="text-sm">Target: {formatCurrency(currentMonthTarget)}</p>
+                  <p className="text-sm">Achieved: {formatCurrency(currentMonthAchieved)}</p>
+                  <p className="text-sm font-medium">
+                    {currentMonthTarget > 0 
+                      ? `${((currentMonthAchieved / currentMonthTarget) * 100).toFixed(1)}% of Target`
+                      : "N/A"}
+                  </p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Dropped Sales and Reasons */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Dropped Sales and Reasons</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : droppedSalesData.length === 0 ? (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No dropped deals found
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={400}>
+                <PieChart>
+                  <Pie
+                    data={droppedSalesData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                    label={(props: any) => {
+                      const { cx, cy, midAngle, innerRadius, outerRadius, value, name, fill } = props;
+                      const total = droppedSalesData.reduce((sum, item) => sum + item.value, 0);
+                      const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : "0.00";
+                      
+                      // Capitalize first letter of each word
+                      const capitalizeWords = (text: string) => {
+                        return text
+                          .split(' ')
+                          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                          .join(' ');
+                      };
+                      
+                      const capitalizedName = capitalizeWords(name);
+                      
+                      const RADIAN = Math.PI / 180;
+                      // Point on the outer edge of the pie segment
+                      const radius = outerRadius;
+                      const xLabel = cx + radius * Math.cos(-midAngle * RADIAN);
+                      const yLabel = cy + radius * Math.sin(-midAngle * RADIAN);
+                      
+                      // Calculate label position (outside the pie with gap)
+                      const gap = 15; // Gap between line end and text
+                      const labelRadius = outerRadius + 30;
+                      const labelX = cx + (labelRadius + gap) * Math.cos(-midAngle * RADIAN);
+                      const labelY = cy + (labelRadius + gap) * Math.sin(-midAngle * RADIAN);
+                      
+                      // Line end position (before the gap)
+                      const lineEndX = cx + labelRadius * Math.cos(-midAngle * RADIAN);
+                      const lineEndY = cy + labelRadius * Math.sin(-midAngle * RADIAN);
+                      
+                      // Determine text anchor based on position
+                      const textAnchor = xLabel > cx ? "start" : "end";
+                      
+                      return (
+                        <g>
+                          {/* Line from segment edge to label (with gap before text) */}
+                          <line
+                            x1={xLabel}
+                            y1={yLabel}
+                            x2={lineEndX}
+                            y2={lineEndY}
+                            stroke={fill}
+                            strokeWidth={1.5}
+                          />
+                          {/* Label text - reason name */}
+                          <text
+                            x={labelX}
+                            y={labelY}
+                            textAnchor={textAnchor}
+                            fill={fill}
+                            fontSize={14}
+                            fontWeight={500}
+                            dy={-8}
+                          >
+                            {capitalizedName}
+                          </text>
+                          {/* Label text - count and percentage */}
+                          <text
+                            x={labelX}
+                            y={labelY}
+                            textAnchor={textAnchor}
+                            fill={fill}
+                            fontSize={13}
+                            dy={8}
+                          >
+                            {value} ({percentage}%)
+                          </text>
+                        </g>
+                      );
+                    }}
+                    labelLine={false}
+                  >
+                    {droppedSalesData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* LoB Sales Performance Comparison - Full Width */}
+      <Card>
+        <CardHeader>
+          <CardTitle>LoB Sales Performance Comparison</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center h-[300px]">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : lobSalesPerformance.length === 0 ? (
+            <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+              No data available
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={500}>
+              <BarChart 
+                data={lobSalesPerformance}
+                margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
+                barCategoryGap="20%"
+                barGap={0}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="lob" 
+                  angle={-45}
+                  textAnchor="end"
+                  height={100}
+                  interval={0}
+                  tick={{ fontSize: 12 }}
+                />
+                <YAxis 
+                  domain={[0, 'auto']}
+                  allowDataOverflow={false}
+                />
+                <Tooltip 
+                  formatter={(value: number) => {
+                    if (value >= 10000000) {
+                      return `₹${(value / 10000000).toFixed(2)}Cr`;
+                    } else if (value >= 100000) {
+                      return `₹${(value / 100000).toFixed(1)}L`;
+                    } else {
+                      return `₹${value.toLocaleString("en-IN")}`;
+                    }
+                  }}
+                  cursor={false}
+                />
+                <Legend />
+                {/* Render both bars without stacking - they'll overlap starting from 0 */}
+                {/* Render the higher value bar first, then the lower value bar on top */}
+                <Bar 
+                  dataKey="targetMpv" 
+                  fill="#E0E0E0" 
+                  name="Target MPV" 
+                  barSize={40}
+                  activeBar={false}
+                  isAnimationActive={false}
+                />
+                <Bar 
+                  dataKey="achievedMpv" 
+                  fill="#4169E1" 
+                  name="Achieved MPV" 
+                  barSize={40}
+                  activeBar={false}
+                  isAnimationActive={false}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Annual Sales Target - Individual */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{filterFinancialYear} Annual Sales Target - Individual</CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">Compare target vs achieved sales for individual staff members.</p>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center h-[400px]">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : kamSalesPerformance.length === 0 ? (
+            <div className="flex items-center justify-center h-[400px] text-muted-foreground">
+              No data available
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart
+                data={kamSalesPerformance}
+                margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
+                barCategoryGap="20%"
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="kamName" 
+                  angle={-45}
+                  textAnchor="end"
+                  height={100}
+                  interval={0}
+                  tick={{ fontSize: 12 }}
+                />
+                <YAxis 
+                  domain={[0, 'auto']}
+                  allowDataOverflow={false}
+                />
+                <Tooltip 
+                  formatter={(value: number) => {
+                    if (value >= 10000000) {
+                      return `₹${(value / 10000000).toFixed(2)}Cr`;
+                    } else if (value >= 100000) {
+                      return `₹${(value / 100000).toFixed(1)}L`;
+                    } else {
+                      return `₹${value.toLocaleString("en-IN")}`;
+                    }
+                  }}
+                  cursor={false}
+                />
+                <Legend />
+                {/* Render both bars without stacking - they'll overlap starting from 0 */}
+                <Bar 
+                  dataKey="targetMpv" 
+                  fill="#E0E0E0" 
+                  name="Target MPV" 
+                  barSize={40}
+                  activeBar={false}
+                  isAnimationActive={false}
+                />
+                <Bar 
+                  dataKey="achievedMpv" 
+                  fill="#4169E1" 
+                  name="Achieved MPV" 
+                  barSize={40}
+                  activeBar={false}
+                  isAnimationActive={false}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
 
       {/* MCV Tier and Company Size Tier Table */}
       <Card>
@@ -1897,495 +2776,26 @@ export default function Dashboard() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-semibold">Performance Dashboard</h2>
-          
-          {/* Filters */}
-          <div className="flex items-center gap-4">
-            {/* Financial Year Filter */}
-            <Select value={filterFinancialYear} onValueChange={setFilterFinancialYear}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Financial Year" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="FY24">FY24</SelectItem>
-                <SelectItem value="FY25">FY25</SelectItem>
-                <SelectItem value="FY26">FY26</SelectItem>
-                <SelectItem value="FY27">FY27</SelectItem>
-                <SelectItem value="FY28">FY28</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Cross Sell and Upsell Status Filter */}
-            <Select value={filterUpsellStatus} onValueChange={(value) => setFilterUpsellStatus(value)}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Cross Sell & Upsell Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="Not Started">Not Started</SelectItem>
-                <SelectItem value="Ongoing">Ongoing</SelectItem>
-                <SelectItem value="Done">Done</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* KAM Filter with Search */}
-            <Select value={filterKam || "all"} onValueChange={(value) => setFilterKam(value === "all" ? "" : value)}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="All KAMs" />
-              </SelectTrigger>
-              <SelectContent>
-                <div className="px-2 pb-2">
-                  <Input
-                    placeholder="Search KAM..."
-                    value={kamSearch}
-                    onChange={(e) => setKamSearch(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => e.stopPropagation()}
-                    className="h-8"
-                  />
-                </div>
-                <SelectItem value="all">All KAMs</SelectItem>
-                {kams
-                  .filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase()))
-                  .map((kam) => (
-                    <SelectItem key={kam.id} value={kam.id}>
-                      {kam.full_name}
-                    </SelectItem>
-                  ))}
-                {kams.filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase())).length === 0 && (
-                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                    No KAMs found
-                  </div>
-                )}
-              </SelectContent>
-            </Select>
-          </div>
         </div>
-
-        {/* FY26 Actual vs Target Charts - Annual and Q2 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Annual */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {(() => {
-                  const now = new Date();
-                  const currentYear = now.getFullYear();
-                  const currentMonth = now.getMonth() + 1;
-                  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-                  const fyEndYear = (fyStartYear + 1).toString().slice(-2);
-                  return `FY${fyEndYear} Actual vs Target (Annual)`;
-                })()}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={actualVsTargetAnnual} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="name" type="category" width={80} />
-                      <Tooltip />
-                      <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                        {actualVsTargetAnnual.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <div className="mt-4 space-y-1">
-                    <p className="text-sm">Target: {formatCurrency(annualTarget)}</p>
-                    <p className="text-sm">Achieved: {formatCurrency(annualAchieved)}</p>
-                    <p className="text-sm font-medium">
-                      {annualTarget > 0 
-                        ? `${((annualAchieved / annualTarget) * 100).toFixed(1)}% of Target`
-                        : "N/A"}
-                    </p>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Current Quarter */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {(() => {
-                  const now = new Date();
-                  const currentYear = now.getFullYear();
-                  const currentMonth = now.getMonth() + 1;
-                  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-                  const fyEndYear = (fyStartYear + 1).toString().slice(-2);
-                  
-                  // Determine current quarter
-                  let quarterLabel = "";
-                  if (currentMonth >= 4 && currentMonth <= 6) {
-                    quarterLabel = "Q1";
-                  } else if (currentMonth >= 7 && currentMonth <= 9) {
-                    quarterLabel = "Q2";
-                  } else if (currentMonth >= 10 && currentMonth <= 12) {
-                    quarterLabel = "Q3";
-                  } else {
-                    quarterLabel = "Q4";
-                  }
-                  
-                  return `FY${fyEndYear} Actual vs Target (${quarterLabel})`;
-                })()}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={actualVsTargetQ2} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="name" type="category" width={80} />
-                      <Tooltip />
-                      <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                        {actualVsTargetQ2.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <div className="mt-4 space-y-1">
-                    <p className="text-sm">Target: {formatCurrency(quarterTarget)}</p>
-                    <p className="text-sm">Achieved: {formatCurrency(quarterAchieved)}</p>
-                    <p className="text-sm font-medium">
-                      {quarterTarget > 0 
-                        ? `${((quarterAchieved / quarterTarget) * 100).toFixed(1)}% of Target`
-                        : "N/A"}
-                    </p>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Current Month and Dropped Sales */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Current Month */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {(() => {
-                  const now = new Date();
-                  const currentYear = now.getFullYear();
-                  const currentMonth = now.getMonth() + 1;
-                  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-                  const fyEndYear = (fyStartYear + 1).toString().slice(-2);
-                  const monthName = now.toLocaleString('default', { month: 'long' });
-                  return `FY${fyEndYear} Actual vs Target (${monthName})`;
-                })()}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={actualVsTargetCurrent} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="name" type="category" width={80} />
-                      <Tooltip />
-                      <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                        {actualVsTargetCurrent.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <div className="mt-4 space-y-1">
-                    <p className="text-sm">Target: {formatCurrency(currentMonthTarget)}</p>
-                    <p className="text-sm">Achieved: {formatCurrency(currentMonthAchieved)}</p>
-                    <p className="text-sm font-medium">
-                      {currentMonthTarget > 0 
-                        ? `${((currentMonthAchieved / currentMonthTarget) * 100).toFixed(1)}% of Target`
-                        : "N/A"}
-                    </p>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Dropped Sales and Reasons */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Dropped Sales and Reasons</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex items-center justify-center h-[300px]">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : droppedSalesData.length === 0 ? (
-                <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                  No dropped deals found
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height={400}>
-                  <PieChart>
-                    <Pie
-                      data={droppedSalesData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={5}
-                      dataKey="value"
-                      label={(props: any) => {
-                        const { cx, cy, midAngle, innerRadius, outerRadius, value, name, fill } = props;
-                        const total = droppedSalesData.reduce((sum, item) => sum + item.value, 0);
-                        const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : "0.00";
-                        
-                        // Capitalize first letter of each word
-                        const capitalizeWords = (text: string) => {
-                          return text
-                            .split(' ')
-                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                            .join(' ');
-                        };
-                        
-                        const capitalizedName = capitalizeWords(name);
-                        
-                        const RADIAN = Math.PI / 180;
-                        // Point on the outer edge of the pie segment
-                        const radius = outerRadius;
-                        const xLabel = cx + radius * Math.cos(-midAngle * RADIAN);
-                        const yLabel = cy + radius * Math.sin(-midAngle * RADIAN);
-                        
-                        // Calculate label position (outside the pie with gap)
-                        const gap = 15; // Gap between line end and text
-                        const labelRadius = outerRadius + 30;
-                        const labelX = cx + (labelRadius + gap) * Math.cos(-midAngle * RADIAN);
-                        const labelY = cy + (labelRadius + gap) * Math.sin(-midAngle * RADIAN);
-                        
-                        // Line end position (before the gap)
-                        const lineEndX = cx + labelRadius * Math.cos(-midAngle * RADIAN);
-                        const lineEndY = cy + labelRadius * Math.sin(-midAngle * RADIAN);
-                        
-                        // Determine text anchor based on position
-                        const textAnchor = xLabel > cx ? "start" : "end";
-                        
-                        return (
-                          <g>
-                            {/* Line from segment edge to label (with gap before text) */}
-                            <line
-                              x1={xLabel}
-                              y1={yLabel}
-                              x2={lineEndX}
-                              y2={lineEndY}
-                              stroke={fill}
-                              strokeWidth={1.5}
-                            />
-                            {/* Label text - reason name */}
-                            <text
-                              x={labelX}
-                              y={labelY}
-                              textAnchor={textAnchor}
-                              fill={fill}
-                              fontSize={14}
-                              fontWeight={500}
-                              dy={-8}
-                            >
-                              {capitalizedName}
-                            </text>
-                            {/* Label text - count and percentage */}
-                            <text
-                              x={labelX}
-                              y={labelY}
-                              textAnchor={textAnchor}
-                              fill={fill}
-                              fontSize={13}
-                              dy={8}
-                            >
-                              {value} ({percentage}%)
-                            </text>
-                          </g>
-                        );
-                      }}
-                      labelLine={false}
-                    >
-                      {droppedSalesData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
       </div>
-
-        {/* LoB Sales Performance Comparison - Full Width */}
-        <Card>
-          <CardHeader>
-            <CardTitle>LoB Sales Performance Comparison</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center h-[300px]">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : lobSalesPerformance.length === 0 ? (
-              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                No data available
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={500}>
-                <BarChart 
-                  data={lobSalesPerformance}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-                  barCategoryGap="20%"
-                  barGap={0}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="lob" 
-                    angle={-45}
-                    textAnchor="end"
-                    height={100}
-                    interval={0}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis 
-                    domain={[0, 'auto']}
-                    allowDataOverflow={false}
-                  />
-                  <Tooltip 
-                    formatter={(value: number) => {
-                      if (value >= 10000000) {
-                        return `₹${(value / 10000000).toFixed(2)}Cr`;
-                      } else if (value >= 100000) {
-                        return `₹${(value / 100000).toFixed(1)}L`;
-                      } else {
-                        return `₹${value.toLocaleString("en-IN")}`;
-                      }
-                    }}
-                    cursor={false}
-                  />
-                  <Legend />
-                  {/* Render both bars without stacking - they'll overlap starting from 0 */}
-                  {/* Render the higher value bar first, then the lower value bar on top */}
-                  <Bar 
-                    dataKey="targetMpv" 
-                    fill="#E0E0E0" 
-                    name="Target MPV" 
-                    barSize={40}
-                    activeBar={false}
-                    isAnimationActive={false}
-                  />
-                  <Bar 
-                    dataKey="achievedMpv" 
-                    fill="#4169E1" 
-                    name="Achieved MPV" 
-                    barSize={40}
-                    activeBar={false}
-                    isAnimationActive={false}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* FY26 Annual Sales Target - Individual */}
-      <Card>
-        <CardHeader>
-          <CardTitle>FY26 Annual Sales Target - Individual</CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">Compare target vs achieved sales for individual staff members.</p>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center h-[400px]">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : kamSalesPerformance.length === 0 ? (
-            <div className="flex items-center justify-center h-[400px] text-muted-foreground">
-              No data available
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={400}>
-              <BarChart
-                data={kamSalesPerformance}
-                margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-                barCategoryGap="20%"
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="kamName" 
-                  angle={-45}
-                  textAnchor="end"
-                  height={100}
-                  interval={0}
-                  tick={{ fontSize: 12 }}
-                />
-                <YAxis 
-                  domain={[0, 'auto']}
-                  allowDataOverflow={false}
-                />
-                <Tooltip 
-                  formatter={(value: number) => {
-                    if (value >= 10000000) {
-                      return `₹${(value / 10000000).toFixed(2)}Cr`;
-                    } else if (value >= 100000) {
-                      return `₹${(value / 100000).toFixed(1)}L`;
-                    } else {
-                      return `₹${value.toLocaleString("en-IN")}`;
-                    }
-                  }}
-                  cursor={false}
-                />
-                <Legend />
-                {/* Render both bars without stacking - they'll overlap starting from 0 */}
-                <Bar 
-                  dataKey="targetMpv" 
-                  fill="#E0E0E0" 
-                  name="Target MPV" 
-                  barSize={40}
-                  activeBar={false}
-                  isAnimationActive={false}
-                />
-                <Bar 
-                  dataKey="achievedMpv" 
-                  fill="#4169E1" 
-                  name="Achieved MPV" 
-                  barSize={40}
-                  activeBar={false}
-                  isAnimationActive={false}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Funnel Stage and Activity Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Funnel Stage_Count of Sales Module */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Funnel Stage_Count of Sales Module</CardTitle>
+            <CardTitle className="text-base">Funnel Stage Count of Sales Module</CardTitle>
           </CardHeader>
           <CardContent>
+            {/* Total Box */}
+            <div className="mb-4 flex justify-center">
+              <div className="inline-flex items-center gap-2 rounded-lg border bg-muted px-4 py-2">
+                <span className="text-lg font-bold">Total:</span>
+                <span className="text-lg font-bold">
+                  {(funnelCounts.tofu + funnelCounts.bofu + funnelCounts.closedWon + funnelCounts.dropped).toLocaleString("en-IN")}
+                </span>
+              </div>
+            </div>
             <div className="flex gap-4">
               {(() => {
                 const values = { 
@@ -2596,9 +3006,26 @@ export default function Dashboard() {
         {/* Funnel Stage_Expected Revenue */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Funnel Stage_Expected Revenue</CardTitle>
+            <CardTitle className="text-base">Funnel Stage Expected Revenue</CardTitle>
           </CardHeader>
           <CardContent>
+            {/* Total Box */}
+            <div className="mb-4 flex justify-center">
+              <div className="inline-flex items-center gap-2 rounded-lg border bg-muted px-4 py-2">
+                <span className="text-lg font-bold">Total:</span>
+                <span className="text-lg font-bold">
+                  {(() => {
+                    const totalRevenue = funnelRevenue.tofu + funnelRevenue.bofu + funnelRevenue.closedWon + funnelRevenue.dropped;
+                    if (totalRevenue >= 10000000) {
+                      return `₹${(totalRevenue / 10000000).toFixed(2)} Cr`;
+                    } else if (totalRevenue >= 100000) {
+                      return `₹${(totalRevenue / 100000).toFixed(2)} L`;
+                    }
+                    return `₹${totalRevenue.toLocaleString("en-IN")}`;
+                  })()}
+                </span>
+              </div>
+            </div>
             <div className="flex gap-4">
               {(() => {
                 // Convert revenue from rupees to lakhs (divide by 100000)
@@ -2606,7 +3033,7 @@ export default function Dashboard() {
                   tofu: funnelRevenue.tofu / 100000, 
                   bofu: funnelRevenue.bofu / 100000, 
                   closedWon: funnelRevenue.closedWon / 100000, 
-                  dropped: funnelRevenue.dropped / 100000 
+                  dropped: funnelRevenue.dropped / 100000
                 };
                 const maxValue = Math.max(...Object.values(values), 1); // Use 1 as minimum to avoid division by zero
                 const maxWidth = 200; // Maximum line width in pixels

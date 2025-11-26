@@ -68,3 +68,8 @@ CREATE INDEX idx_monthly_targets_created_at ON public.monthly_targets(created_at
 
 
 
+
+
+
+
+

@@ -56,7 +56,9 @@ interface MonthlyTargetFormData {
   year: string;
   target: string;
   financialYear: string;
-  kamId: string;
+  targetType: string;
+  accountId: string;
+  mandateId: string;
 }
 
 interface MonthlyTarget {
@@ -65,14 +67,24 @@ interface MonthlyTarget {
   year: number;
   financial_year: string;
   target: number;
-  kam_id: string | null;
   created_by: string;
   created_at: string;
+  target_type?: string | null;
+  account_id?: string | null;
+  mandate_id?: string | null;
+  accountName?: string | null;
+  mandateInfo?: { project_code: string; project_name: string } | null;
 }
 
-interface KAM {
+interface Account {
   id: string;
-  full_name: string | null;
+  name: string;
+}
+
+interface Mandate {
+  id: string;
+  project_code: string;
+  project_name: string;
 }
 
 export default function Targets() {
@@ -87,12 +99,18 @@ export default function Targets() {
     year: "",
     target: "",
     financialYear: "",
-    kamId: "",
+    targetType: "",
+    accountId: "",
+    mandateId: "",
   });
   const [monthlyTargets, setMonthlyTargets] = useState<MonthlyTarget[]>([]);
   const [loadingTargets, setLoadingTargets] = useState(false);
-  const [kams, setKams] = useState<KAM[]>([]);
-  const [loadingKams, setLoadingKams] = useState(false);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [mandates, setMandates] = useState<Mandate[]>([]);
+  const [loadingMandates, setLoadingMandates] = useState(false);
+  const [accountSearch, setAccountSearch] = useState("");
+  const [mandateSearch, setMandateSearch] = useState("");
 
   const fetchMonthlyTargets = async () => {
     setLoadingTargets(true);
@@ -114,7 +132,50 @@ export default function Targets() {
         throw error;
       }
 
-      setMonthlyTargets(data || []);
+      // Fetch account and mandate names for display
+      const accountIds = [...new Set((data || []).map((t: any) => t.account_id).filter(Boolean))];
+      const mandateIds = [...new Set((data || []).map((t: any) => t.mandate_id).filter(Boolean))];
+
+      const accountMap: Record<string, string> = {};
+      const mandateMap: Record<string, { project_code: string; project_name: string }> = {};
+
+      if (accountIds.length > 0) {
+        const { data: accountData } = await supabase
+          .from("accounts")
+          .select("id, name")
+          .in("id", accountIds);
+
+        if (accountData) {
+          accountData.forEach((acc) => {
+            accountMap[acc.id] = acc.name || "Unknown";
+          });
+        }
+      }
+
+      if (mandateIds.length > 0) {
+        const { data: mandateData } = await supabase
+          .from("mandates")
+          .select("id, project_code, project_name")
+          .in("id", mandateIds);
+
+        if (mandateData) {
+          mandateData.forEach((mandate) => {
+            mandateMap[mandate.id] = {
+              project_code: mandate.project_code || "Unknown",
+              project_name: mandate.project_name || "Unknown",
+            };
+          });
+        }
+      }
+
+      // Add account and mandate names to targets
+      const targetsWithNames = (data || []).map((target: any) => ({
+        ...target,
+        accountName: target.account_id ? accountMap[target.account_id] : null,
+        mandateInfo: target.mandate_id ? mandateMap[target.mandate_id] : null,
+      }));
+
+      setMonthlyTargets(targetsWithNames);
     } catch (error: any) {
       console.error("Error fetching monthly targets:", error);
       // Only show error toast if it's not a "table doesn't exist" error
@@ -131,26 +192,47 @@ export default function Targets() {
     }
   };
 
-  const fetchKAMs = async () => {
-    setLoadingKams(true);
+  const fetchAccounts = async () => {
+    setLoadingAccounts(true);
     try {
       const { data, error } = await supabase
-        .from("profiles")
-        .select("id, full_name")
-        .eq("role", "kam")
-        .order("full_name");
+        .from("accounts")
+        .select("id, name")
+        .order("name");
 
       if (error) {
-        console.error("Error fetching KAMs:", error);
-        setKams([]);
+        console.error("Error fetching accounts:", error);
+        setAccounts([]);
       } else {
-        setKams(data || []);
+        setAccounts(data || []);
       }
     } catch (error: any) {
-      console.error("Error fetching KAMs:", error);
-      setKams([]);
+      console.error("Error fetching accounts:", error);
+      setAccounts([]);
     } finally {
-      setLoadingKams(false);
+      setLoadingAccounts(false);
+    }
+  };
+
+  const fetchMandates = async () => {
+    setLoadingMandates(true);
+    try {
+      const { data, error } = await supabase
+        .from("mandates")
+        .select("id, project_code, project_name")
+        .order("project_code");
+
+      if (error) {
+        console.error("Error fetching mandates:", error);
+        setMandates([]);
+      } else {
+        setMandates(data || []);
+      }
+    } catch (error: any) {
+      console.error("Error fetching mandates:", error);
+      setMandates([]);
+    } finally {
+      setLoadingMandates(false);
     }
   };
 
@@ -163,9 +245,10 @@ export default function Targets() {
       if (!hasAccess) {
         navigate("/dashboard");
       } else {
-        // Fetch targets and KAMs when user has access
+        // Fetch targets, accounts, and mandates when user has access
         fetchMonthlyTargets();
-        fetchKAMs();
+        fetchAccounts();
+        fetchMandates();
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,10 +275,20 @@ export default function Targets() {
   }, [formData.month, formData.year]);
 
   const handleInputChange = (field: keyof MonthlyTargetFormData, value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        [field]: value,
+      };
+      
+      // Reset accountId and mandateId when targetType changes
+      if (field === "targetType") {
+        updated.accountId = "";
+        updated.mandateId = "";
+      }
+      
+      return updated;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -204,10 +297,31 @@ export default function Targets() {
 
     try {
       // Validate inputs
-      if (!formData.month || !formData.year || !formData.target) {
+      if (!formData.month || !formData.year || !formData.target || !formData.targetType) {
         toast({
           title: "Validation Error",
           description: "Please fill in all required fields.",
+          variant: "destructive",
+        });
+        setSubmitting(false);
+        return;
+      }
+
+      // Validate type-specific fields
+      if (formData.targetType === "new_cross_sell" && !formData.accountId) {
+        toast({
+          title: "Validation Error",
+          description: "Please select an account for new cross sell target.",
+          variant: "destructive",
+        });
+        setSubmitting(false);
+        return;
+      }
+
+      if (formData.targetType === "existing" && !formData.mandateId) {
+        toast({
+          title: "Validation Error",
+          description: "Please select a mandate for existing target.",
           variant: "destructive",
         });
         setSubmitting(false);
@@ -234,21 +348,24 @@ export default function Targets() {
 
       // Prepare data for insertion
       // Expected table structure: monthly_targets
-      // Columns: month (integer), year (integer), financial_year (text), target (numeric), kam_id (uuid), created_by (uuid), created_at (timestamp)
+      // Columns: month (integer), year (integer), financial_year (text), target (numeric), target_type (text), account_id (uuid), mandate_id (uuid), created_by (uuid), created_at (timestamp)
       const targetData: any = {
         month: parseInt(formData.month),
         year: parseInt(formData.year),
         financial_year: formData.financialYear,
         target: targetValue,
+        target_type: formData.targetType,
         created_by: user.id,
         created_at: new Date().toISOString(),
       };
 
-      // Set kam_id to null if "Overall" is selected, otherwise use the selected KAM ID
-      if (formData.kamId === "overall" || formData.kamId === "") {
-        targetData.kam_id = null;
-      } else {
-        targetData.kam_id = formData.kamId;
+      // Set account_id or mandate_id based on target type
+      if (formData.targetType === "new_cross_sell") {
+        targetData.account_id = formData.accountId;
+        targetData.mandate_id = null;
+      } else if (formData.targetType === "existing") {
+        targetData.mandate_id = formData.mandateId;
+        targetData.account_id = null;
       }
 
       // Update or insert into monthly_targets table
@@ -262,7 +379,9 @@ export default function Targets() {
             year: targetData.year,
             financial_year: targetData.financial_year,
             target: targetData.target,
-            kam_id: targetData.kam_id,
+            target_type: targetData.target_type,
+            account_id: targetData.account_id,
+            mandate_id: targetData.mandate_id,
           })
           .eq("id", editingTarget.id);
         
@@ -301,7 +420,9 @@ export default function Targets() {
         year: "",
         target: "",
         financialYear: "",
-        kamId: "",
+        targetType: "",
+        accountId: "",
+        mandateId: "",
       });
 
       // Close dialog
@@ -373,9 +494,13 @@ export default function Targets() {
               year: "",
               target: "",
               financialYear: "",
-              kamId: "",
+              targetType: "",
+              accountId: "",
+              mandateId: "",
             });
             setEditingTarget(null);
+            setAccountSearch("");
+            setMandateSearch("");
           }
         }}>
           <DialogTrigger asChild>
@@ -395,6 +520,118 @@ export default function Targets() {
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="targetType">Target Type *</Label>
+                  <Select
+                    value={formData.targetType}
+                    onValueChange={(value) => handleInputChange("targetType", value)}
+                    required
+                  >
+                    <SelectTrigger id="targetType">
+                      <SelectValue placeholder="Select target type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="new_cross_sell">New cross sell target</SelectItem>
+                      <SelectItem value="existing">Existing</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {formData.targetType === "new_cross_sell" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="accountId">Account *</Label>
+                    <Select
+                      value={formData.accountId}
+                      onValueChange={(value) => handleInputChange("accountId", value)}
+                      required
+                    >
+                      <SelectTrigger id="accountId">
+                        <SelectValue placeholder="Select account" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search accounts..."
+                            value={accountSearch}
+                            onChange={(e) => setAccountSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
+                        {accounts.length > 0 ? (
+                          accounts
+                            .filter((account) =>
+                              account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                            )
+                            .map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.name}
+                              </SelectItem>
+                            ))
+                        ) : (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            {loadingAccounts ? "Loading accounts..." : "No accounts available"}
+                          </div>
+                        )}
+                        {accounts.length > 0 && accounts.filter((account) =>
+                          account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No accounts found
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {formData.targetType === "existing" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="mandateId">Mandate *</Label>
+                    <Select
+                      value={formData.mandateId}
+                      onValueChange={(value) => handleInputChange("mandateId", value)}
+                      required
+                    >
+                      <SelectTrigger id="mandateId">
+                        <SelectValue placeholder="Select mandate" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search mandates..."
+                            value={mandateSearch}
+                            onChange={(e) => setMandateSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
+                        {mandates.length > 0 ? (
+                          mandates
+                            .filter((mandate) =>
+                              `${mandate.project_code} ${mandate.project_name}`.toLowerCase().includes(mandateSearch.toLowerCase())
+                            )
+                            .map((mandate) => (
+                              <SelectItem key={mandate.id} value={mandate.id}>
+                                {mandate.project_code} - {mandate.project_name}
+                              </SelectItem>
+                            ))
+                        ) : (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            {loadingMandates ? "Loading mandates..." : "No mandates available"}
+                          </div>
+                        )}
+                        {mandates.length > 0 && mandates.filter((mandate) =>
+                          `${mandate.project_code} ${mandate.project_name}`.toLowerCase().includes(mandateSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No mandates found
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="grid gap-2">
                   <Label htmlFor="month">Month *</Label>
                   <Select
@@ -461,25 +698,6 @@ export default function Targets() {
                     </div>
                   </div>
                 )}
-                <div className="grid gap-2">
-                  <Label htmlFor="kam">KAM</Label>
-                  <Select
-                    value={formData.kamId}
-                    onValueChange={(value) => handleInputChange("kamId", value)}
-                  >
-                    <SelectTrigger id="kam">
-                      <SelectValue placeholder="Select KAM or Overall" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="overall">Overall</SelectItem>
-                      {kams.map((kam) => (
-                        <SelectItem key={kam.id} value={kam.id}>
-                          {kam.full_name || "Unnamed KAM"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
               <DialogFooter>
                 <Button
@@ -490,7 +708,7 @@ export default function Targets() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={submitting || !formData.month || !formData.year || !formData.target}>
+                <Button type="submit" disabled={submitting || !formData.month || !formData.year || !formData.target || !formData.targetType || (formData.targetType === "new_cross_sell" && !formData.accountId) || (formData.targetType === "existing" && !formData.mandateId)}>
                   {submitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -532,37 +750,46 @@ export default function Targets() {
                   <TableHead>Month</TableHead>
                   <TableHead>Year</TableHead>
                   <TableHead>Financial Year</TableHead>
-                  <TableHead>KAM</TableHead>
+                  <TableHead>Target Type</TableHead>
+                  <TableHead>Account / Mandate</TableHead>
                   <TableHead className="text-right">Target Value</TableHead>
                   <TableHead>Created At</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(() => {
-                  // Create a map of KAM IDs to names for quick lookup (created once outside the map)
-                  const kamMap = new Map(kams.map(kam => [kam.id, kam.full_name || "Unnamed KAM"]));
+                {monthlyTargets.map((target) => {
+                  const targetTypeLabel = target.target_type === "new_cross_sell" 
+                    ? "New cross sell target" 
+                    : target.target_type === "existing" 
+                    ? "Existing" 
+                    : "N/A";
+                  const accountOrMandate = target.target_type === "new_cross_sell" 
+                    ? (target.accountName || "N/A")
+                    : target.target_type === "existing" && target.mandateInfo
+                    ? `${target.mandateInfo.project_code} - ${target.mandateInfo.project_name}`
+                    : "N/A";
                   
-                  return monthlyTargets.map((target) => {
-                    const kamName = target.kam_id ? kamMap.get(target.kam_id) || "Unknown KAM" : "Overall";
-                    
-                    return (
-                      <TableRow key={target.id}>
-                        <TableCell className="font-medium">
-                          {getMonthName(target.month)}
-                        </TableCell>
-                        <TableCell>{target.year}</TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-sm font-medium text-primary">
-                            {target.financial_year}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className={target.kam_id ? "" : "text-muted-foreground font-medium"}>
-                            {kamName}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right font-semibold">
+                  return (
+                    <TableRow key={target.id}>
+                      <TableCell className="font-medium">
+                        {getMonthName(target.month)}
+                      </TableCell>
+                      <TableCell>{target.year}</TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-sm font-medium text-primary">
+                          {target.financial_year}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center rounded-md bg-secondary/10 px-2 py-1 text-sm font-medium">
+                          {targetTypeLabel}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {accountOrMandate}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
                           {target.target.toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
@@ -583,7 +810,9 @@ export default function Targets() {
                                 year: target.year.toString(),
                                 target: target.target.toString(),
                                 financialYear: target.financial_year,
-                                kamId: target.kam_id || "overall",
+                                targetType: target.target_type || "",
+                                accountId: target.account_id || "",
+                                mandateId: target.mandate_id || "",
                               });
                               setFormDialogOpen(true);
                             }}
@@ -593,8 +822,7 @@ export default function Targets() {
                         </TableCell>
                       </TableRow>
                     );
-                  });
-                })()}
+                  })}
               </TableBody>
             </Table>
           )}
