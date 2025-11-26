@@ -194,7 +194,8 @@ export default function Targets() {
   
   // Data structures for the new table view
   const [existingTargetsData, setExistingTargetsData] = useState<Record<string, Record<string, number>>>({}); // mandateId -> monthKey -> target
-  const [crossSellTargetsData, setCrossSellTargetsData] = useState<Record<string, Record<string, number>>>({}); // accountId -> monthKey -> target
+  const [crossSellTargetsData, setCrossSellTargetsData] = useState<Record<string, Record<string, number>>>({}); // kamId_accountId -> monthKey -> target
+  const [crossSellKamAccountCombos, setCrossSellKamAccountCombos] = useState<Array<{ kamId: string; kamName: string; accountId: string; accountName: string }>>([]); // List of unique KAM-account combinations
   const [allMandates, setAllMandates] = useState<Array<{ id: string; project_code: string; project_name: string }>>([]);
   const [allAccounts, setAllAccounts] = useState<Array<{ id: string; name: string }>>([]);
   const [monthColumns, setMonthColumns] = useState<Array<{ month: number; year: number; key: string; label: string }>>([]);
@@ -324,7 +325,8 @@ export default function Targets() {
 
       // Organize targets by type for table display
       const existingData: Record<string, Record<string, number>> = {};
-      const crossSellData: Record<string, Record<string, number>> = {};
+      const crossSellData: Record<string, Record<string, number>> = {}; // kamId_accountId -> monthKey -> target
+      const kamAccountComboSet = new Set<string>(); // Track unique KAM-account combinations
 
       (data || []).forEach((target: any) => {
         const monthKey = `${target.year}-${String(target.month).padStart(2, '0')}`;
@@ -334,16 +336,41 @@ export default function Targets() {
             existingData[target.mandate_id] = {};
           }
           existingData[target.mandate_id][monthKey] = parseFloat(target.target?.toString() || "0") || 0;
-        } else if (target.target_type === "new_cross_sell" && target.account_id) {
-          if (!crossSellData[target.account_id]) {
-            crossSellData[target.account_id] = {};
+        } else if (target.target_type === "new_cross_sell" && target.account_id && target.kam_id) {
+          // Use composite key: kamId_accountId
+          const compositeKey = `${target.kam_id}_${target.account_id}`;
+          if (!crossSellData[compositeKey]) {
+            crossSellData[compositeKey] = {};
           }
-          crossSellData[target.account_id][monthKey] = parseFloat(target.target?.toString() || "0") || 0;
+          crossSellData[compositeKey][monthKey] = parseFloat(target.target?.toString() || "0") || 0;
+          
+          // Track unique KAM-account combinations
+          kamAccountComboSet.add(compositeKey);
         }
+      });
+
+      // Build list of unique KAM-account combinations with names
+      const kamAccountCombos: Array<{ kamId: string; kamName: string; accountId: string; accountName: string }> = [];
+      kamAccountComboSet.forEach((compositeKey) => {
+        const [kamId, accountId] = compositeKey.split('_');
+        kamAccountCombos.push({
+          kamId,
+          kamName: kamMap[kamId] || "Unknown KAM",
+          accountId,
+          accountName: accountMap[accountId] || "Unknown Account",
+        });
+      });
+
+      // Sort by KAM name, then by account name
+      kamAccountCombos.sort((a, b) => {
+        const kamCompare = a.kamName.localeCompare(b.kamName);
+        if (kamCompare !== 0) return kamCompare;
+        return a.accountName.localeCompare(b.accountName);
       });
 
       setExistingTargetsData(existingData);
       setCrossSellTargetsData(crossSellData);
+      setCrossSellKamAccountCombos(kamAccountCombos);
     } catch (error: any) {
       console.error("Error fetching monthly targets:", error);
       // Only show error toast if it's not a "table doesn't exist" error
@@ -357,6 +384,7 @@ export default function Targets() {
       setMonthlyTargets([]);
       setExistingTargetsData({});
       setCrossSellTargetsData({});
+      setCrossSellKamAccountCombos([]);
     } finally {
       setLoadingTargets(false);
     }
@@ -519,6 +547,119 @@ export default function Targets() {
     }
   }, [formData.month, formData.year]);
 
+  // Function to check and load existing target
+  const checkAndLoadExistingTarget = async (formDataToCheck: MonthlyTargetFormData) => {
+    // Only check if we have all required fields
+    if (!formDataToCheck.month || !formDataToCheck.year || !formDataToCheck.targetType) {
+      return;
+    }
+
+    const month = parseInt(formDataToCheck.month);
+    const year = parseInt(formDataToCheck.year);
+
+    if (isNaN(month) || isNaN(year)) {
+      return;
+    }
+
+    try {
+      let query = supabase
+        .from("monthly_targets")
+        .select("*")
+        .eq("month", month)
+        .eq("year", year);
+
+      if (formDataToCheck.targetType === "existing") {
+        if (!formDataToCheck.mandateId) {
+          return;
+        }
+        query = query.eq("mandate_id", formDataToCheck.mandateId).not("mandate_id", "is", null);
+      } else if (formDataToCheck.targetType === "new_cross_sell") {
+        if (!formDataToCheck.kamId || !formDataToCheck.accountId) {
+          return;
+        }
+        query = query
+          .eq("kam_id", formDataToCheck.kamId)
+          .eq("account_id", formDataToCheck.accountId)
+          .not("kam_id", "is", null)
+          .not("account_id", "is", null);
+      } else {
+        return;
+      }
+
+      const { data: existingTargets, error } = await query;
+
+      if (error) {
+        console.error("Error checking for existing target:", error);
+        return;
+      }
+
+      if (existingTargets && existingTargets.length > 0) {
+        const existingTarget = existingTargets[0];
+        
+        // Fetch account, mandate, and KAM names for display
+        const accountMap: Record<string, string> = {};
+        const mandateMap: Record<string, { project_code: string; project_name: string }> = {};
+        const kamMap: Record<string, string> = {};
+
+        if (existingTarget.account_id) {
+          const { data: accountData } = await supabase
+            .from("accounts")
+            .select("id, name")
+            .eq("id", existingTarget.account_id)
+            .single();
+          if (accountData) {
+            accountMap[accountData.id] = accountData.name || "Unknown";
+          }
+        }
+
+        if (existingTarget.mandate_id) {
+          const { data: mandateData } = await supabase
+            .from("mandates")
+            .select("id, project_code, project_name")
+            .eq("id", existingTarget.mandate_id)
+            .single();
+          if (mandateData) {
+            mandateMap[mandateData.id] = {
+              project_code: mandateData.project_code || "Unknown",
+              project_name: mandateData.project_name || "Unknown",
+            };
+          }
+        }
+
+        if (existingTarget.kam_id) {
+          const { data: kamData } = await supabase
+            .from("profiles")
+            .select("id, full_name")
+            .eq("id", existingTarget.kam_id)
+            .single();
+          if (kamData) {
+            kamMap[kamData.id] = kamData.full_name || "Unknown";
+          }
+        }
+
+        // Create MonthlyTarget object with names
+        const targetWithNames: MonthlyTarget = {
+          ...existingTarget,
+          accountName: existingTarget.account_id ? accountMap[existingTarget.account_id] : null,
+          kamName: existingTarget.kam_id ? kamMap[existingTarget.kam_id] : null,
+          mandateInfo: existingTarget.mandate_id ? mandateMap[existingTarget.mandate_id] : null,
+        };
+
+        // Set editing target and update form data
+        setEditingTarget(targetWithNames);
+        setFormData((prev) => ({
+          ...prev,
+          target: existingTarget.target?.toString() || "",
+        }));
+      } else {
+        // No existing target found, clear editing state
+        setEditingTarget(null);
+      }
+    } catch (error) {
+      console.error("Error checking for existing target:", error);
+    }
+  };
+
   const handleInputChange = (field: keyof MonthlyTargetFormData, value: string) => {
     setFormData((prev) => {
       const updated = {
@@ -532,6 +673,7 @@ export default function Targets() {
         updated.accountId = "";
         updated.mandateId = "";
         setFilteredAccounts([]);
+        setEditingTarget(null);
       }
       
       // When KAM changes, fetch accounts for that KAM and reset accountId
@@ -547,6 +689,14 @@ export default function Targets() {
       return updated;
     });
   };
+
+  // Check for existing target when relevant form fields change
+  useEffect(() => {
+    if (!formDialogOpen) return; // Only check when dialog is open
+    
+    checkAndLoadExistingTarget(formData);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.month, formData.year, formData.targetType, formData.mandateId, formData.kamId, formData.accountId, formDialogOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -614,86 +764,40 @@ export default function Targets() {
         throw new Error("You must be logged in to add a target");
       }
 
-      // Check for duplicate targets based on type
+      // Double-check for existing target in case useEffect hasn't run yet
+      // If we find one and we're not already editing it, load it and return early
       const month = parseInt(formData.month);
       const year = parseInt(formData.year);
       
-      if (formData.targetType === "existing") {
-        // For existing type: Each mandate can have only 1 target per month+year combination
-        // Check if there's already a target for this mandate, month, and year combination
-        let duplicateQuery = supabase
+      if (!editingTarget) {
+        let checkQuery = supabase
           .from("monthly_targets")
-          .select("id")
-          .eq("mandate_id", formData.mandateId)
+          .select("*")
           .eq("month", month)
-          .eq("year", year)
-          .not("mandate_id", "is", null);
-        
-        // If editing, exclude the current target from the check
-        if (editingTarget) {
-          duplicateQuery = duplicateQuery.neq("id", editingTarget.id);
+          .eq("year", year);
+
+        if (formData.targetType === "existing" && formData.mandateId) {
+          checkQuery = checkQuery.eq("mandate_id", formData.mandateId).not("mandate_id", "is", null);
+        } else if (formData.targetType === "new_cross_sell" && formData.kamId && formData.accountId) {
+          checkQuery = checkQuery
+            .eq("kam_id", formData.kamId)
+            .eq("account_id", formData.accountId)
+            .not("kam_id", "is", null)
+            .not("account_id", "is", null);
+        } else {
+          // Can't check without required fields
         }
-        
-        const { data: existingTarget, error: duplicateError } = await duplicateQuery;
-        
-        if (duplicateError) {
-          console.error("Error checking for duplicate target:", duplicateError);
-          toast({
-            title: "Error",
-            description: "Failed to validate target. Please try again.",
-            variant: "destructive",
-          });
+
+        const { data: existingTargets } = await checkQuery;
+
+        if (existingTargets && existingTargets.length > 0) {
+          // Found an existing target, load it into the form
+          await checkAndLoadExistingTarget(formData);
           setSubmitting(false);
-          return;
-        }
-        
-        if (existingTarget && existingTarget.length > 0) {
           toast({
-            title: "Validation Error",
-            description: "A target already exists for this mandate, month, and year combination.",
-            variant: "destructive",
+            title: "Existing Target Found",
+            description: "The existing target value has been loaded. You can modify it and save.",
           });
-          setSubmitting(false);
-          return;
-        }
-      } else if (formData.targetType === "new_cross_sell") {
-        // For new cross sell type: Each account+KAM combination can have only 1 target per month+year combination
-        // Check if there's already a target for this KAM, account, month, and year combination
-        let duplicateQuery = supabase
-          .from("monthly_targets")
-          .select("id")
-          .eq("kam_id", formData.kamId)
-          .eq("account_id", formData.accountId)
-          .eq("month", month)
-          .eq("year", year)
-          .not("kam_id", "is", null)
-          .not("account_id", "is", null);
-        
-        // If editing, exclude the current target from the check
-        if (editingTarget) {
-          duplicateQuery = duplicateQuery.neq("id", editingTarget.id);
-        }
-        
-        const { data: existingTarget, error: duplicateError } = await duplicateQuery;
-        
-        if (duplicateError) {
-          console.error("Error checking for duplicate target:", duplicateError);
-          toast({
-            title: "Error",
-            description: "Failed to validate target. Please try again.",
-            variant: "destructive",
-          });
-          setSubmitting(false);
-          return;
-        }
-        
-        if (existingTarget && existingTarget.length > 0) {
-          toast({
-            title: "Validation Error",
-            description: "A target already exists for this KAM, account, month, and year combination.",
-            variant: "destructive",
-          });
-          setSubmitting(false);
           return;
         }
       }
@@ -1203,7 +1307,8 @@ export default function Targets() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="sticky left-0 z-10 bg-background">Account</TableHead>
+                    <TableHead className="sticky left-0 z-10 bg-background">KAM</TableHead>
+                    <TableHead className="sticky left-[120px] z-10 bg-background">Account</TableHead>
                     {monthColumns.map((col) => (
                       <TableHead key={col.key} className="text-center min-w-[100px]">
                         {col.label}
@@ -1212,34 +1317,40 @@ export default function Targets() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {allAccounts.length === 0 ? (
+                  {crossSellKamAccountCombos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={monthColumns.length + 1} className="text-center text-muted-foreground py-8">
-                        No accounts available
+                      <TableCell colSpan={monthColumns.length + 2} className="text-center text-muted-foreground py-8">
+                        No cross sell targets available
                       </TableCell>
                     </TableRow>
                   ) : (
-                    allAccounts.map((account) => (
-                      <TableRow key={account.id}>
-                        <TableCell className="font-medium sticky left-0 z-10 bg-background">
-                          {account.name}
-                        </TableCell>
-                        {monthColumns.map((col) => {
-                          const targetValue = crossSellTargetsData[account.id]?.[col.key] || 0;
-                          return (
-                            <TableCell key={col.key} className="text-center">
-                              {targetValue > 0 ? (
-                                <span className="font-semibold">
-                                  {Math.round(targetValue).toLocaleString()}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                          );
-                        })}
-                      </TableRow>
-                    ))
+                    crossSellKamAccountCombos.map((combo) => {
+                      const compositeKey = `${combo.kamId}_${combo.accountId}`;
+                      return (
+                        <TableRow key={compositeKey}>
+                          <TableCell className="font-medium sticky left-0 z-10 bg-background">
+                            {combo.kamName}
+                          </TableCell>
+                          <TableCell className="font-medium sticky left-[120px] z-10 bg-background">
+                            {combo.accountName}
+                          </TableCell>
+                          {monthColumns.map((col) => {
+                            const targetValue = crossSellTargetsData[compositeKey]?.[col.key] || 0;
+                            return (
+                              <TableCell key={col.key} className="text-center">
+                                {targetValue > 0 ? (
+                                  <span className="font-semibold">
+                                    {Math.round(targetValue).toLocaleString()}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
