@@ -154,7 +154,7 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
 };
 
 const prjDurationOptions = ["1","2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
-const prjFrequencyOptions = ["One-Time", "Recurring"];
+const prjFrequencyOptions = ["One-time", "Recurring"]; // Match enum: 'One-time' not 'One-Time'
 
 const droppedReasons = [
   "Client Unresponsive",
@@ -1348,6 +1348,20 @@ export default function Pipeline() {
     }));
   };
 
+  // Helper function to convert "-" to null
+  const sanitizeValue = (value: string | null | undefined): string | null => {
+    if (!value || value.trim() === "" || value === "-") return null;
+    return value;
+  };
+
+  // Helper function to ensure enum values match exactly
+  const ensureEnumValue = (value: string | null | undefined, enumValues: string[]): string | null => {
+    if (!value || value === "-") return null;
+    // Check if value matches any enum value (case-sensitive)
+    const matched = enumValues.find(ev => ev === value);
+    return matched || null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -1361,14 +1375,45 @@ export default function Pipeline() {
 
       const dealData = {
         sales_module_name: formData.salesModuleName,
-        kam_id: formData.kamId || null,
-        account_id: formData.accountId || null,
-        spoc_id: formData.spocId || null,
-        spoc2_id: formData.spoc2Id || null,
-        spoc3_id: formData.spoc3Id || null,
-        lob: formData.lob,
-        use_case: formData.useCase,
-        sub_use_case: formData.subUseCase,
+        kam_id: sanitizeValue(formData.kamId),
+        account_id: sanitizeValue(formData.accountId),
+        spoc_id: sanitizeValue(formData.spocId),
+        spoc2_id: sanitizeValue(formData.spoc2Id),
+        spoc3_id: sanitizeValue(formData.spoc3Id),
+        lob: ensureEnumValue(formData.lob, [
+          'Diligence & Audit',
+          'New Business Development',
+          'Digital Gigs',
+          'Awign Expert',
+          'Last Mile Operations',
+          'Invigilation & Proctoring',
+          'Staffing',
+          'Others'
+        ]) || formData.lob, // Fallback to original if not in enum (shouldn't happen)
+        use_case: ensureEnumValue(formData.useCase, [
+          'Mystery Audit',
+          'Non-Mystery Audit',
+          'Background Verification',
+          'Promoters Deployment',
+          'Fixed Resource Deployment',
+          'New Customer Acquisition',
+          'Retailer Activation',
+          'Society Activation',
+          'Content Operations',
+          'Telecalling',
+          'Market Survey',
+          'Edtech',
+          'SaaS',
+          'Others'
+        ]) || "Others", // Required field, default to "Others" if "-" or invalid
+        sub_use_case: ensureEnumValue(formData.subUseCase, [
+          'Stock Audit',
+          'Store Audit',
+          'Warehouse Audit',
+          'Retail Outlet Audit',
+          'Distributor Audit',
+          'Others'
+        ]) || "Others", // Required field, default to "Others" if "-" or invalid
         monthly_volume: parseFloat(formData.monthlyVolume) || 0,
         max_monthly_volume: parseFloat(formData.maxMonthlyVolume) || 0,
         commercial_per_head: parseFloat(formData.commercialPerHead) || 0,
@@ -1377,19 +1422,35 @@ export default function Pipeline() {
         max_mpv: parseFloat(formData.maxMpv) || 0,
         prj_duration_months: parseInt(formData.prjDurationMonths) || 0,
         gm_threshold: parseFloat(formData.gmThreshold) || 0,
-        prj_frequency: formData.prjFrequency,
-        status: formData.status,
-        prj_start_date: formData.prjStartDate || null,
+        prj_frequency: ensureEnumValue(formData.prjFrequency, ['Recurring', 'One-time']) || formData.prjFrequency,
+        status: ensureEnumValue(formData.status, [
+          'Listed',
+          'Pre-Appointment Prep Done',
+          'Discovery Meeting Done',
+          'Requirement Gathering Done',
+          'Solution Proposal Made',
+          'SOW Handshake Done',
+          'Final Proposal Done',
+          'Commercial Agreed',
+          'Closed Won',
+          'Dropped'
+        ]) || formData.status,
+        prj_start_date: sanitizeValue(formData.prjStartDate) || null,
         probability: parseInt(formData.probability) || 10,
-        discovery_meeting_slides: formData.discoveryMeetingSlides || null,
-        solution_proposal_slides: formData.solutionProposalSlides || null,
-        gantt_chart_url: formData.ganttChartUrl || null,
-        expected_contract_sign_date: formData.expectedContractSignDate || null,
-        final_proposal_slides: formData.finalProposalSlides || null,
-        contract_sign_date: formData.contractSignDate || null,
-        signed_contract_link: formData.signedContractLink || null,
-        dropped_reason: formData.droppedReason || null,
-        dropped_reason_others: formData.droppedReasonOthers || null,
+        discovery_meeting_slides: sanitizeValue(formData.discoveryMeetingSlides),
+        solution_proposal_slides: sanitizeValue(formData.solutionProposalSlides),
+        gantt_chart_url: sanitizeValue(formData.ganttChartUrl),
+        expected_contract_sign_date: sanitizeValue(formData.expectedContractSignDate) || null,
+        final_proposal_slides: sanitizeValue(formData.finalProposalSlides),
+        contract_sign_date: sanitizeValue(formData.contractSignDate) || null,
+        signed_contract_link: sanitizeValue(formData.signedContractLink),
+        dropped_reason: ensureEnumValue(formData.droppedReason, [
+          'Client Unresponsive',
+          'Requirement not feasible',
+          'Commercials above Client\'s Threshold',
+          'Others (put details below)'
+        ]),
+        dropped_reason_others: sanitizeValue(formData.droppedReasonOthers),
         created_by: user.id,
       };
 
@@ -1542,9 +1603,40 @@ export default function Pipeline() {
         spoc_id: formData.spocId || null,
         spoc2_id: formData.spoc2Id || null,
         spoc3_id: formData.spoc3Id || null,
-        lob: formData.lob,
-        use_case: formData.useCase,
-        sub_use_case: formData.subUseCase,
+        lob: ensureEnumValue(formData.lob, [
+          'Diligence & Audit',
+          'New Business Development',
+          'Digital Gigs',
+          'Awign Expert',
+          'Last Mile Operations',
+          'Invigilation & Proctoring',
+          'Staffing',
+          'Others'
+        ]) || formData.lob,
+        use_case: ensureEnumValue(formData.useCase, [
+          'Mystery Audit',
+          'Non-Mystery Audit',
+          'Background Verification',
+          'Promoters Deployment',
+          'Fixed Resource Deployment',
+          'New Customer Acquisition',
+          'Retailer Activation',
+          'Society Activation',
+          'Content Operations',
+          'Telecalling',
+          'Market Survey',
+          'Edtech',
+          'SaaS',
+          'Others'
+        ]) || formData.useCase,
+        sub_use_case: ensureEnumValue(formData.subUseCase, [
+          'Stock Audit',
+          'Store Audit',
+          'Warehouse Audit',
+          'Retail Outlet Audit',
+          'Distributor Audit',
+          'Others'
+        ]) || formData.subUseCase,
         monthly_volume: parseFloat(formData.monthlyVolume) || 0,
         max_monthly_volume: parseFloat(formData.maxMonthlyVolume) || 0,
         commercial_per_head: parseFloat(formData.commercialPerHead) || 0,
@@ -1553,8 +1645,19 @@ export default function Pipeline() {
         max_mpv: parseFloat(formData.maxMpv) || 0,
         prj_duration_months: parseInt(formData.prjDurationMonths) || 0,
         gm_threshold: parseFloat(formData.gmThreshold) || 0,
-        prj_frequency: formData.prjFrequency,
-        status: formData.status,
+        prj_frequency: ensureEnumValue(formData.prjFrequency, ['Recurring', 'One-time']) || formData.prjFrequency,
+        status: ensureEnumValue(formData.status, [
+          'Listed',
+          'Pre-Appointment Prep Done',
+          'Discovery Meeting Done',
+          'Requirement Gathering Done',
+          'Solution Proposal Made',
+          'SOW Handshake Done',
+          'Final Proposal Done',
+          'Commercial Agreed',
+          'Closed Won',
+          'Dropped'
+        ]) || formData.status,
         prj_start_date: formData.prjStartDate || null,
         probability: parseInt(formData.probability) || 10,
         discovery_meeting_slides: formData.discoveryMeetingSlides || null,
@@ -1564,8 +1667,13 @@ export default function Pipeline() {
         final_proposal_slides: formData.finalProposalSlides || null,
         contract_sign_date: formData.contractSignDate || null,
         signed_contract_link: formData.signedContractLink || null,
-        dropped_reason: formData.droppedReason || null,
-        dropped_reason_others: formData.droppedReasonOthers || null,
+        dropped_reason: ensureEnumValue(formData.droppedReason, [
+          'Client Unresponsive',
+          'Requirement not feasible',
+          'Commercials above Client\'s Threshold',
+          'Others (put details below)'
+        ]),
+        dropped_reason_others: sanitizeValue(formData.droppedReasonOthers),
       };
 
       const { error } = await supabase

@@ -168,6 +168,20 @@ export default function Contacts() {
     }));
   };
 
+  // Helper function to convert "-" to null
+  const sanitizeValue = (value: string | null | undefined): string | null => {
+    if (!value || value.trim() === "" || value === "-") return null;
+    return value;
+  };
+
+  // Helper function to ensure enum values match exactly
+  const ensureEnumValue = (value: string | null | undefined, enumValues: string[]): string | null => {
+    if (!value || value === "-") return null;
+    // Check if value matches any enum value (case-sensitive)
+    const matched = enumValues.find(ev => ev === value);
+    return matched || null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -186,12 +200,12 @@ export default function Contacts() {
         email: formData.email,
         phone_number: formData.phoneNumber,
         department: formData.department,
-        kra: formData.kra || null,
+        kra: sanitizeValue(formData.kra),
         title: formData.title,
-        level: formData.level,
+        level: ensureEnumValue(formData.level, ['Lv.1', 'Lv.2', 'Lv.3']) || formData.level,
         zone: formData.zone,
-        region: formData.zone === "Regional" ? formData.region : null,
-        reports_to: formData.reportsTo || null,
+        region: formData.zone === "Regional" ? sanitizeValue(formData.region) : null,
+        reports_to: sanitizeValue(formData.reportsTo),
         positioning: formData.positioning,
         awign_champion: formData.awignChampion === "YES",
         created_by: user.id,
@@ -879,12 +893,12 @@ export default function Contacts() {
         email: editContactData.email,
         phone_number: editContactData.phoneNumber,
         department: editContactData.department || null,
-        kra: editContactData.kra || null,
+        kra: sanitizeValue(editContactData.kra),
         title: editContactData.title || null,
         level: editContactData.level || null,
         zone: editContactData.zone || null,
-        region: editContactData.zone === "Regional" ? editContactData.region : null,
-        reports_to: editContactData.reportsTo || null,
+        region: editContactData.zone === "Regional" ? sanitizeValue(editContactData.region) : null,
+        reports_to: sanitizeValue(editContactData.reportsTo),
         positioning: editContactData.positioning || null,
         awign_champion: editContactData.awignChampion === "YES",
       };

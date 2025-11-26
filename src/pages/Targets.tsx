@@ -51,12 +51,85 @@ const calculateFinancialYear = (month: number, year: number): string => {
   }
 };
 
+// Helper function to get current financial year in FY format (e.g., "FY25")
+const getCurrentFinancialYear = (): string => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12
+  
+  // Financial year starts in April (month 4)
+  // If current month is April or later, FY started in current year
+  // If current month is Jan-Mar, FY started in previous year
+  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+  
+  // Convert to 2-digit format (e.g., 2025 -> 25)
+  const fyYearDigits = fyStartYear.toString().slice(-2);
+  
+  return `FY${fyYearDigits}`;
+};
+
+// Helper function to convert FY string to financial_year format (e.g., "FY25" -> "2025-26")
+const convertFYToFinancialYear = (fyString: string): string => {
+  const yearMatch = fyString.match(/FY(\d{2})/);
+  if (!yearMatch) {
+    return "";
+  }
+  
+  const yearDigits = parseInt(yearMatch[1], 10);
+  const startYear = 2000 + yearDigits;
+  const endYear = (startYear + 1).toString().slice(-2);
+  
+  return `${startYear}-${endYear}`;
+};
+
+// Helper function to get month columns for a specific FY
+// Returns all 12 months of the financial year (April to March) in order
+const getFinancialYearMonths = (fyString: string): Array<{ month: number; year: number; key: string; label: string }> => {
+  const yearMatch = fyString.match(/FY(\d{2})/);
+  if (!yearMatch) {
+    return [];
+  }
+  
+  const yearDigits = parseInt(yearMatch[1], 10);
+  const fyStartYear = 2000 + yearDigits;
+  const fyEndYear = fyStartYear + 1;
+  
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthColumns: Array<{ month: number; year: number; key: string; label: string }> = [];
+  
+  // Financial year runs from April (month 4) to March (month 3 of next year)
+  // Always show all 12 months regardless of current date
+  
+  // April to December of FY start year
+  for (let month = 4; month <= 12; month++) {
+    monthColumns.push({
+      month,
+      year: fyStartYear,
+      key: `${fyStartYear}-${String(month).padStart(2, '0')}`,
+      label: `${monthNames[month - 1]} ${fyStartYear}`,
+    });
+  }
+  
+  // January to March of FY end year (next year)
+  for (let month = 1; month <= 3; month++) {
+    monthColumns.push({
+      month,
+      year: fyEndYear,
+      key: `${fyEndYear}-${String(month).padStart(2, '0')}`,
+      label: `${monthNames[month - 1]} ${fyEndYear}`,
+    });
+  }
+  
+  return monthColumns;
+};
+
 interface MonthlyTargetFormData {
   month: string;
   year: string;
   target: string;
   financialYear: string;
   targetType: string;
+  kamId: string;
   accountId: string;
   mandateId: string;
 }
@@ -72,7 +145,9 @@ interface MonthlyTarget {
   target_type?: string | null;
   account_id?: string | null;
   mandate_id?: string | null;
+  kam_id?: string | null;
   accountName?: string | null;
+  kamName?: string | null;
   mandateInfo?: { project_code: string; project_name: string } | null;
 }
 
@@ -85,6 +160,11 @@ interface Mandate {
   id: string;
   project_code: string;
   project_name: string;
+}
+
+interface KAM {
+  id: string;
+  full_name: string;
 }
 
 export default function Targets() {
@@ -100,12 +180,28 @@ export default function Targets() {
     target: "",
     financialYear: "",
     targetType: "",
+    kamId: "",
     accountId: "",
     mandateId: "",
   });
   const [monthlyTargets, setMonthlyTargets] = useState<MonthlyTarget[]>([]);
   const [loadingTargets, setLoadingTargets] = useState(false);
+  
+  // FY filter state
+  const [filterFinancialYear, setFilterFinancialYear] = useState<string>(() => {
+    return getCurrentFinancialYear();
+  });
+  
+  // Data structures for the new table view
+  const [existingTargetsData, setExistingTargetsData] = useState<Record<string, Record<string, number>>>({}); // mandateId -> monthKey -> target
+  const [crossSellTargetsData, setCrossSellTargetsData] = useState<Record<string, Record<string, number>>>({}); // accountId -> monthKey -> target
+  const [allMandates, setAllMandates] = useState<Array<{ id: string; project_code: string; project_name: string }>>([]);
+  const [allAccounts, setAllAccounts] = useState<Array<{ id: string; name: string }>>([]);
+  const [monthColumns, setMonthColumns] = useState<Array<{ month: number; year: number; key: string; label: string }>>([]);
+  const [kams, setKams] = useState<KAM[]>([]);
+  const [loadingKams, setLoadingKams] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [filteredAccounts, setFilteredAccounts] = useState<Account[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [mandates, setMandates] = useState<Mandate[]>([]);
   const [loadingMandates, setLoadingMandates] = useState(false);
@@ -115,29 +211,64 @@ export default function Targets() {
   const fetchMonthlyTargets = async () => {
     setLoadingTargets(true);
     try {
-      const { data, error } = await supabase
+      // Calculate month columns for selected FY
+      const calculatedMonthColumns = getFinancialYearMonths(filterFinancialYear);
+      setMonthColumns(calculatedMonthColumns);
+      
+      // Convert FY filter to financial_year format used in monthly_targets (e.g., "FY25" -> "2025-26")
+      const financialYearString = convertFYToFinancialYear(filterFinancialYear);
+      
+      // Fetch targets filtered by selected FY
+      let query = supabase
         .from("monthly_targets")
         .select("*")
         .order("year", { ascending: false })
         .order("month", { ascending: false });
+      
+      // Filter by financial_year if available
+      if (financialYearString) {
+        query = query.eq("financial_year", financialYearString);
+      }
+      
+      const { data, error } = await query;
 
       if (error) {
         // If table doesn't exist, show empty array instead of error
         if (error.code === "42P01" || error.message.includes("does not exist")) {
           console.warn("Monthly targets table does not exist yet.");
           setMonthlyTargets([]);
+          setExistingTargetsData({});
+          setCrossSellTargetsData({});
           setLoadingTargets(false);
           return;
         }
         throw error;
       }
 
-      // Fetch account and mandate names for display
+      // Fetch all mandates for existing targets table
+      const { data: allMandatesData } = await supabase
+        .from("mandates")
+        .select("id, project_code, project_name")
+        .order("project_code");
+      
+      setAllMandates(allMandatesData || []);
+
+      // Fetch all accounts for cross sell targets table
+      const { data: allAccountsData } = await supabase
+        .from("accounts")
+        .select("id, name")
+        .order("name");
+      
+      setAllAccounts(allAccountsData || []);
+
+      // Fetch account, mandate, and KAM names for display (for form editing)
       const accountIds = [...new Set((data || []).map((t: any) => t.account_id).filter(Boolean))];
       const mandateIds = [...new Set((data || []).map((t: any) => t.mandate_id).filter(Boolean))];
+      const kamIds = [...new Set((data || []).map((t: any) => t.kam_id).filter(Boolean))];
 
       const accountMap: Record<string, string> = {};
       const mandateMap: Record<string, { project_code: string; project_name: string }> = {};
+      const kamMap: Record<string, string> = {};
 
       if (accountIds.length > 0) {
         const { data: accountData } = await supabase
@@ -168,14 +299,51 @@ export default function Targets() {
         }
       }
 
-      // Add account and mandate names to targets
+      if (kamIds.length > 0) {
+        const { data: kamData } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", kamIds);
+
+        if (kamData) {
+          kamData.forEach((kam) => {
+            kamMap[kam.id] = kam.full_name || "Unknown";
+          });
+        }
+      }
+
+      // Add account, mandate, and KAM names to targets (for form editing)
       const targetsWithNames = (data || []).map((target: any) => ({
         ...target,
         accountName: target.account_id ? accountMap[target.account_id] : null,
+        kamName: target.kam_id ? kamMap[target.kam_id] : null,
         mandateInfo: target.mandate_id ? mandateMap[target.mandate_id] : null,
       }));
 
       setMonthlyTargets(targetsWithNames);
+
+      // Organize targets by type for table display
+      const existingData: Record<string, Record<string, number>> = {};
+      const crossSellData: Record<string, Record<string, number>> = {};
+
+      (data || []).forEach((target: any) => {
+        const monthKey = `${target.year}-${String(target.month).padStart(2, '0')}`;
+        
+        if (target.target_type === "existing" && target.mandate_id) {
+          if (!existingData[target.mandate_id]) {
+            existingData[target.mandate_id] = {};
+          }
+          existingData[target.mandate_id][monthKey] = parseFloat(target.target?.toString() || "0") || 0;
+        } else if (target.target_type === "new_cross_sell" && target.account_id) {
+          if (!crossSellData[target.account_id]) {
+            crossSellData[target.account_id] = {};
+          }
+          crossSellData[target.account_id][monthKey] = parseFloat(target.target?.toString() || "0") || 0;
+        }
+      });
+
+      setExistingTargetsData(existingData);
+      setCrossSellTargetsData(crossSellData);
     } catch (error: any) {
       console.error("Error fetching monthly targets:", error);
       // Only show error toast if it's not a "table doesn't exist" error
@@ -187,8 +355,33 @@ export default function Targets() {
         });
       }
       setMonthlyTargets([]);
+      setExistingTargetsData({});
+      setCrossSellTargetsData({});
     } finally {
       setLoadingTargets(false);
+    }
+  };
+
+  const fetchKams = async () => {
+    setLoadingKams(true);
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .order("full_name");
+
+      if (error) {
+        console.error("Error fetching KAMs:", error);
+        setKams([]);
+      } else {
+        setKams(data || []);
+      }
+    } catch (error: any) {
+      console.error("Error fetching KAMs:", error);
+      setKams([]);
+    } finally {
+      setLoadingKams(false);
     }
   };
 
@@ -209,6 +402,57 @@ export default function Targets() {
     } catch (error: any) {
       console.error("Error fetching accounts:", error);
       setAccounts([]);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
+  // Fetch accounts linked to selected KAM through mandates
+  const fetchAccountsByKam = async (kamId: string) => {
+    if (!kamId) {
+      setFilteredAccounts([]);
+      return;
+    }
+
+    setLoadingAccounts(true);
+    try {
+      // Get all mandates for this KAM
+      const { data: mandatesData, error: mandatesError } = await supabase
+        .from("mandates")
+        .select("account_id")
+        .eq("kam_id", kamId)
+        .not("account_id", "is", null);
+
+      if (mandatesError) {
+        console.error("Error fetching mandates for KAM:", mandatesError);
+        setFilteredAccounts([]);
+        return;
+      }
+
+      // Get unique account IDs
+      const accountIds = [...new Set((mandatesData || []).map((m: any) => m.account_id).filter(Boolean))];
+
+      if (accountIds.length === 0) {
+        setFilteredAccounts([]);
+        return;
+      }
+
+      // Fetch account details
+      const { data: accountsData, error: accountsError } = await supabase
+        .from("accounts")
+        .select("id, name")
+        .in("id", accountIds)
+        .order("name");
+
+      if (accountsError) {
+        console.error("Error fetching accounts:", accountsError);
+        setFilteredAccounts([]);
+      } else {
+        setFilteredAccounts(accountsData || []);
+      }
+    } catch (error: any) {
+      console.error("Error fetching accounts by KAM:", error);
+      setFilteredAccounts([]);
     } finally {
       setLoadingAccounts(false);
     }
@@ -245,14 +489,15 @@ export default function Targets() {
       if (!hasAccess) {
         navigate("/dashboard");
       } else {
-        // Fetch targets, accounts, and mandates when user has access
+        // Fetch targets, KAMs, accounts, and mandates when user has access
         fetchMonthlyTargets();
+        fetchKams();
         fetchAccounts();
         fetchMandates();
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userRoles.length, navigate]);
+  }, [loading, userRoles.length, navigate, filterFinancialYear]);
 
   // Calculate Financial Year when month or year changes
   useEffect(() => {
@@ -281,10 +526,22 @@ export default function Targets() {
         [field]: value,
       };
       
-      // Reset accountId and mandateId when targetType changes
+      // Reset kamId, accountId and mandateId when targetType changes
       if (field === "targetType") {
+        updated.kamId = "";
         updated.accountId = "";
         updated.mandateId = "";
+        setFilteredAccounts([]);
+      }
+      
+      // When KAM changes, fetch accounts for that KAM and reset accountId
+      if (field === "kamId") {
+        updated.accountId = "";
+        if (value) {
+          fetchAccountsByKam(value);
+        } else {
+          setFilteredAccounts([]);
+        }
       }
       
       return updated;
@@ -308,14 +565,25 @@ export default function Targets() {
       }
 
       // Validate type-specific fields
-      if (formData.targetType === "new_cross_sell" && !formData.accountId) {
-        toast({
-          title: "Validation Error",
-          description: "Please select an account for new cross sell target.",
-          variant: "destructive",
-        });
-        setSubmitting(false);
-        return;
+      if (formData.targetType === "new_cross_sell") {
+        if (!formData.kamId) {
+          toast({
+            title: "Validation Error",
+            description: "Please select a KAM for new cross sell target.",
+            variant: "destructive",
+          });
+          setSubmitting(false);
+          return;
+        }
+        if (!formData.accountId) {
+          toast({
+            title: "Validation Error",
+            description: "Please select an account for new cross sell target.",
+            variant: "destructive",
+          });
+          setSubmitting(false);
+          return;
+        }
       }
 
       if (formData.targetType === "existing" && !formData.mandateId) {
@@ -346,6 +614,90 @@ export default function Targets() {
         throw new Error("You must be logged in to add a target");
       }
 
+      // Check for duplicate targets based on type
+      const month = parseInt(formData.month);
+      const year = parseInt(formData.year);
+      
+      if (formData.targetType === "existing") {
+        // For existing type: Each mandate can have only 1 target per month+year combination
+        // Check if there's already a target for this mandate, month, and year combination
+        let duplicateQuery = supabase
+          .from("monthly_targets")
+          .select("id")
+          .eq("mandate_id", formData.mandateId)
+          .eq("month", month)
+          .eq("year", year)
+          .not("mandate_id", "is", null);
+        
+        // If editing, exclude the current target from the check
+        if (editingTarget) {
+          duplicateQuery = duplicateQuery.neq("id", editingTarget.id);
+        }
+        
+        const { data: existingTarget, error: duplicateError } = await duplicateQuery;
+        
+        if (duplicateError) {
+          console.error("Error checking for duplicate target:", duplicateError);
+          toast({
+            title: "Error",
+            description: "Failed to validate target. Please try again.",
+            variant: "destructive",
+          });
+          setSubmitting(false);
+          return;
+        }
+        
+        if (existingTarget && existingTarget.length > 0) {
+          toast({
+            title: "Validation Error",
+            description: "A target already exists for this mandate, month, and year combination.",
+            variant: "destructive",
+          });
+          setSubmitting(false);
+          return;
+        }
+      } else if (formData.targetType === "new_cross_sell") {
+        // For new cross sell type: Each account+KAM combination can have only 1 target per month+year combination
+        // Check if there's already a target for this KAM, account, month, and year combination
+        let duplicateQuery = supabase
+          .from("monthly_targets")
+          .select("id")
+          .eq("kam_id", formData.kamId)
+          .eq("account_id", formData.accountId)
+          .eq("month", month)
+          .eq("year", year)
+          .not("kam_id", "is", null)
+          .not("account_id", "is", null);
+        
+        // If editing, exclude the current target from the check
+        if (editingTarget) {
+          duplicateQuery = duplicateQuery.neq("id", editingTarget.id);
+        }
+        
+        const { data: existingTarget, error: duplicateError } = await duplicateQuery;
+        
+        if (duplicateError) {
+          console.error("Error checking for duplicate target:", duplicateError);
+          toast({
+            title: "Error",
+            description: "Failed to validate target. Please try again.",
+            variant: "destructive",
+          });
+          setSubmitting(false);
+          return;
+        }
+        
+        if (existingTarget && existingTarget.length > 0) {
+          toast({
+            title: "Validation Error",
+            description: "A target already exists for this KAM, account, month, and year combination.",
+            variant: "destructive",
+          });
+          setSubmitting(false);
+          return;
+        }
+      }
+
       // Prepare data for insertion
       // Expected table structure: monthly_targets
       // Columns: month (integer), year (integer), financial_year (text), target (numeric), target_type (text), account_id (uuid), mandate_id (uuid), created_by (uuid), created_at (timestamp)
@@ -354,18 +706,20 @@ export default function Targets() {
         year: parseInt(formData.year),
         financial_year: formData.financialYear,
         target: targetValue,
-        target_type: formData.targetType,
+        target_type: (formData.targetType === 'new_cross_sell' || formData.targetType === 'existing') ? formData.targetType : null,
         created_by: user.id,
         created_at: new Date().toISOString(),
       };
 
-      // Set account_id or mandate_id based on target type
+      // Set account_id, mandate_id, and kam_id based on target type
       if (formData.targetType === "new_cross_sell") {
         targetData.account_id = formData.accountId;
         targetData.mandate_id = null;
+        targetData.kam_id = formData.kamId;
       } else if (formData.targetType === "existing") {
         targetData.mandate_id = formData.mandateId;
         targetData.account_id = null;
+        targetData.kam_id = null;
       }
 
       // Update or insert into monthly_targets table
@@ -382,6 +736,7 @@ export default function Targets() {
             target_type: targetData.target_type,
             account_id: targetData.account_id,
             mandate_id: targetData.mandate_id,
+            kam_id: targetData.kam_id,
           })
           .eq("id", editingTarget.id);
         
@@ -421,9 +776,11 @@ export default function Targets() {
         target: "",
         financialYear: "",
         targetType: "",
+        kamId: "",
         accountId: "",
         mandateId: "",
       });
+      setFilteredAccounts([]);
 
       // Close dialog
       setFormDialogOpen(false);
@@ -485,7 +842,21 @@ export default function Targets() {
             Manage your sales targets and goals.
           </p>
         </div>
-        <Dialog open={formDialogOpen} onOpenChange={(open) => {
+        <div className="flex items-center gap-4">
+          {/* Financial Year Filter */}
+          <Select value={filterFinancialYear} onValueChange={setFilterFinancialYear}>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="Financial Year" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="FY24">FY24</SelectItem>
+              <SelectItem value="FY25">FY25</SelectItem>
+              <SelectItem value="FY26">FY26</SelectItem>
+              <SelectItem value="FY27">FY27</SelectItem>
+              <SelectItem value="FY28">FY28</SelectItem>
+            </SelectContent>
+          </Select>
+          <Dialog open={formDialogOpen} onOpenChange={(open) => {
           setFormDialogOpen(open);
           if (!open) {
             // Reset form and editing state when dialog closes
@@ -495,12 +866,14 @@ export default function Targets() {
               target: "",
               financialYear: "",
               targetType: "",
+              kamId: "",
               accountId: "",
               mandateId: "",
             });
             setEditingTarget(null);
             setAccountSearch("");
             setMandateSearch("");
+            setFilteredAccounts([]);
           }
         }}>
           <DialogTrigger asChild>
@@ -537,52 +910,82 @@ export default function Targets() {
                   </Select>
                 </div>
                 {formData.targetType === "new_cross_sell" && (
-                  <div className="grid gap-2">
-                    <Label htmlFor="accountId">Account *</Label>
-                    <Select
-                      value={formData.accountId}
-                      onValueChange={(value) => handleInputChange("accountId", value)}
-                      required
-                    >
-                      <SelectTrigger id="accountId">
-                        <SelectValue placeholder="Select account" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <div className="px-2 pb-2">
-                          <Input
-                            placeholder="Search accounts..."
-                            value={accountSearch}
-                            onChange={(e) => setAccountSearch(e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                            className="h-8"
-                          />
-                        </div>
-                        {accounts.length > 0 ? (
-                          accounts
-                            .filter((account) =>
-                              account.name.toLowerCase().includes(accountSearch.toLowerCase())
-                            )
-                            .map((account) => (
-                              <SelectItem key={account.id} value={account.id}>
-                                {account.name}
+                  <>
+                    <div className="grid gap-2">
+                      <Label htmlFor="kamId">KAM *</Label>
+                      <Select
+                        value={formData.kamId}
+                        onValueChange={(value) => handleInputChange("kamId", value)}
+                        required
+                      >
+                        <SelectTrigger id="kamId">
+                          <SelectValue placeholder="Select KAM" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {kams.length > 0 ? (
+                            kams.map((kam) => (
+                              <SelectItem key={kam.id} value={kam.id}>
+                                {kam.full_name}
                               </SelectItem>
                             ))
-                        ) : (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            {loadingAccounts ? "Loading accounts..." : "No accounts available"}
-                          </div>
-                        )}
-                        {accounts.length > 0 && accounts.filter((account) =>
-                          account.name.toLowerCase().includes(accountSearch.toLowerCase())
-                        ).length === 0 && (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            No accounts found
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {loadingKams ? "Loading KAMs..." : "No KAMs available"}
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {formData.kamId && (
+                      <div className="grid gap-2">
+                        <Label htmlFor="accountId">Account *</Label>
+                        <Select
+                          value={formData.accountId}
+                          onValueChange={(value) => handleInputChange("accountId", value)}
+                          required
+                          disabled={!formData.kamId || loadingAccounts}
+                        >
+                          <SelectTrigger id="accountId">
+                            <SelectValue placeholder="Select account" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <div className="px-2 pb-2">
+                              <Input
+                                placeholder="Search accounts..."
+                                value={accountSearch}
+                                onChange={(e) => setAccountSearch(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
+                                className="h-8"
+                              />
+                            </div>
+                            {filteredAccounts.length > 0 ? (
+                              filteredAccounts
+                                .filter((account) =>
+                                  account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                                )
+                                .map((account) => (
+                                  <SelectItem key={account.id} value={account.id}>
+                                    {account.name}
+                                  </SelectItem>
+                                ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                {loadingAccounts ? "Loading accounts..." : "No accounts available for this KAM"}
+                              </div>
+                            )}
+                            {filteredAccounts.length > 0 && filteredAccounts.filter((account) =>
+                              account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                            ).length === 0 && (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No accounts found
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </>
                 )}
                 {formData.targetType === "existing" && (
                   <div className="grid gap-2">
@@ -708,7 +1111,7 @@ export default function Targets() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={submitting || !formData.month || !formData.year || !formData.target || !formData.targetType || (formData.targetType === "new_cross_sell" && !formData.accountId) || (formData.targetType === "existing" && !formData.mandateId)}>
+                <Button type="submit" disabled={submitting || !formData.month || !formData.year || !formData.target || !formData.targetType || (formData.targetType === "new_cross_sell" && (!formData.kamId || !formData.accountId)) || (formData.targetType === "existing" && !formData.mandateId)}>
                   {submitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -722,109 +1125,125 @@ export default function Targets() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
-      {/* Monthly Targets Table */}
+      {/* Existing Targets Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Monthly Targets</CardTitle>
+          <CardTitle>Existing Targets</CardTitle>
         </CardHeader>
         <CardContent>
           {loadingTargets ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-          ) : monthlyTargets.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground mb-4">
-                No targets set for now.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Use the "Add Monthly Target" button above to add targets for specific months.
-              </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="sticky left-0 z-10 bg-background">Mandate</TableHead>
+                    {monthColumns.map((col) => (
+                      <TableHead key={col.key} className="text-center min-w-[100px]">
+                        {col.label}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {allMandates.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={monthColumns.length + 1} className="text-center text-muted-foreground py-8">
+                        No mandates available
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    allMandates.map((mandate) => (
+                      <TableRow key={mandate.id}>
+                        <TableCell className="font-medium sticky left-0 z-10 bg-background">
+                          {mandate.project_code} - {mandate.project_name}
+                        </TableCell>
+                        {monthColumns.map((col) => {
+                          const targetValue = existingTargetsData[mandate.id]?.[col.key] || 0;
+                          return (
+                            <TableCell key={col.key} className="text-center">
+                              {targetValue > 0 ? (
+                                <span className="font-semibold">
+                                  {Math.round(targetValue).toLocaleString()}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Cross Sell Targets Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Cross Sell Targets</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadingTargets ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Month</TableHead>
-                  <TableHead>Year</TableHead>
-                  <TableHead>Financial Year</TableHead>
-                  <TableHead>Target Type</TableHead>
-                  <TableHead>Account / Mandate</TableHead>
-                  <TableHead className="text-right">Target Value</TableHead>
-                  <TableHead>Created At</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {monthlyTargets.map((target) => {
-                  const targetTypeLabel = target.target_type === "new_cross_sell" 
-                    ? "New cross sell target" 
-                    : target.target_type === "existing" 
-                    ? "Existing" 
-                    : "N/A";
-                  const accountOrMandate = target.target_type === "new_cross_sell" 
-                    ? (target.accountName || "N/A")
-                    : target.target_type === "existing" && target.mandateInfo
-                    ? `${target.mandateInfo.project_code} - ${target.mandateInfo.project_name}`
-                    : "N/A";
-                  
-                  return (
-                    <TableRow key={target.id}>
-                      <TableCell className="font-medium">
-                        {getMonthName(target.month)}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="sticky left-0 z-10 bg-background">Account</TableHead>
+                    {monthColumns.map((col) => (
+                      <TableHead key={col.key} className="text-center min-w-[100px]">
+                        {col.label}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {allAccounts.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={monthColumns.length + 1} className="text-center text-muted-foreground py-8">
+                        No accounts available
                       </TableCell>
-                      <TableCell>{target.year}</TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-sm font-medium text-primary">
-                          {target.financial_year}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center rounded-md bg-secondary/10 px-2 py-1 text-sm font-medium">
-                          {targetTypeLabel}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {accountOrMandate}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">
-                          {target.target.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                    </TableRow>
+                  ) : (
+                    allAccounts.map((account) => (
+                      <TableRow key={account.id}>
+                        <TableCell className="font-medium sticky left-0 z-10 bg-background">
+                          {account.name}
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {new Date(target.created_at).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => {
-                              setEditingTarget(target);
-                              setFormData({
-                                month: target.month.toString(),
-                                year: target.year.toString(),
-                                target: target.target.toString(),
-                                financialYear: target.financial_year,
-                                targetType: target.target_type || "",
-                                accountId: target.account_id || "",
-                                mandateId: target.mandate_id || "",
-                              });
-                              setFormDialogOpen(true);
-                            }}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
+                        {monthColumns.map((col) => {
+                          const targetValue = crossSellTargetsData[account.id]?.[col.key] || 0;
+                          return (
+                            <TableCell key={col.key} className="text-center">
+                              {targetValue > 0 ? (
+                                <span className="font-semibold">
+                                  {Math.round(targetValue).toLocaleString()}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          );
+                        })}
                       </TableRow>
-                    );
-                  })}
-              </TableBody>
-            </Table>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

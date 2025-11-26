@@ -949,6 +949,20 @@ export default function Mandates() {
     });
   };
 
+  // Helper function to convert "-" to null
+  const sanitizeValue = (value: string | null | undefined): string | null => {
+    if (!value || value.trim() === "" || value === "-") return null;
+    return value;
+  };
+
+  // Helper function to ensure enum values match exactly
+  const ensureEnumValue = (value: string | null | undefined, enumValues: string[]): string | null => {
+    if (!value || value === "-") return null;
+    // Check if value matches any enum value (case-sensitive)
+    const matched = enumValues.find(ev => ev === value);
+    return matched || null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -966,12 +980,47 @@ export default function Mandates() {
         // Project Info
         project_code: formData.projectCode,
         project_name: formData.projectName,
-        account_id: formData.accountId || null,
-        kam_id: formData.kamId || null,
-        lob: formData.lob,
-        use_case: formData.useCase || null,
-        sub_use_case: formData.subUseCase || null,
-        type: formData.type || null,
+        account_id: sanitizeValue(formData.accountId),
+        kam_id: sanitizeValue(formData.kamId),
+        lob: ensureEnumValue(formData.lob, [
+          'Diligence & Audit',
+          'New Business Development',
+          'Digital Gigs',
+          'Awign Expert',
+          'Last Mile Operations',
+          'Invigilation & Proctoring',
+          'Staffing',
+          'Others'
+        ]) || formData.lob, // Fallback to original if not in enum (shouldn't happen)
+        use_case: ensureEnumValue(formData.useCase, [
+          'Mystery Audit',
+          'Non-Mystery Audit',
+          'Background Verification',
+          'Promoters Deployment',
+          'Fixed Resource Deployment',
+          'New Customer Acquisition',
+          'Retailer Activation',
+          'Society Activation',
+          'Content Operations',
+          'Telecalling',
+          'Market Survey',
+          'Edtech',
+          'SaaS',
+          'Others'
+        ]),
+        sub_use_case: ensureEnumValue(formData.subUseCase, [
+          'Stock Audit',
+          'Store Audit',
+          'Warehouse Audit',
+          'Retail Outlet Audit',
+          'Distributor Audit',
+          'Others'
+        ]),
+        type: ensureEnumValue(formData.type, [
+          'New Acquisition',
+          'New Cross Sell',
+          'Existing'
+        ]),
         
         // Handover Info - Set to null if type is "New Cross Sell"
         new_sales_owner: formData.type === "New Cross Sell" ? null : (formData.newSalesOwner || null),
@@ -980,27 +1029,37 @@ export default function Mandates() {
         handover_mcv: formData.type === "New Cross Sell" ? null : (formData.handoverMcv ? parseFloat(formData.handoverMcv) : null),
         prj_duration_months: formData.type === "New Cross Sell" ? null : (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null),
         handover_acv: formData.type === "New Cross Sell" ? null : (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null),
-        handover_prj_type: formData.type === "New Cross Sell" ? null : (formData.handoverPrjType || null),
+        handover_prj_type: formData.type === "New Cross Sell" ? null : ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
         
         // Revenue Info
         revenue_monthly_volume: formData.revenueMonthlyVolume ? parseFloat(formData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: formData.revenueCommercialPerHead ? parseFloat(formData.revenueCommercialPerHead) : null,
         revenue_mcv: formData.revenueMcv ? parseFloat(formData.revenueMcv) : null,
         revenue_acv: formData.revenueAcv ? parseFloat(formData.revenueAcv) : null,
-        revenue_prj_type: formData.revenuePrjType || null,
+        revenue_prj_type: ensureEnumValue(formData.revenuePrjType, ['Recurring', 'One-time']),
         
         // Mandate Checker
-        mandate_health: formData.mandateHealth || null,
-        upsell_constraint: formData.upsellConstraint === "YES",
-        upsell_constraint_type: formData.upsellConstraintType && formData.upsellConstraintType !== "-" ? formData.upsellConstraintType : null,
-        upsell_constraint_sub: formData.upsellConstraintSub || null,
-        upsell_constraint_sub2: formData.upsellConstraintSub2 || null,
-        client_budget_trend: formData.clientBudgetTrend || null,
-        awign_share_percent: formData.awignSharePercent || null,
-        retention_type: formData.retentionType || null,
+        mandate_health: ensureEnumValue(formData.mandateHealth, [
+          'Exceeds Expectations',
+          'Meets Expectations',
+          'Need Improvement'
+        ]),
+        upsell_constraint: ensureEnumValue(formData.upsellConstraint, ['YES', 'NO']),
+        upsell_constraint_type: ensureEnumValue(formData.upsellConstraintType, ['Internal', 'External']),
+        upsell_constraint_sub: ensureEnumValue(formData.upsellConstraintSub, [
+          'Profitability',
+          'Delivery',
+          'Others',
+          'Not enough demand',
+          'Collection Issue'
+        ]),
+        upsell_constraint_sub2: sanitizeValue(formData.upsellConstraintSub2), // Can be free text, so just sanitize
+        client_budget_trend: ensureEnumValue(formData.clientBudgetTrend, ['Increase', 'Same', 'Decrease']),
+        awign_share_percent: ensureEnumValue(formData.awignSharePercent, ['Below 70%', '70% & Above']),
+        retention_type: ensureEnumValue(formData.retentionType, ['STAR', 'A', 'B', 'C', 'D', 'E', 'NI']),
         
         // Upsell Action Status
-        upsell_action_status: formData.upsellActionStatus || null,
+        upsell_action_status: ensureEnumValue(formData.upsellActionStatus, ['Not Started', 'Ongoing', 'Done']),
         
         // Metadata
         created_by: user.id,
@@ -1233,8 +1292,8 @@ export default function Mandates() {
         }
 
         // Validate Type field
-        if (row["Type"] && !["New", "Existing"].includes(row["Type"])) {
-          errors.push("Type must be either 'New' or 'Existing'");
+        if (row["Type"] && !["New Acquisition", "Existing"].includes(row["Type"])) {
+          errors.push("Type must be either 'New Acquisition' or 'Existing'");
         }
 
         // Validate upsell constraint dependent fields
@@ -1495,7 +1554,7 @@ export default function Mandates() {
           account_id: accountMap[row["Account Name"]],
           kam_id: kamMap[row["KAM Name"]],
           lob: row["LoB (Vertical)"],
-          type: row["Type"] && ["New", "Existing"].includes(row["Type"]) ? row["Type"] : null,
+          type: row["Type"] && ["New Acquisition", "Existing"].includes(row["Type"]) ? row["Type"] : null,
           new_sales_owner: row["New Sales Owner"] || null,
           handover_monthly_volume: handoverMonthlyVolume || null,
           handover_commercial_per_head: handoverCommercialPerHead || null,
@@ -2172,34 +2231,79 @@ export default function Mandates() {
       const updateData: any = {
         project_code: editMandateData.projectCode || null,
         project_name: editMandateData.projectName || null,
-        account_id: editMandateData.accountId || null,
-        kam_id: editMandateData.kamId || null,
-        lob: editMandateData.lob || null,
-        use_case: editMandateData.useCase || null,
-        sub_use_case: editMandateData.subUseCase || null,
-        type: editMandateData.type || null,
+        account_id: sanitizeValue(editMandateData.accountId),
+        kam_id: sanitizeValue(editMandateData.kamId),
+        lob: ensureEnumValue(editMandateData.lob, [
+          'Diligence & Audit',
+          'New Business Development',
+          'Digital Gigs',
+          'Awign Expert',
+          'Last Mile Operations',
+          'Invigilation & Proctoring',
+          'Staffing',
+          'Others'
+        ]) || editMandateData.lob || null,
+        use_case: ensureEnumValue(editMandateData.useCase, [
+          'Mystery Audit',
+          'Non-Mystery Audit',
+          'Background Verification',
+          'Promoters Deployment',
+          'Fixed Resource Deployment',
+          'New Customer Acquisition',
+          'Retailer Activation',
+          'Society Activation',
+          'Content Operations',
+          'Telecalling',
+          'Market Survey',
+          'Edtech',
+          'SaaS',
+          'Others'
+        ]),
+        sub_use_case: ensureEnumValue(editMandateData.subUseCase, [
+          'Stock Audit',
+          'Store Audit',
+          'Warehouse Audit',
+          'Retail Outlet Audit',
+          'Distributor Audit',
+          'Others'
+        ]),
+        type: ensureEnumValue(editMandateData.type, [
+          'New Acquisition',
+          'New Cross Sell',
+          'Existing'
+        ]),
         // Handover Info - Set to null if type is "New Cross Sell"
-        new_sales_owner: editMandateData.type === "New Cross Sell" ? null : (editMandateData.newSalesOwner || null),
+        new_sales_owner: editMandateData.type === "New Cross Sell" ? null : sanitizeValue(editMandateData.newSalesOwner),
         handover_monthly_volume: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null),
         handover_commercial_per_head: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null),
         handover_mcv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null),
         prj_duration_months: editMandateData.type === "New Cross Sell" ? null : (editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null),
         handover_acv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null),
-        handover_prj_type: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverPrjType || null),
+        handover_prj_type: editMandateData.type === "New Cross Sell" ? null : ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
         revenue_monthly_volume: editMandateData.revenueMonthlyVolume ? parseFloat(editMandateData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: editMandateData.revenueCommercialPerHead ? parseFloat(editMandateData.revenueCommercialPerHead) : null,
         revenue_mcv: editMandateData.revenueMcv ? parseFloat(editMandateData.revenueMcv) : null,
         revenue_acv: editMandateData.revenueAcv ? parseFloat(editMandateData.revenueAcv) : null,
-        revenue_prj_type: editMandateData.revenuePrjType || null,
-        mandate_health: editMandateData.mandateHealth || null,
-        upsell_constraint: editMandateData.upsellConstraint === "YES",
-        upsell_constraint_type: editMandateData.upsellConstraintType && editMandateData.upsellConstraintType !== "-" ? editMandateData.upsellConstraintType : null,
-        upsell_constraint_sub: editMandateData.upsellConstraintSub || null,
-        upsell_constraint_sub2: editMandateData.upsellConstraintSub2 || null,
-        client_budget_trend: editMandateData.clientBudgetTrend || null,
-        awign_share_percent: editMandateData.awignSharePercent || null,
-        retention_type: editMandateData.retentionType || null,
-        upsell_action_status: editMandateData.upsellActionStatus || null,
+        revenue_prj_type: ensureEnumValue(editMandateData.revenuePrjType, ['Recurring', 'One-time']),
+        mandate_health: ensureEnumValue(editMandateData.mandateHealth, [
+          'Exceeds Expectations',
+          'Meets Expectations',
+          'Need Improvement'
+        ]),
+        upsell_constraint: editMandateData.upsellConstraint === "YES" ? "YES" : (editMandateData.upsellConstraint === "NO" ? "NO" : null),
+        upsell_constraint_type: ensureEnumValue(editMandateData.upsellConstraintType, ['Internal', 'External']),
+        upsell_constraint_sub: ensureEnumValue(editMandateData.upsellConstraintSub, [
+          'Profitability',
+          'Delivery',
+          'Others',
+          'Not enough demand',
+          'Collection Issue'
+        ]),
+        upsell_constraint_sub2: sanitizeValue(editMandateData.upsellConstraintSub2), // Can be free text
+        client_budget_trend: ensureEnumValue(editMandateData.clientBudgetTrend, ['Increase', 'Same', 'Decrease']),
+        awign_share_percent: ensureEnumValue(editMandateData.awignSharePercent, ['Below 70%', '70% & Above']),
+        retention_type: ensureEnumValue(editMandateData.retentionType, ['STAR', 'A', 'B', 'C', 'D', 'E', 'NI']),
+        upsell_action_status: ensureEnumValue(editMandateData.upsellActionStatus, ['Not Started', 'Ongoing', 'Done']),
       };
 
       const { error } = await supabase
@@ -2235,14 +2339,24 @@ export default function Mandates() {
     setUpdatingMandateChecker(true);
     try {
       const updateData: any = {
-        mandate_health: editMandateData.mandateHealth || null,
-        upsell_constraint: editMandateData.upsellConstraint === "YES",
-        upsell_constraint_type: editMandateData.upsellConstraintType && editMandateData.upsellConstraintType !== "-" ? editMandateData.upsellConstraintType : null,
-        upsell_constraint_sub: editMandateData.upsellConstraintSub || null,
-        upsell_constraint_sub2: editMandateData.upsellConstraintSub2 || null,
-        client_budget_trend: editMandateData.clientBudgetTrend || null,
-        awign_share_percent: editMandateData.awignSharePercent || null,
-        retention_type: editMandateData.retentionType || null,
+        mandate_health: ensureEnumValue(editMandateData.mandateHealth, [
+          'Exceeds Expectations',
+          'Meets Expectations',
+          'Need Improvement'
+        ]),
+        upsell_constraint: editMandateData.upsellConstraint === "YES" ? "YES" : (editMandateData.upsellConstraint === "NO" ? "NO" : null),
+        upsell_constraint_type: ensureEnumValue(editMandateData.upsellConstraintType, ['Internal', 'External']),
+        upsell_constraint_sub: ensureEnumValue(editMandateData.upsellConstraintSub, [
+          'Profitability',
+          'Delivery',
+          'Others',
+          'Not enough demand',
+          'Collection Issue'
+        ]),
+        upsell_constraint_sub2: sanitizeValue(editMandateData.upsellConstraintSub2), // Can be free text
+        client_budget_trend: ensureEnumValue(editMandateData.clientBudgetTrend, ['Increase', 'Same', 'Decrease']),
+        awign_share_percent: ensureEnumValue(editMandateData.awignSharePercent, ['Below 70%', '70% & Above']),
+        retention_type: ensureEnumValue(editMandateData.retentionType, ['STAR', 'A', 'B', 'C', 'D', 'E', 'NI']),
       };
 
       const { error } = await supabase
@@ -2652,7 +2766,7 @@ export default function Mandates() {
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="New">New</SelectItem>
+                        <SelectItem value="New Acquisition">New Acquisition</SelectItem>
                         <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
                         <SelectItem value="Existing">Existing</SelectItem>
                       </SelectContent>
@@ -2663,7 +2777,7 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
-              {(formData.type === "New" || formData.type === "Existing") && (
+              {(formData.type === "New Acquisition" || formData.type === "Existing") && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
@@ -3620,7 +3734,7 @@ export default function Mandates() {
                             <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="New">New</SelectItem>
+                            <SelectItem value="New Acquisition">New Acquisition</SelectItem>
                             <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
                             <SelectItem value="Existing">Existing</SelectItem>
                           </SelectContent>
@@ -3634,8 +3748,8 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
-              {((isEditMode && (editMandateData.type === "New" || editMandateData.type === "Existing")) || 
-                (!isEditMode && (selectedMandate.type === "New" || selectedMandate.type === "Existing"))) && (
+              {((isEditMode && (editMandateData.type === "New Acquisition" || editMandateData.type === "Existing")) || 
+                (!isEditMode && (selectedMandate.type === "New Acquisition" || selectedMandate.type === "Existing"))) && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>

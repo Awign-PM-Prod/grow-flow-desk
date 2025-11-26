@@ -101,6 +101,12 @@ export default function Dashboard() {
     dropped: number;
   }>({ tofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
   
+  // Meetings and Proposals Metrics
+  const [meetingsDoneLastWeek, setMeetingsDoneLastWeek] = useState<number>(0);
+  const [meetingsDoneThisWeek, setMeetingsDoneThisWeek] = useState<number>(0);
+  const [proposalMadeLastWeek, setProposalMadeLastWeek] = useState<number>(0);
+  const [proposalMadeThisWeek, setProposalMadeThisWeek] = useState<number>(0);
+  
   // Filter states
   const [filterFinancialYear, setFilterFinancialYear] = useState<string>(() => {
     // Calculate current financial year on component mount
@@ -122,12 +128,123 @@ export default function Dashboard() {
   const [filterKam, setFilterKam] = useState<string>("");
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
+  const [performanceDashboardFY, setPerformanceDashboardFY] = useState<string>(() => {
+    // Calculate current financial year on component mount
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    
+    // Financial year starts in April (month 4)
+    // If current month is April or later, FY started in current year
+    // If current month is Jan-Mar, FY started in previous year
+    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+    
+    // Convert to 2-digit format (e.g., 2025 -> 25)
+    const fyYearDigits = fyStartYear.toString().slice(-2);
+    
+    return `FY${fyYearDigits}`;
+  });
+
+  const fetchMeetingsAndProposalsData = async () => {
+    try {
+      // Get financial year date range from Performance Dashboard FY filter
+      const perfFyDateRange = getFinancialYearDateRange(performanceDashboardFY);
+      
+      const now = new Date();
+      
+      // Calculate current week (Monday to Sunday)
+      const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      const daysFromMonday = currentDay === 0 ? 6 : currentDay - 1; // Convert Sunday (0) to 6
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(now.getDate() - daysFromMonday);
+      currentWeekStart.setHours(0, 0, 0, 0);
+      
+      const currentWeekEnd = new Date(currentWeekStart);
+      currentWeekEnd.setDate(currentWeekStart.getDate() + 6);
+      currentWeekEnd.setHours(23, 59, 59, 999);
+      
+      // Calculate last week (previous Monday to Sunday)
+      const lastWeekEnd = new Date(currentWeekStart);
+      lastWeekEnd.setDate(currentWeekStart.getDate() - 1);
+      lastWeekEnd.setHours(23, 59, 59, 999);
+      
+      const lastWeekStart = new Date(lastWeekEnd);
+      lastWeekStart.setDate(lastWeekEnd.getDate() - 6);
+      lastWeekStart.setHours(0, 0, 0, 0);
+      
+      // Calculate effective week ranges (intersection of week range and FY range)
+      const effectiveLastWeekStart = lastWeekStart < perfFyDateRange.start ? perfFyDateRange.start : lastWeekStart;
+      const effectiveLastWeekEnd = lastWeekEnd > perfFyDateRange.end ? perfFyDateRange.end : lastWeekEnd;
+      const effectiveCurrentWeekStart = currentWeekStart < perfFyDateRange.start ? perfFyDateRange.start : currentWeekStart;
+      const effectiveCurrentWeekEnd = currentWeekEnd > perfFyDateRange.end ? perfFyDateRange.end : currentWeekEnd;
+      
+      // Only query if the effective date range is valid (start <= end)
+      const hasValidLastWeek = effectiveLastWeekStart <= effectiveLastWeekEnd;
+      const hasValidCurrentWeek = effectiveCurrentWeekStart <= effectiveCurrentWeekEnd;
+      
+      // Fetch meetings done last week (within selected FY)
+      let meetingsLastWeekCount = 0;
+      if (hasValidLastWeek) {
+        const { count } = await supabase
+          .from("deal_status_history")
+          .select("*", { count: "exact", head: true })
+          .eq("new_status", "Discovery Meeting Done")
+          .gte("changed_at", effectiveLastWeekStart.toISOString())
+          .lte("changed_at", effectiveLastWeekEnd.toISOString());
+        meetingsLastWeekCount = count || 0;
+      }
+      
+      // Fetch meetings done this week (within selected FY)
+      let meetingsThisWeekCount = 0;
+      if (hasValidCurrentWeek) {
+        const { count } = await supabase
+          .from("deal_status_history")
+          .select("*", { count: "exact", head: true })
+          .eq("new_status", "Discovery Meeting Done")
+          .gte("changed_at", effectiveCurrentWeekStart.toISOString())
+          .lte("changed_at", effectiveCurrentWeekEnd.toISOString());
+        meetingsThisWeekCount = count || 0;
+      }
+      
+      // Fetch proposals made last week (within selected FY)
+      let proposalsLastWeekCount = 0;
+      if (hasValidLastWeek) {
+        const { count } = await supabase
+          .from("deal_status_history")
+          .select("*", { count: "exact", head: true })
+          .eq("new_status", "Solution Proposal Made")
+          .gte("changed_at", effectiveLastWeekStart.toISOString())
+          .lte("changed_at", effectiveLastWeekEnd.toISOString());
+        proposalsLastWeekCount = count || 0;
+      }
+      
+      // Fetch proposals made this week (within selected FY)
+      let proposalsThisWeekCount = 0;
+      if (hasValidCurrentWeek) {
+        const { count } = await supabase
+          .from("deal_status_history")
+          .select("*", { count: "exact", head: true })
+          .eq("new_status", "Solution Proposal Made")
+          .gte("changed_at", effectiveCurrentWeekStart.toISOString())
+          .lte("changed_at", effectiveCurrentWeekEnd.toISOString());
+        proposalsThisWeekCount = count || 0;
+      }
+      
+      setMeetingsDoneLastWeek(meetingsLastWeekCount || 0);
+      setMeetingsDoneThisWeek(meetingsThisWeekCount || 0);
+      setProposalMadeLastWeek(proposalsLastWeekCount || 0);
+      setProposalMadeThisWeek(proposalsThisWeekCount || 0);
+    } catch (error) {
+      console.error("Error fetching meetings and proposals data:", error);
+    }
+  };
 
   useEffect(() => {
     fetchDashboardData();
     fetchKams();
     fetchConversionTableData();
-  }, [filterFinancialYear, filterUpsellStatus]);
+    fetchMeetingsAndProposalsData();
+  }, [filterFinancialYear, filterUpsellStatus, performanceDashboardFY]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -179,11 +296,11 @@ export default function Dashboard() {
     } else if (statusFilter === "Existing") {
       return query.eq("type", "Existing");
     } else if (statusFilter === "All Cross Sell") {
-      return query.in("retention_type", ["B", "C"]);
+      return query.eq("type", "New Cross Sell");
     } else if (statusFilter === "All Cross Sell + Existing") {
-      return query.in("retention_type", ["B", "C", "Existing"]);
-    } else if (statusFilter === "new Acquisitions") {
-      return query.eq("retention_type", "new Acquisitions");
+      return query.in("type", ["New Cross Sell", "Existing"]);
+    } else if (statusFilter === "New Acquisitions") {
+      return query.eq("type", "New Acquisition");
     }
     return query; // Default: no filter
   };
@@ -199,6 +316,9 @@ export default function Dashboard() {
     } else if (statusFilter === "All Cross Sell + Existing") {
       // For "All Cross Sell + Existing", include both target types
       return query.in("target_type", ["existing", "new_cross_sell"]);
+    } else if (statusFilter === "New Acquisitions") {
+      // For "New Acquisitions", there are no targets, return query that will return no results
+      return query.eq("target_type", "nonexistent"); // This will ensure no targets are returned
     }
     // For other statuses, don't filter by target_type (show all targets)
     return query;
@@ -206,6 +326,9 @@ export default function Dashboard() {
 
   const fetchConversionTableData = async () => {
     try {
+      // Get financial year date range from Performance Dashboard FY filter
+      const perfFyDateRange = getFinancialYearDateRange(performanceDashboardFY);
+      
       // Status order matching Pipeline.tsx
       const statusOrder = [
         "Listed",
@@ -221,16 +344,22 @@ export default function Dashboard() {
       ];
 
       // Fetch all status history records to track all statuses each deal has been in
+      // Filter by created_at within selected FY
       const { data: allStatusHistory, error: historyError } = await (supabase
         .from("deal_status_history" as any)
-        .select("deal_id, old_status, new_status") as any);
+        .select("deal_id, old_status, new_status, created_at")
+        .gte("created_at", perfFyDateRange.start.toISOString())
+        .lte("created_at", perfFyDateRange.end.toISOString()) as any);
 
       if (historyError) throw historyError;
 
       // Fetch current deals to handle deals that might not have history yet (newly created with "Listed" status)
+      // Filter by created_at within selected FY
       const { data: currentDeals, error: dealsError } = await (supabase
         .from("pipeline_deals" as any)
-        .select("id, status") as any);
+        .select("id, status, created_at")
+        .gte("created_at", perfFyDateRange.start.toISOString())
+        .lte("created_at", perfFyDateRange.end.toISOString()) as any);
 
       if (dealsError) throw dealsError;
 
@@ -416,10 +545,20 @@ export default function Dashboard() {
       const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
       
-      // Fetch total mandates count (NOT filtered by financial year - always shows total)
-      const { count: totalCount, error: totalError } = await supabase
+      // Fetch total mandates count filtered by status and financial year
+      let mandatesCountQuery = supabase
         .from("mandates")
         .select("*", { count: "exact", head: true });
+      
+      // Apply status filter
+      mandatesCountQuery = applyStatusFilter(mandatesCountQuery, filterUpsellStatus);
+      
+      // Filter by created_at within selected financial year
+      mandatesCountQuery = mandatesCountQuery
+        .gte("created_at", fyDateRange.start.toISOString())
+        .lte("created_at", fyDateRange.end.toISOString());
+      
+      const { count: totalCount, error: totalError } = await mandatesCountQuery;
 
       if (totalError) throw totalError;
 
@@ -678,9 +817,12 @@ export default function Dashboard() {
       ];
 
       // Fetch LoB Sales Performance data from mandates monthly records
-      const { data: lobMandatesData, error: lobMandatesError } = await supabase
+      // Apply status filter to only consider mandates with the selected status
+      let lobMandatesQuery = supabase
         .from("mandates")
-        .select("lob, monthly_data");
+        .select("lob, monthly_data, type");
+      lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus);
+      const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
 
       // Initialize all LoBs from the mandate form with 0 values
       // Always show all 8 LoBs from the mandate form, regardless of database records
@@ -741,14 +883,18 @@ export default function Dashboard() {
       setLobSalesPerformance(formattedLobData);
 
       // Fetch KAM Sales Performance data from mandates monthly records
-      const { data: kamMandatesData, error: kamMandatesError } = await supabase
+      // Apply status filter to only consider mandates with the selected status
+      let kamMandatesQuery = supabase
         .from("mandates")
-        .select("kam_id, monthly_data");
+        .select("kam_id, monthly_data, type");
+      kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus);
+      const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
 
-      // Fetch all KAMs to get their names
+      // Fetch all KAMs to get their names (only profiles with role = 'kam')
       const { data: allKamsData, error: allKamsError } = await supabase
         .from("profiles")
         .select("id, full_name")
+        .eq("role", "kam")
         .not("full_name", "is", null)
         .order("full_name", { ascending: true });
 
@@ -845,8 +991,16 @@ export default function Dashboard() {
         console.error("Error fetching monthly targets for MCV Planned:", targetsError);
       }
 
-      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'any'}`);
+      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'any'}, statusFilter=${filterUpsellStatus}`);
       console.log(`MCV Planned Results:`, currentMonthTargets);
+      
+      // Debug: Also fetch all targets for current month to see what's in the DB
+      const { data: allCurrentMonthTargets } = await supabase
+        .from("monthly_targets")
+        .select("target, month, year, financial_year, target_type, mandate_id, account_id, kam_id")
+        .eq("month", currentMonth)
+        .eq("year", currentYear);
+      console.log(`All targets for current month (${currentMonth}/${currentYear}):`, allCurrentMonthTargets);
 
       if (!targetsError && currentMonthTargets && currentMonthTargets.length > 0) {
         totalMcvPlanned = currentMonthTargets.reduce((sum, targetRecord) => {
@@ -855,7 +1009,7 @@ export default function Dashboard() {
         }, 0);
         console.log(`MCV Planned for ${currentMonth}/${currentYear} (${filterFinancialYear}):`, totalMcvPlanned, "from", currentMonthTargets.length, "target(s)");
       } else {
-        console.log(`No targets found for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'any'}`);
+        console.log(`No targets found for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'any'}, statusFilter=${filterUpsellStatus}`);
         totalMcvPlanned = 0;
       }
 
@@ -868,25 +1022,113 @@ export default function Dashboard() {
       const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
 
       if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from deals with status = 'Closed Won'
-        const { data: closedWonDeals, error: dealsError } = await supabase
-          .from("pipeline_deals")
-          .select("expected_revenue, contract_sign_date")
-          .eq("status", "Closed Won")
-          .not("contract_sign_date", "is", null);
-        
-        if (!dealsError && closedWonDeals) {
-          closedWonDeals.forEach((deal: any) => {
-            if (deal.contract_sign_date) {
-              const contractDate = new Date(deal.contract_sign_date);
-              const contractMonth = contractDate.getMonth() + 1;
-              const contractYear = contractDate.getFullYear();
-              const contractMonthYear = `${contractYear}-${String(contractMonth).padStart(2, '0')}`;
-              
-              // Only include if within selected FY date range and current month
-              if (contractDate >= fyDateRange.start && contractDate <= fyDateRange.end && contractMonthYear === currentMonthYear) {
-                const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
-                totalFfmAchieved += expectedRevenue;
+        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
+        // Only count achieved MCV for current month that falls within selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Cross Sell'
+            if (mandate.type === "New Cross Sell") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                      const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                      totalFfmAchieved += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "Existing") {
+        // For "Existing" status, calculate from mandates with type = 'Existing'
+        // Only count achieved MCV for current month that falls within selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'Existing'
+            if (mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                      const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                      totalFfmAchieved += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+        // For "All Cross Sell + Existing", calculate from mandates with type = 'New Cross Sell' OR 'Existing'
+        // Only count achieved MCV for current month that falls within selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Include mandates with type = 'New Cross Sell' or 'Existing'
+            if (mandate.type === "New Cross Sell" || mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                      const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                      totalFfmAchieved += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "New Acquisitions") {
+        // For "New Acquisitions", calculate from mandates with type = 'New Acquisition'
+        // Only count achieved MCV for current month that falls within selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Acquisition'
+            if (mandate.type === "New Acquisition") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                      const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                      totalFfmAchieved += achievedMcv;
+                    }
+                  }
+                });
               }
             }
           });
@@ -950,40 +1192,116 @@ export default function Dashboard() {
 
       // Calculate sum of achieved MCV for current quarter months
       if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from deals with status = 'Closed Won'
-        const { data: closedWonDeals, error: dealsError } = await supabase
-          .from("pipeline_deals")
-          .select("expected_revenue, contract_sign_date")
-          .eq("status", "Closed Won")
-          .not("contract_sign_date", "is", null);
-        
-        if (!dealsError && closedWonDeals) {
-          let totalExpectedRevenue = 0;
-          closedWonDeals.forEach((deal: any) => {
-            if (deal.contract_sign_date) {
-              const contractDate = new Date(deal.contract_sign_date);
-              const contractMonth = contractDate.getMonth() + 1;
-              const contractYear = contractDate.getFullYear();
-              
-              // Check if this deal belongs to the current quarter and selected FY
-              if (quarterMonths.includes(contractMonth) && contractYear === quarterYear && 
-                  contractDate >= fyDateRange.start && contractDate <= fyDateRange.end) {
-                const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
-                totalExpectedRevenue += expectedRevenue;
+        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
+        // Only count achieved MCV for months that belong to current quarter and selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Cross Sell'
+            if (mandate.type === "New Cross Sell") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Check if this month belongs to the current quarter and selected FY
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvThisQuarter += achievedMcv;
+                    }
+                  }
+                });
               }
             }
           });
-          
-          // Divide expected revenue by 3 to get per-month value
-          const perMonthValue = totalExpectedRevenue / 3;
-          
-          // Find which month in the quarter we're in (1st, 2nd, or 3rd)
-          // currentMonth is already declared above
-          const currentMonthIndex = quarterMonths.indexOf(currentMonth);
-          const monthsUpToCurrent = currentMonthIndex + 1; // +1 because index is 0-based
-          
-          // Show cumulative value up to current month
-          totalMcvThisQuarter = perMonthValue * monthsUpToCurrent;
+        }
+      } else if (filterUpsellStatus === "Existing") {
+        // For "Existing" status, calculate from mandates with type = 'Existing'
+        // Only count achieved MCV for months that belong to current quarter and selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'Existing'
+            if (mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Check if this month belongs to the current quarter and selected FY
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvThisQuarter += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+        // For "All Cross Sell + Existing", calculate from mandates with type = 'New Cross Sell' OR 'Existing'
+        // Only count achieved MCV for months that belong to current quarter and selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Include mandates with type = 'New Cross Sell' or 'Existing'
+            if (mandate.type === "New Cross Sell" || mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Check if this month belongs to the current quarter and selected FY
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvThisQuarter += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "New Acquisitions") {
+        // For "New Acquisitions", calculate from mandates with type = 'New Acquisition'
+        // Only count achieved MCV for months that belong to current quarter and selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Acquisition'
+            if (mandate.type === "New Acquisition") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Check if this month belongs to the current quarter and selected FY
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvThisQuarter += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
         }
       } else {
         // For other statuses, use mandates
@@ -1072,74 +1390,85 @@ export default function Dashboard() {
       let totalAnnualAchieved = 0;
       
       if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from deals with status = 'Closed Won'
-        const { data: closedWonDeals, error: dealsError } = await supabase
-          .from("pipeline_deals")
-          .select("expected_revenue, contract_sign_date")
-          .eq("status", "Closed Won")
-          .not("contract_sign_date", "is", null);
-        
-        if (!dealsError && closedWonDeals) {
-          let totalExpectedRevenue = 0;
-          closedWonDeals.forEach((deal: any) => {
-            if (deal.contract_sign_date) {
-              const contractDate = new Date(deal.contract_sign_date);
-              // Only include if within selected FY date range
-              if (contractDate >= fyDateRange.start && contractDate <= fyDateRange.end) {
-                const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
-                totalExpectedRevenue += expectedRevenue;
+        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
+        // Only count achieved MCV for months that fall within the selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Cross Sell'
+            if (mandate.type === "New Cross Sell") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Only include if within selected FY date range
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalAnnualAchieved += achievedMcv;
+                    }
+                  }
+                });
               }
             }
           });
-          
-          // Calculate months remaining in financial year (include current month if date > 15)
-          const now = new Date();
-          const currentDay = now.getDate();
-          const currentMonth = now.getMonth() + 1;
-          const currentYear = now.getFullYear();
-          
-          // Check if current date is within the selected FY range
-          const isCurrentDateInFY = now >= fyDateRange.start && now <= fyDateRange.end;
-          
-          if (isCurrentDateInFY) {
-            // Determine if current month should be included
-            const includeCurrentMonth = currentDay > 15;
-            
-            // Calculate months remaining from current month (or next month if current day <= 15) to end of FY
-            // Financial year runs from April (month 4) to March (month 3 of next year)
-            let monthsRemaining = 0;
-            
-            // Get FY end date
-            const fyEndMonth = fyDateRange.end.getMonth() + 1; // March = 3
-            const fyEndYear = fyDateRange.end.getFullYear();
-            
-            if (currentMonth >= 4 && currentMonth <= 12) {
-              // Current month is April-December (FY start year)
-              // Months from (current or next) to December + Jan-Mar of next year
-              const startMonth = includeCurrentMonth ? currentMonth : currentMonth + 1;
-              if (startMonth <= 12) {
-                monthsRemaining = (12 - startMonth + 1) + 3; // Remaining months in current year + 3 months of next year
-              } else {
-                // If startMonth > 12, we're already in next year (shouldn't happen, but handle it)
-                monthsRemaining = 3; // Only Jan-Mar remaining
-              }
-            } else if (currentMonth >= 1 && currentMonth <= 3) {
-              // Current month is January-March (FY end year)
-              const startMonth = includeCurrentMonth ? currentMonth : currentMonth + 1;
-              if (startMonth <= 3) {
-                monthsRemaining = (3 - startMonth + 1); // Remaining months in current year
-              } else {
-                // If startMonth > 3, FY has ended
-                monthsRemaining = 0;
+        }
+      } else if (filterUpsellStatus === "Existing") {
+        // For "Existing" status, calculate from mandates with type = 'Existing'
+        // Only count achieved MCV for months that fall within the selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'Existing'
+            if (mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Only include if within selected FY date range
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalAnnualAchieved += achievedMcv;
+                    }
+                  }
+                });
               }
             }
-            
-            // Divide total expected revenue by months remaining
-            totalAnnualAchieved = monthsRemaining > 0 ? totalExpectedRevenue / monthsRemaining : totalExpectedRevenue;
-          } else {
-            // Current date is outside FY range, use total expected revenue as is
-            totalAnnualAchieved = totalExpectedRevenue;
-          }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+        // For "All Cross Sell + Existing", calculate from mandates with type = 'New Cross Sell' OR 'Existing'
+        // Only count achieved MCV for months that fall within the selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Include mandates with type = 'New Cross Sell' or 'Existing'
+            if (mandate.type === "New Cross Sell" || mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Only include if within selected FY date range
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalAnnualAchieved += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
         }
       } else {
         // For other statuses, use mandates
@@ -1275,26 +1604,61 @@ export default function Dashboard() {
       let totalCurrentMonthAchieved = 0;
       
       if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from deals with status = 'Closed Won'
-        const { data: closedWonDeals, error: dealsError } = await supabase
-          .from("pipeline_deals")
-          .select("expected_revenue, contract_sign_date")
-          .eq("status", "Closed Won")
-          .not("contract_sign_date", "is", null);
-        
-        if (!dealsError && closedWonDeals) {
-          closedWonDeals.forEach((deal: any) => {
-            if (deal.contract_sign_date) {
-              const contractDate = new Date(deal.contract_sign_date);
-              const contractMonth = contractDate.getMonth() + 1;
-              const contractYear = contractDate.getFullYear();
-              const contractMonthYear = `${contractYear}-${String(contractMonth).padStart(2, '0')}`;
-              
-              // Check if this is the current month and within selected FY
-              if (contractMonthYear === currentMonthYear && 
-                  contractDate >= fyDateRange.start && contractDate <= fyDateRange.end) {
-                const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
-                totalCurrentMonthAchieved += expectedRevenue;
+        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
+        // Only count achieved MCV for current month that falls within selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Cross Sell'
+            if (mandate.type === "New Cross Sell") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    // Check if this is the current month and within selected FY
+                    if (monthYear === currentMonthYear) {
+                      const [yearStr, monthStr] = monthYear.split('-');
+                      const year = parseInt(yearStr);
+                      const month = parseInt(monthStr);
+                      const monthDate = new Date(year, month - 1, 1);
+                      
+                      // Only include if within selected FY date range
+                      if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                        const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                        totalCurrentMonthAchieved += achievedMcv;
+                      }
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "Existing") {
+        // For "Existing" status, calculate from mandates with type = 'Existing'
+        // Only count achieved MCV for current month that falls within selected FY
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'Existing'
+            if (mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    // Check if this is the current month and within selected FY
+                    if (monthYear === currentMonthYear) {
+                      const [yearStr, monthStr] = monthYear.split('-');
+                      const year = parseInt(yearStr);
+                      const month = parseInt(monthStr);
+                      const monthDate = new Date(year, month - 1, 1);
+                      
+                      // Only include if within selected FY date range
+                      if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                        const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                        totalCurrentMonthAchieved += achievedMcv;
+                      }
+                    }
+                  }
+                });
               }
             }
           });
@@ -1431,9 +1795,14 @@ export default function Dashboard() {
       setDroppedSalesData(droppedSalesChartData);
 
       // Fetch Funnel Counts for "Funnel Stage_Count of Sales Module"
+      // Get financial year date range from Performance Dashboard FY filter
+      const perfFyDateRange = getFinancialYearDateRange(performanceDashboardFY);
+      
       const { data: allDeals, error: dealsError } = await supabase
         .from("pipeline_deals" as any)
-        .select("status") as any;
+        .select("status, created_at")
+        .gte("created_at", perfFyDateRange.start.toISOString())
+        .lte("created_at", perfFyDateRange.end.toISOString()) as any;
 
       if (!dealsError && allDeals) {
         // Status order matching Pipeline.tsx
@@ -1477,9 +1846,12 @@ export default function Dashboard() {
       }
 
       // Fetch Funnel Revenue for "Funnel Stage_Expected Revenue"
+      // Use the same FY date range from Performance Dashboard FY filter
       const { data: allDealsWithRevenue, error: dealsRevenueError } = await supabase
         .from("pipeline_deals" as any)
-        .select("status, expected_revenue") as any;
+        .select("status, expected_revenue, created_at")
+        .gte("created_at", perfFyDateRange.start.toISOString())
+        .lte("created_at", perfFyDateRange.end.toISOString()) as any;
 
       if (!dealsRevenueError && allDealsWithRevenue) {
         // Status order matching Pipeline.tsx
@@ -1589,9 +1961,12 @@ export default function Dashboard() {
         .not("company_size_tier", "is", null);
 
       // Fetch mandates with account_id and monthly_data
-      const { data: mandatesTierData, error: mandatesTierError } = await supabase
+      // Apply status filter to only consider mandates with the selected status
+      let mandatesTierQuery = supabase
         .from("mandates")
-        .select("account_id, monthly_data");
+        .select("account_id, monthly_data, type");
+      mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus);
+      const { data: mandatesTierData, error: mandatesTierError } = await mandatesTierQuery;
 
       // Calculate last month's achieved MCV for each account to determine MCV Tier dynamically
       const accountLastMonthMcv: Record<string, number> = {};
@@ -1661,10 +2036,17 @@ export default function Dashboard() {
           if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
             Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
               if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                // Check if this month falls within the selected financial year
+                const [yearStr, monthStr] = monthYear.split('-');
+                const year = parseInt(yearStr);
+                const month = parseInt(monthStr);
+                const monthDate = new Date(year, month - 1, 1);
                 
-                // Check if this month is in our month columns
-                if (monthColumns.some((col) => col.key === monthYear)) {
+                // Only include if within selected FY date range and in our month columns
+                if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && 
+                    monthColumns.some((col) => col.key === monthYear)) {
+                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                  
                   // Add achieved MCV to the appropriate tier buckets
                   if (accountTiers.mcvTier === "Tier 1") {
                     monthlyTierData["MCV Tier_Tier 1"][monthYear] = (monthlyTierData["MCV Tier_Tier 1"][monthYear] || 0) + achievedMcv;
@@ -1869,7 +2251,7 @@ export default function Dashboard() {
             <SelectItem value="Existing">Existing</SelectItem>
             <SelectItem value="All Cross Sell">All Cross Sell</SelectItem>
             <SelectItem value="All Cross Sell + Existing">All Cross Sell + Existing</SelectItem>
-            <SelectItem value="new Acquisitions">new Acquisitions</SelectItem>
+            <SelectItem value="New Acquisitions">New Acquisitions</SelectItem>
           </SelectContent>
         </Select>
 
@@ -1909,7 +2291,6 @@ export default function Dashboard() {
       {/* Key Metrics Cards - 8 cards in 2 rows */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Mandates */}
-        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -1920,15 +2301,12 @@ export default function Dashboard() {
               <>
                 <p className="text-base font-bold mb-2">Total Mandates</p>
                 <div className="text-3xl font-bold">{totalMandates.toLocaleString("en-IN")}</div>
-                <p className="text-xs text-muted-foreground mt-2">{mandatesThisMonth} created this month</p>
               </>
             )}
           </CardContent>
         </Card>
-        )}
 
         {/* Total Accounts */}
-        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -1944,7 +2322,6 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-        )}
 
         {/* MCV Planned */}
         <Card>
@@ -1966,7 +2343,6 @@ export default function Dashboard() {
         </Card>
 
         {/* FFM Achieved */}
-        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -1995,10 +2371,8 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-        )}
 
         {/* MCV This Quarter */}
-        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -2041,7 +2415,6 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-        )}
 
         {/* Target MCV Next Quarter */}
         <Card>
@@ -2091,7 +2464,6 @@ export default function Dashboard() {
         </Card>
 
         {/* Overlap Factor */}
-        {filterUpsellStatus !== "All Cross Sell" && (
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -2105,14 +2477,12 @@ export default function Dashboard() {
                   {overlapFactor !== null ? overlapFactor.toFixed(2) : "N/A"}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {totalMandates} mandates - {totalAccounts} accounts
+                  {totalMandates} mandates / {totalAccounts} accounts
                 </p>
-                <p className="text-xs text-muted-foreground">multiple mandates per account</p>
               </>
             )}
           </CardContent>
         </Card>
-        )}
       </div>
 
       {/* FY26 Actual vs Target Charts - Annual and Q2 */}
@@ -2410,14 +2780,35 @@ export default function Dashboard() {
                   allowDataOverflow={false}
                 />
                 <Tooltip 
-                  formatter={(value: number) => {
-                    if (value >= 10000000) {
-                      return `₹${(value / 10000000).toFixed(2)}Cr`;
-                    } else if (value >= 100000) {
-                      return `₹${(value / 100000).toFixed(1)}L`;
-                    } else {
-                      return `₹${value.toLocaleString("en-IN")}`;
+                  formatter={(value: number, name: string) => {
+                    const formattedValue = value >= 10000000
+                      ? `₹${(value / 10000000).toFixed(2)}Cr`
+                      : value >= 100000
+                      ? `₹${(value / 100000).toFixed(1)}L`
+                      : `₹${value.toLocaleString("en-IN")}`;
+                    return formattedValue;
+                  }}
+                  content={({ active, payload }: any) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-white p-3 border border-gray-200 rounded shadow-lg">
+                          {payload.map((entry: any, index: number) => {
+                            // Make target value darker for better readability
+                            const textColor = entry.name === "Target MPV" ? "#666666" : "#4169E1";
+                            return (
+                              <p key={index} style={{ color: textColor }}>
+                                {entry.name}: {entry.value >= 10000000
+                                  ? `₹${(entry.value / 10000000).toFixed(2)}Cr`
+                                  : entry.value >= 100000
+                                  ? `₹${(entry.value / 100000).toFixed(1)}L`
+                                  : `₹${entry.value.toLocaleString("en-IN")}`}
+                              </p>
+                            );
+                          })}
+                        </div>
+                      );
                     }
+                    return null;
                   }}
                   cursor={false}
                 />
@@ -2520,31 +2911,7 @@ export default function Dashboard() {
       {/* MCV Tier and Company Size Tier Table */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>MCV Tier and Company Size Tier</CardTitle>
-            <div className="flex gap-2">
-              <Select value={mcvTierFilter} onValueChange={setMcvTierFilter}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="MCV Tier" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All MCV Tiers</SelectItem>
-                  <SelectItem value="tier1">Tier 1</SelectItem>
-                  <SelectItem value="tier2">Tier 2</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={companySizeTierFilter} onValueChange={setCompanySizeTierFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Company Size Tier" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Company Size Tiers</SelectItem>
-                  <SelectItem value="tier1">Tier 1</SelectItem>
-                  <SelectItem value="tier2">Tier 2</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          <CardTitle>MCV Tier and Company Size Tier</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -2564,24 +2931,7 @@ export default function Dashboard() {
               </TableHeader>
               <TableBody>
                 {(() => {
-                  // Filter the data based on selected filters
-                  // Each filter only affects its own category
-                  const filteredData = mcvTierData.filter((row) => {
-                    if (row.category === "MCV Tier") {
-                      // MCV Tier rows: only filter by MCV Tier filter
-                      if (mcvTierFilter === "all") return true;
-                      return (mcvTierFilter === "tier1" && row.tier === "Tier 1") || 
-                             (mcvTierFilter === "tier2" && row.tier === "Tier 2");
-                    } else if (row.category === "Company Size Tier") {
-                      // Company Size Tier rows: only filter by Company Size Tier filter
-                      if (companySizeTierFilter === "all") return true;
-                      return (companySizeTierFilter === "tier1" && row.tier === "Tier 1") || 
-                             (companySizeTierFilter === "tier2" && row.tier === "Tier 2");
-                    }
-                    return true;
-                  });
-                  
-                  if (filteredData.length === 0) {
+                  if (mcvTierData.length === 0) {
                     return (
                       <TableRow>
                         <TableCell colSpan={tierMonthColumns.length + 2} className="text-center text-muted-foreground py-8">
@@ -2591,7 +2941,7 @@ export default function Dashboard() {
                     );
                   }
                   
-                  return filteredData.map((row, idx) => (
+                  return mcvTierData.map((row, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{row.category}</TableCell>
                       <TableCell>{row.tier}</TableCell>
@@ -2776,6 +3126,18 @@ export default function Dashboard() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-semibold">Performance Dashboard</h2>
+          <Select value={performanceDashboardFY} onValueChange={setPerformanceDashboardFY}>
+            <SelectTrigger className="w-[120px]">
+              <SelectValue placeholder="Select FY" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="FY24">FY24</SelectItem>
+              <SelectItem value="FY25">FY25</SelectItem>
+              <SelectItem value="FY26">FY26</SelectItem>
+              <SelectItem value="FY27">FY27</SelectItem>
+              <SelectItem value="FY28">FY28</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -3238,25 +3600,25 @@ export default function Dashboard() {
         <div className="space-y-4">
           <Card>
             <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">0</div>
+              <div className="text-3xl font-bold text-center">{meetingsDoneLastWeek}</div>
               <p className="text-sm text-muted-foreground text-center mt-1">Meetings Done Last Week</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">0</div>
+              <div className="text-3xl font-bold text-center">{meetingsDoneThisWeek}</div>
               <p className="text-sm text-muted-foreground text-center mt-1">Meetings Done This Week</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">0</div>
+              <div className="text-3xl font-bold text-center">{proposalMadeLastWeek}</div>
               <p className="text-sm text-muted-foreground text-center mt-1">Proposal Made Last Week</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">0</div>
+              <div className="text-3xl font-bold text-center">{proposalMadeThisWeek}</div>
               <p className="text-sm text-muted-foreground text-center mt-1">Proposal Made This Week</p>
             </CardContent>
           </Card>

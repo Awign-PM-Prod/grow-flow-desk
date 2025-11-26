@@ -163,6 +163,20 @@ export default function Accounts() {
     }));
   };
 
+  // Helper function to convert "-" to null
+  const sanitizeValue = (value: string | null | undefined): string | null => {
+    if (!value || value.trim() === "" || value === "-") return null;
+    return value;
+  };
+
+  // Helper function to ensure enum values match exactly
+  const ensureEnumValue = (value: string | null | undefined, enumValues: string[]): string | null => {
+    if (!value || value === "-") return null;
+    // Check if value matches any enum value (case-sensitive)
+    const matched = enumValues.find(ev => ev === value);
+    return matched || null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -178,9 +192,9 @@ export default function Accounts() {
         name: formData.name,
         website: formData.website,
         address: formData.address,
-        city: formData.city || null,
-        state: formData.state || null,
-        country: formData.country || null,
+        city: sanitizeValue(formData.city),
+        state: sanitizeValue(formData.state),
+        country: sanitizeValue(formData.country),
         founded_year: parseInt(formData.foundedYear),
         industry: formData.industry,
         sub_category: formData.subCategory,
@@ -188,7 +202,7 @@ export default function Accounts() {
         total_acv: 0, // Will be calculated from mandates
         total_mcv: 0, // Will be calculated from mandates
         mcv_tier: null, // Will be calculated from mandates
-        company_size_tier: formData.companySizeTier || null,
+        company_size_tier: ensureEnumValue(formData.companySizeTier, ['Tier 1', 'Tier 2']),
         created_by: user.id,
       };
 
@@ -1088,9 +1102,9 @@ export default function Accounts() {
         name: editAccountData.name,
         website: editAccountData.website,
         address: editAccountData.address,
-        city: editAccountData.city || null,
-        state: editAccountData.state || null,
-        country: editAccountData.country || null,
+        city: sanitizeValue(editAccountData.city),
+        state: sanitizeValue(editAccountData.state),
+        country: sanitizeValue(editAccountData.country),
         founded_year: parseInt(editAccountData.foundedYear) || null,
         industry: editAccountData.industry || null,
         sub_category: editAccountData.subCategory || null,
