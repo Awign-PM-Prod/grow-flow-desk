@@ -3007,7 +3007,7 @@ export default function Dashboard() {
                 No data available
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={lobSalesPerformance.length * 50 + 100}>
+              <ResponsiveContainer width="100%" height={300}>
               <BarChart 
                 data={lobSalesPerformance.map((item) => {
                   // Find the maximum value between target and achieved for this LoB
@@ -3018,18 +3018,19 @@ export default function Dashboard() {
                     achievedMpv: ensureMinimumBarLengthForBoth(item.achievedMpv, maxValue),
                   };
                 })}
-                layout="vertical"
-                margin={{ top: 10, right: 30, left: 150, bottom: 10 }}
-                barCategoryGap="15%"
+                margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
+                barCategoryGap="20%"
                 barGap={0}
               >
-                <XAxis type="number" />
-                <YAxis 
-                  dataKey="lob"
-                  type="category"
-                  width={140}
-                  tick={{ fontSize: 12 }}
+                <XAxis 
+                  dataKey="lob" 
+                  angle={-45}
+                  textAnchor="end"
+                  height={60}
+                  interval={0}
+                  tick={{ fontSize: 11 }}
                 />
+                <YAxis hide />
                 <Tooltip 
                   formatter={(value: number, name: string) => {
                     const formattedValue = value >= 10000000
@@ -3063,14 +3064,14 @@ export default function Dashboard() {
                   }}
                   cursor={false}
                 />
-                <Legend />
+                <Legend wrapperStyle={{ fontSize: '12px' }} />
                 {/* Target bar (grey) rendered first with larger size to appear behind */}
                 <Bar 
                   dataKey="targetMpv" 
                   fill="#E0E0E0" 
-                  name="Target MPV" 
-                  barSize={20}
-                  radius={[0, 4, 4, 0]}
+                  name="Target" 
+                  barSize={30}
+                  radius={[4, 4, 0, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 />
@@ -3078,9 +3079,9 @@ export default function Dashboard() {
                 <Bar 
                   dataKey="achievedMpv" 
                   fill="#4169E1" 
-                  name="Achieved MPV" 
-                  barSize={15}
-                  radius={[0, 4, 4, 0]}
+                  name="Achieved" 
+                  barSize={24}
+                  radius={[4, 4, 0, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 />
@@ -3106,20 +3107,21 @@ export default function Dashboard() {
               No data available
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={kamSalesPerformance.length * 50 + 100}>
+            <ResponsiveContainer width="100%" height={300}>
               <BarChart
                 data={kamSalesPerformance}
-                layout="vertical"
-                margin={{ top: 10, right: 30, left: 120, bottom: 10 }}
-                barCategoryGap="15%"
+                margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
+                barCategoryGap="20%"
               >
-                <XAxis type="number" />
-                <YAxis 
-                  dataKey="kamName"
-                  type="category"
-                  width={110}
-                  tick={{ fontSize: 12 }}
+                <XAxis 
+                  dataKey="kamName" 
+                  angle={-45}
+                  textAnchor="end"
+                  height={60}
+                  interval={0}
+                  tick={{ fontSize: 11 }}
                 />
+                <YAxis hide />
                 <Tooltip 
                   formatter={(value: number) => {
                     if (value >= 10000000) {
@@ -3132,14 +3134,14 @@ export default function Dashboard() {
                   }}
                   cursor={false}
                 />
-                <Legend />
+                <Legend wrapperStyle={{ fontSize: '12px' }} />
                 {/* Target bar (grey) rendered first with larger size to appear behind */}
                 <Bar 
                   dataKey="targetMpv" 
                   fill="#E0E0E0" 
-                  name="Target MPV" 
-                  barSize={20}
-                  radius={[0, 4, 4, 0]}
+                  name="Target" 
+                  barSize={30}
+                  radius={[4, 4, 0, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 />
@@ -3147,9 +3149,9 @@ export default function Dashboard() {
                 <Bar 
                   dataKey="achievedMpv" 
                   fill="#4169E1" 
-                  name="Achieved MPV" 
-                  barSize={15}
-                  radius={[0, 4, 4, 0]}
+                  name="Achieved" 
+                  barSize={24}
+                  radius={[4, 4, 0, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 />
