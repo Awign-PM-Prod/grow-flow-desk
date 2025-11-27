@@ -2288,22 +2288,31 @@ export default function Dashboard() {
     return Math.max(value, minValue);
   };
 
-  // Calculate actualVsTargetAnnual dynamically based on state
+  // Calculate actualVsTargetAnnual dynamically based on state - single row with overlapping bars
   const actualVsTargetAnnual = [
-    { name: "Achieved", value: ensureMinimumBarLength(annualAchieved, annualTarget), fill: "#4169E1" },
-    { name: "Target", value: annualTarget, fill: "#E0E0E0" },
+    { 
+      name: "", 
+      target: annualTarget, 
+      achieved: ensureMinimumBarLength(annualAchieved, annualTarget)
+    },
   ];
 
-  // Calculate actualVsTargetQ2 dynamically based on state
+  // Calculate actualVsTargetQ2 dynamically based on state - single row with overlapping bars
   const actualVsTargetQ2 = [
-    { name: "Achieved", value: ensureMinimumBarLength(quarterAchieved, quarterTarget), fill: "#4169E1" },
-    { name: "Target", value: quarterTarget, fill: "#E0E0E0" },
+    { 
+      name: "", 
+      target: quarterTarget, 
+      achieved: ensureMinimumBarLength(quarterAchieved, quarterTarget)
+    },
   ];
 
-  // Calculate actualVsTargetCurrent dynamically based on state
+  // Calculate actualVsTargetCurrent dynamically based on state - single row with overlapping bars
   const actualVsTargetCurrent = [
-    { name: "Achieved", value: ensureMinimumBarLength(currentMonthAchieved, currentMonthTarget), fill: "#4169E1" },
-    { name: "Target", value: currentMonthTarget, fill: "#E0E0E0" },
+    { 
+      name: "", 
+      target: currentMonthTarget, 
+      achieved: ensureMinimumBarLength(currentMonthAchieved, currentMonthTarget)
+    },
   ];
 
   // Helper function to format number with Indian style commas (first comma after 3 digits, then every 2 digits)
@@ -2645,17 +2654,34 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={actualVsTargetAnnual} layout="vertical">
+                <ResponsiveContainer width="100%" height={100}>
+                  <BarChart data={actualVsTargetAnnual} layout="vertical" barCategoryGap="20%">
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={80} />
-                    <Tooltip formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)} />
-                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                      {actualVsTargetAnnual.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Bar>
+                    <YAxis dataKey="name" type="category" width={80} hide />
+                    <Tooltip 
+                      formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
+                      labelFormatter={() => ''}
+                    />
+                    <Legend />
+                    {/* Target bar (grey) rendered first with larger size to appear behind */}
+                    <Bar 
+                      dataKey="target" 
+                      fill="#E0E0E0" 
+                      name="Target" 
+                      barSize={50}
+                      radius={[0, 4, 4, 0]}
+                      isAnimationActive={false}
+                    />
+                    {/* Achieved bar (blue) rendered on top with smaller size */}
+                    <Bar 
+                      dataKey="achieved" 
+                      fill="#4169E1" 
+                      name="Achieved" 
+                      barSize={40}
+                      radius={[0, 4, 4, 0]}
+                      isAnimationActive={false}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="mt-4 space-y-1">
@@ -2686,17 +2712,34 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={actualVsTargetQ2} layout="vertical">
+                <ResponsiveContainer width="100%" height={100}>
+                  <BarChart data={actualVsTargetQ2} layout="vertical" barCategoryGap="20%">
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={80} />
-                    <Tooltip formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)} />
-                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                      {actualVsTargetQ2.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Bar>
+                    <YAxis dataKey="name" type="category" width={80} hide />
+                    <Tooltip 
+                      formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
+                      labelFormatter={() => ''}
+                    />
+                    <Legend />
+                    {/* Target bar (grey) rendered first with larger size to appear behind */}
+                    <Bar 
+                      dataKey="target" 
+                      fill="#E0E0E0" 
+                      name="Target" 
+                      barSize={50}
+                      radius={[0, 4, 4, 0]}
+                      isAnimationActive={false}
+                    />
+                    {/* Achieved bar (blue) rendered on top with smaller size */}
+                    <Bar 
+                      dataKey="achieved" 
+                      fill="#4169E1" 
+                      name="Achieved" 
+                      barSize={40}
+                      radius={[0, 4, 4, 0]}
+                      isAnimationActive={false}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="mt-4 space-y-1">
@@ -2734,17 +2777,34 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={actualVsTargetCurrent} layout="vertical">
+                <ResponsiveContainer width="100%" height={100}>
+                  <BarChart data={actualVsTargetCurrent} layout="vertical" barCategoryGap="20%">
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={80} />
-                    <Tooltip formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)} />
-                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                      {actualVsTargetCurrent.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Bar>
+                    <YAxis dataKey="name" type="category" width={80} hide />
+                    <Tooltip 
+                      formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
+                      labelFormatter={() => ''}
+                    />
+                    <Legend />
+                    {/* Target bar (grey) rendered first with larger size to appear behind */}
+                    <Bar 
+                      dataKey="target" 
+                      fill="#E0E0E0" 
+                      name="Target" 
+                      barSize={50}
+                      radius={[0, 4, 4, 0]}
+                      isAnimationActive={false}
+                    />
+                    {/* Achieved bar (blue) rendered on top with smaller size */}
+                    <Bar 
+                      dataKey="achieved" 
+                      fill="#4169E1" 
+                      name="Achieved" 
+                      barSize={40}
+                      radius={[0, 4, 4, 0]}
+                      isAnimationActive={false}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="mt-4 space-y-1">
