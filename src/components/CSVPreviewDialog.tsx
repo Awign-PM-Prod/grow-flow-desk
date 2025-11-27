@@ -16,6 +16,7 @@ interface CSVPreviewRow {
   data: Record<string, any>;
   isValid: boolean;
   errors: string[];
+  willUpdate?: boolean; // Optional flag to indicate if this row will update an existing record
 }
 
 interface CSVPreviewDialogProps {
@@ -42,6 +43,8 @@ export function CSVPreviewDialog({
   const headers = Object.keys(rows[0].data);
   const validCount = rows.filter((r) => r.isValid).length;
   const invalidCount = rows.filter((r) => !r.isValid).length;
+  const updateCount = rows.filter((r) => r.isValid && r.willUpdate).length;
+  const newCount = rows.filter((r) => r.isValid && !r.willUpdate).length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -57,6 +60,16 @@ export function CSVPreviewDialog({
               <CheckCircle2 className="mr-1 h-3 w-3" />
               Valid: {validCount}
             </Badge>
+            {updateCount > 0 && (
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                Updates: {updateCount}
+              </Badge>
+            )}
+            {newCount > 0 && (
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                New: {newCount}
+              </Badge>
+            )}
             {invalidCount > 0 && (
               <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
                 <AlertCircle className="mr-1 h-3 w-3" />
@@ -98,15 +111,27 @@ export function CSVPreviewDialog({
                   {rows.map((row) => (
                     <TableRow
                       key={row.rowNumber}
-                      className={!row.isValid ? "bg-red-50 hover:bg-red-100" : ""}
+                      className={
+                        !row.isValid 
+                          ? "bg-red-50 hover:bg-red-100" 
+                          : row.willUpdate 
+                            ? "bg-blue-50 hover:bg-blue-100" 
+                            : ""
+                      }
                     >
                       <TableCell className="font-medium">{row.rowNumber}</TableCell>
                       <TableCell>
                         {row.isValid ? (
-                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                            <CheckCircle2 className="mr-1 h-3 w-3" />
-                            Valid
-                          </Badge>
+                          row.willUpdate ? (
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                              Update
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                              <CheckCircle2 className="mr-1 h-3 w-3" />
+                              New
+                            </Badge>
+                          )
                         ) : (
                           <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
                             <AlertCircle className="mr-1 h-3 w-3" />
@@ -151,7 +176,9 @@ export function CSVPreviewDialog({
             onClick={onConfirm}
             disabled={loading || invalidCount > 0}
           >
-            {loading ? "Uploading..." : invalidCount > 0 ? "Fix Errors First" : `Upload ${validCount} Entry(s)`}
+            {loading 
+              ? "Uploading..." 
+              : `Upload ${validCount} Entry(s)${updateCount > 0 ? ` (${updateCount} update${updateCount > 1 ? 's' : ''}, ${newCount} new)` : ''}`}
           </Button>
         </DialogFooter>
       </DialogContent>

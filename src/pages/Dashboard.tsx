@@ -83,10 +83,12 @@ export default function Dashboard() {
   const [conversionTableData, setConversionTableData] = useState<Array<{
     status: string;
     records: number;
+    expectedRevenue: number;
     cvr: string;
     remaining: number;
     dropped: number;
     maxRecords?: number;
+    maxExpectedRevenue?: number;
   }>>([]);
   const [funnelCounts, setFunnelCounts] = useState<{
     tofu: number;
@@ -381,36 +383,57 @@ export default function Dashboard() {
 
       // Fetch current deals to handle deals that might not have history yet (newly created with "Listed" status)
       // Filter by created_at within selected FY
+      // Also fetch expected_revenue to calculate revenue per status
       const { data: currentDeals, error: dealsError } = await (supabase
         .from("pipeline_deals" as any)
-        .select("id, status, created_at")
+        .select("id, status, created_at, expected_revenue")
         .gte("created_at", perfFyDateRange.start.toISOString())
         .lte("created_at", perfFyDateRange.end.toISOString()) as any);
 
       if (dealsError) throw dealsError;
 
+      // Create a map of deal_id to expected_revenue for quick lookup
+      const dealRevenueMap: Record<string, number> = {};
+      if (currentDeals) {
+        currentDeals.forEach((deal: any) => {
+          const revenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
+          dealRevenueMap[deal.id] = revenue;
+        });
+      }
+
       // Track unique deals per status using Sets
       // A deal is counted in a status if it appears in old_status or new_status in history
       const statusDealSets: Record<string, Set<string>> = {};
       
-      // Initialize all statuses with empty Sets
+      // Track expected revenue per status
+      const statusRevenue: Record<string, number> = {};
+      
+      // Initialize all statuses with empty Sets and zero revenue
       statusOrder.forEach((status) => {
         statusDealSets[status] = new Set<string>();
+        statusRevenue[status] = 0;
       });
 
       // Process all status history records
       if (allStatusHistory) {
         allStatusHistory.forEach((history: any) => {
           const dealId = history.deal_id;
+          const dealRevenue = dealRevenueMap[dealId] || 0;
           
           // Count deal in new_status (the status it moved to)
           if (history.new_status && statusDealSets.hasOwnProperty(history.new_status)) {
-            statusDealSets[history.new_status].add(dealId);
+            if (!statusDealSets[history.new_status].has(dealId)) {
+              statusDealSets[history.new_status].add(dealId);
+              statusRevenue[history.new_status] += dealRevenue;
+            }
           }
           
           // Count deal in old_status (the status it moved from)
           if (history.old_status && statusDealSets.hasOwnProperty(history.old_status)) {
-            statusDealSets[history.old_status].add(dealId);
+            if (!statusDealSets[history.old_status].has(dealId)) {
+              statusDealSets[history.old_status].add(dealId);
+              statusRevenue[history.old_status] += dealRevenue;
+            }
           }
         });
       }
@@ -420,10 +443,14 @@ export default function Dashboard() {
       if (currentDeals) {
         currentDeals.forEach((deal: any) => {
           const status = deal.status;
+          const dealRevenue = dealRevenueMap[deal.id] || 0;
           // If deal is "Listed" and not in the Set yet, add it
           // This handles newly created deals that haven't had their status changed yet
           if (status === "Listed" && statusDealSets["Listed"]) {
-            statusDealSets["Listed"].add(deal.id);
+            if (!statusDealSets["Listed"].has(deal.id)) {
+              statusDealSets["Listed"].add(deal.id);
+              statusRevenue["Listed"] += dealRevenue;
+            }
           }
         });
       }
@@ -481,17 +508,18 @@ export default function Dashboard() {
         const remaining = currentStatusCounts[status] || 0; // Current status count
         const dropped = droppedCounts[status] || 0;
         
-        // Calculate CVR: next status count / current status count
+        // Calculate CVR: next status revenue / current status revenue
+        const currentRevenue = statusRevenue[status] || 0;
         let cvr = "-";
         if (index < statusOrderWithoutDropped.length - 1) {
           const nextStatus = statusOrderWithoutDropped[index + 1];
-          const nextCount = statusCounts[nextStatus] || 0;
+          const nextRevenue = statusRevenue[nextStatus] || 0;
           
-          if (count > 0) {
-            const cvrValue = (nextCount / count) * 100;
+          if (currentRevenue > 0) {
+            const cvrValue = (nextRevenue / currentRevenue) * 100;
             cvr = `${cvrValue.toFixed(1)}%`;
-          } else if (nextCount > 0 && count === 0) {
-            // If current status has 0 deals but next has deals, show as "N/A"
+          } else if (nextRevenue > 0 && currentRevenue === 0) {
+            // If current status has 0 revenue but next has revenue, show as "N/A"
             cvr = "N/A";
           }
         }
@@ -499,6 +527,7 @@ export default function Dashboard() {
         return {
           status: `${index}. ${status}`,
           records: count,
+          expectedRevenue: statusRevenue[status] || 0,
           cvr,
           remaining: remaining,
           dropped: dropped,
@@ -507,11 +536,15 @@ export default function Dashboard() {
 
       // Find max records for progress bar calculation
       const maxRecords = Math.max(...conversionData.map((d) => d.records), 1);
+      
+      // Find max expected revenue for progress bar calculation
+      const maxExpectedRevenue = Math.max(...conversionData.map((d) => d.expectedRevenue), 1);
 
       // Update conversion data with progress bar max
       const conversionDataWithMax = conversionData.map((d) => ({
         ...d,
         maxRecords,
+        maxExpectedRevenue,
       }));
 
       setConversionTableData(conversionDataWithMax);
@@ -2992,10 +3025,10 @@ export default function Dashboard() {
 
       {/* LoB Sales Performance Comparison and Annual Sales Target - Side by Side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* LoB Sales Performance Comparison */}
+        {/* LoB Existing Sales Performance Comparison */}
         <Card>
           <CardHeader>
-            <CardTitle>LoB Sales Performance Comparison</CardTitle>
+            <CardTitle>LoB Existing Sales Performance Comparison</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -3010,12 +3043,10 @@ export default function Dashboard() {
               <ResponsiveContainer width="100%" height={300}>
               <BarChart 
                 data={lobSalesPerformance.map((item) => {
-                  // Find the maximum value between target and achieved for this LoB
-                  const maxValue = Math.max(item.targetMpv, item.achievedMpv);
+                  // Use achieved MPV only
                   return {
                     ...item,
-                    targetMpv: ensureMinimumBarLengthForBoth(item.targetMpv, maxValue),
-                    achievedMpv: ensureMinimumBarLengthForBoth(item.achievedMpv, maxValue),
+                    achievedMpv: ensureMinimumBarLengthForBoth(item.achievedMpv, item.achievedMpv),
                   };
                 })}
                 margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
@@ -3045,17 +3076,19 @@ export default function Dashboard() {
                       return (
                         <div className="bg-white p-3 border border-gray-200 rounded shadow-lg">
                           {payload.map((entry: any, index: number) => {
-                            // Make target value darker for better readability
-                            const textColor = entry.name === "Target MPV" ? "#666666" : "#4169E1";
-                            return (
-                              <p key={index} style={{ color: textColor }}>
-                                {entry.name}: {entry.value >= 10000000
-                                  ? `₹${(entry.value / 10000000).toFixed(2)}Cr`
-                                  : entry.value >= 100000
-                                  ? `₹${(entry.value / 100000).toFixed(1)}L`
-                                  : `₹${entry.value.toLocaleString("en-IN")}`}
-                              </p>
-                            );
+                            // Only show achieved values
+                            if (entry.name === "Achieved") {
+                              return (
+                                <p key={index} style={{ color: "#4169E1" }}>
+                                  {entry.name}: {entry.value >= 10000000
+                                    ? `₹${(entry.value / 10000000).toFixed(2)}Cr`
+                                    : entry.value >= 100000
+                                    ? `₹${(entry.value / 100000).toFixed(1)}L`
+                                    : `₹${entry.value.toLocaleString("en-IN")}`}
+                                </p>
+                              );
+                            }
+                            return null;
                           })}
                         </div>
                       );
@@ -3065,22 +3098,12 @@ export default function Dashboard() {
                   cursor={false}
                 />
                 <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
-                {/* Target bar (grey) rendered first with larger size to appear behind */}
-                <Bar 
-                  dataKey="targetMpv" 
-                  fill="#E0E0E0" 
-                  name="Target" 
-                  barSize={30}
-                  radius={[4, 4, 0, 0]}
-                  activeBar={false}
-                  isAnimationActive={false}
-                />
-                {/* Achieved bar (blue) rendered on top with smaller size */}
+                {/* Achieved bar (blue) */}
                 <Bar 
                   dataKey="achievedMpv" 
                   fill="#4169E1" 
                   name="Achieved" 
-                  barSize={24}
+                  barSize={30}
                   radius={[4, 4, 0, 0]}
                   activeBar={false}
                   isAnimationActive={false}
@@ -3925,7 +3948,8 @@ export default function Dashboard() {
             <TableHeader>
               <TableRow>
                 <TableHead>Status</TableHead>
-                <TableHead>Cumulative # of Records</TableHead>
+                <TableHead className="w-[200px]">Cumulative # of Records</TableHead>
+                <TableHead className="w-[300px]">Expected Revenue</TableHead>
                 <TableHead>CVR to next status</TableHead>
                 <TableHead>Remaining</TableHead>
                 <TableHead>Dropped</TableHead>
@@ -3934,29 +3958,41 @@ export default function Dashboard() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
+                  <TableCell colSpan={6} className="text-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
                   </TableCell>
                 </TableRow>
               ) : conversionTableData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     No data available for {filterFinancialYear}
                   </TableCell>
                 </TableRow>
               ) : (
                 conversionTableData.map((row, idx) => {
                   const maxRecords = row.maxRecords || row.records || 1;
+                  const maxExpectedRevenue = row.maxExpectedRevenue || row.expectedRevenue || 1;
                   return (
                     <TableRow key={idx}>
                       <TableCell className="font-medium">{row.status}</TableCell>
-                      <TableCell>
+                      <TableCell className="w-[200px]">
                         <div className="flex items-center gap-2">
-                          <span>{row.records}</span>
+                          <span className="w-12">{row.records}</span>
                           <div className="flex-1 bg-orange-100 h-4 rounded relative">
                             <div
                               className="bg-orange-500 h-full rounded"
                               style={{ width: `${(row.records / maxRecords) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="w-[300px]">
+                        <div className="flex items-center gap-2">
+                          <span className="w-24">₹{row.expectedRevenue.toLocaleString("en-IN")}</span>
+                          <div className="flex-1 bg-blue-100 h-4 rounded relative">
+                            <div
+                              className="bg-blue-500 h-full rounded"
+                              style={{ width: `${(row.expectedRevenue / maxExpectedRevenue) * 100}%` }}
                             />
                           </div>
                         </div>

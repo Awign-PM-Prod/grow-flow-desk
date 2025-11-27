@@ -603,9 +603,7 @@ export default function Pipeline() {
           errors.push("PRJ Frequency is required");
         }
         // Status is not required - defaults to "Listed"
-        if (!row["PRJ Start Date"] || row["PRJ Start Date"].trim() === "") {
-          errors.push("PRJ Start Date is required");
-        }
+        // PRJ Start Date is optional
         if (!row["GM Threshold"] || isNaN(parseFloat(row["GM Threshold"]))) {
           errors.push("GM Threshold is required and must be a valid number");
         }
@@ -749,9 +747,12 @@ export default function Pipeline() {
         const mpv = monthlyVolume * commercialPerHead;
         const maxMpv = maxMonthlyVolume * commercialPerHead;
 
-        // Parse PRJ Start Date
-        const prjStartDate = parseDate(row["PRJ Start Date"]);
-        if (!prjStartDate) {
+        // Parse PRJ Start Date (optional)
+        const prjStartDateValue = row["PRJ Start Date"] && row["PRJ Start Date"].trim() !== "" 
+          ? row["PRJ Start Date"] 
+          : null;
+        const prjStartDate = prjStartDateValue ? parseDate(prjStartDateValue) : null;
+        if (prjStartDateValue && !prjStartDate) {
           throw new Error(`Row ${index + 2}: Invalid PRJ Start Date format. Expected DD-MM-YYYY or YYYY-MM-DD.`);
         }
 
@@ -2824,14 +2825,13 @@ export default function Pipeline() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="prjStartDate">
-                      PRJ Start Date <span className="text-destructive">*</span>
+                      PRJ Start Date
                     </Label>
                     <Input
                       id="prjStartDate"
                       type="date"
                       value={formData.prjStartDate}
                       onChange={(e) => handleInputChange("prjStartDate", e.target.value)}
-                      required
                     />
                   </div>
                 </div>

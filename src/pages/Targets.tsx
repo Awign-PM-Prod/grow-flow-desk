@@ -29,9 +29,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Loader2, Pencil } from "lucide-react";
+import { Plus, Loader2, Pencil, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { parseCSV, downloadCSV } from "@/lib/csv-export";
+import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 
 // Helper function to calculate Financial Year based on selected month and year
 // Logic: Jan-Mar use (year-1)-(year), Apr-Dec use (year)-(year+1)
@@ -196,7 +198,7 @@ export default function Targets() {
   const [existingTargetsData, setExistingTargetsData] = useState<Record<string, Record<string, number>>>({}); // mandateId -> monthKey -> target
   const [crossSellTargetsData, setCrossSellTargetsData] = useState<Record<string, Record<string, number>>>({}); // kamId_accountId -> monthKey -> target
   const [crossSellKamAccountCombos, setCrossSellKamAccountCombos] = useState<Array<{ kamId: string; kamName: string; accountId: string; accountName: string }>>([]); // List of unique KAM-account combinations
-  const [allMandates, setAllMandates] = useState<Array<{ id: string; project_code: string; project_name: string }>>([]);
+  const [allMandates, setAllMandates] = useState<Array<{ id: string; project_code: string; project_name: string; kam_id?: string | null; kamName?: string | null }>>([]);
   const [allAccounts, setAllAccounts] = useState<Array<{ id: string; name: string }>>([]);
   const [monthColumns, setMonthColumns] = useState<Array<{ month: number; year: number; key: string; label: string }>>([]);
   const [kams, setKams] = useState<KAM[]>([]);
@@ -208,6 +210,14 @@ export default function Targets() {
   const [loadingMandates, setLoadingMandates] = useState(false);
   const [accountSearch, setAccountSearch] = useState("");
   const [mandateSearch, setMandateSearch] = useState("");
+  
+  // Bulk upload state
+  const [bulkUploadDialogOpen, setBulkUploadDialogOpen] = useState(false);
+  const [selectedTargetType, setSelectedTargetType] = useState<"cross_sell" | "existing" | null>(null);
+  const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
+  const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const fetchMonthlyTargets = async () => {
     setLoadingTargets(true);
@@ -249,10 +259,33 @@ export default function Targets() {
       // Fetch all mandates for existing targets table
       const { data: allMandatesData } = await supabase
         .from("mandates")
-        .select("id, project_code, project_name")
+        .select("id, project_code, project_name, kam_id")
         .order("project_code");
       
-      setAllMandates(allMandatesData || []);
+      // Fetch KAM names for mandates
+      const mandateKamIds = [...new Set((allMandatesData || []).map((m: any) => m.kam_id).filter(Boolean))];
+      const mandateKamMap: Record<string, string> = {};
+      
+      if (mandateKamIds.length > 0) {
+        const { data: mandateKamData } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", mandateKamIds);
+        
+        if (mandateKamData) {
+          mandateKamData.forEach((kam) => {
+            mandateKamMap[kam.id] = kam.full_name || "Unknown";
+          });
+        }
+      }
+      
+      // Add KAM names to mandates
+      const mandatesWithKam = (allMandatesData || []).map((mandate: any) => ({
+        ...mandate,
+        kamName: mandate.kam_id ? mandateKamMap[mandate.kam_id] || "Unknown" : null,
+      }));
+      
+      setAllMandates(mandatesWithKam);
 
       // Fetch all accounts for cross sell targets table
       const { data: allAccountsData } = await supabase
@@ -910,6 +943,510 @@ export default function Targets() {
     return monthNames[month - 1] || '';
   };
 
+  // Bulk upload functions
+  const handleDownloadCrossSellTemplate = async () => {
+    // Fetch KAM-Account relationships from mandates
+    const { data: mandatesData } = await supabase
+      .from("mandates")
+      .select("kam_id, account_id")
+      .not("kam_id", "is", null)
+      .not("account_id", "is", null);
+
+    // Create a map of KAM IDs to KAM names
+    const kamNameMap: Record<string, string> = {};
+    kams.forEach((kam) => {
+      kamNameMap[kam.id] = kam.full_name;
+    });
+
+    // Create a map of Account IDs to Account names
+    const accountNameMap: Record<string, string> = {};
+    allAccounts.forEach((account) => {
+      accountNameMap[account.id] = account.name;
+    });
+
+    // Get unique KAM-Account combinations
+    const kamAccountCombos: Array<{ kamName: string; accountName: string }> = [];
+    const comboSet = new Set<string>();
+
+    if (mandatesData) {
+      mandatesData.forEach((mandate: any) => {
+        const comboKey = `${mandate.kam_id}_${mandate.account_id}`;
+        if (!comboSet.has(comboKey)) {
+          comboSet.add(comboKey);
+          const kamName = kamNameMap[mandate.kam_id] || "Unknown KAM";
+          const accountName = accountNameMap[mandate.account_id] || "Unknown Account";
+          kamAccountCombos.push({
+            kamName,
+            accountName,
+          });
+        }
+      });
+    }
+
+    // Sort by KAM name, then by account name
+    kamAccountCombos.sort((a, b) => {
+      const kamCompare = a.kamName.localeCompare(b.kamName);
+      if (kamCompare !== 0) return kamCompare;
+      return a.accountName.localeCompare(b.accountName);
+    });
+
+    // Create headers: form fields + 2 empty columns + relation columns
+    const formHeaders = ["Month", "Year", "Target Value", "KAM Name", "Account Name"];
+    const relationHeaders = ["KAM Name (Reference)", "Account Name (Reference)"];
+    const emptyColumns = ["", ""]; // 2 empty columns
+    const allHeaders = [...formHeaders, ...emptyColumns, ...relationHeaders];
+
+    // Create CSV content
+    let csvContent = allHeaders.join(",") + "\n";
+    
+    // Add relation data rows (only in reference section, form fields stay empty)
+    kamAccountCombos.forEach((combo) => {
+      const row = [
+        "", // Month
+        "", // Year
+        "", // Target Value
+        "", // KAM Name (empty in form fields)
+        "", // Account Name (empty in form fields)
+        "", // Empty column 1
+        "", // Empty column 2
+        combo.kamName, // KAM Name (Reference)
+        combo.accountName, // Account Name (Reference)
+      ];
+      csvContent += row.map((val) => `"${val}"`).join(",") + "\n";
+    });
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "cross_sell_targets_template.csv");
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Template Downloaded",
+      description: "Cross Sell Targets template downloaded successfully.",
+    });
+  };
+
+  const handleDownloadExistingTemplate = () => {
+    // Get all mandates (like in the dropdown)
+    const mandateList: Array<{ mandateCode: string; mandateName: string }> = [];
+    
+    allMandates.forEach((mandate) => {
+      mandateList.push({
+        mandateCode: mandate.project_code,
+        mandateName: mandate.project_name,
+      });
+    });
+
+    // Sort by project code
+    mandateList.sort((a, b) => a.mandateCode.localeCompare(b.mandateCode));
+
+    // Create headers: form fields + 2 empty columns + relation columns
+    const formHeaders = ["Month", "Year", "Target Value", "Mandate Project Code"];
+    const relationHeaders = ["Mandate Project Code (Reference)", "Mandate Project Name (Reference)"];
+    const emptyColumns = ["", ""]; // 2 empty columns
+    const allHeaders = [...formHeaders, ...emptyColumns, ...relationHeaders];
+
+    // Create CSV content
+    let csvContent = allHeaders.join(",") + "\n";
+    
+    // Add relation data rows (only in reference section, form fields stay empty)
+    mandateList.forEach((mandate) => {
+      const row = [
+        "", // Month
+        "", // Year
+        "", // Target Value
+        "", // Mandate Project Code (empty in form fields)
+        "", // Empty column 1
+        "", // Empty column 2
+        mandate.mandateCode, // Mandate Project Code (Reference)
+        mandate.mandateName, // Mandate Project Name (Reference)
+      ];
+      csvContent += row.map((val) => `"${val}"`).join(",") + "\n";
+    });
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "existing_targets_template.csv");
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Template Downloaded",
+      description: "Existing Targets template downloaded successfully.",
+    });
+  };
+
+  const handleBulkUploadTargets = async (file: File) => {
+    try {
+      const text = await file.text();
+      const csvData = parseCSV(text);
+
+      if (csvData.length === 0) {
+        toast({
+          title: "Error",
+          description: "CSV file is empty or invalid.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Create maps for lookups
+      const kamMap: Record<string, string> = {};
+      kams.forEach((kam) => {
+        kamMap[kam.full_name] = kam.id;
+      });
+
+      const accountMap: Record<string, string> = {};
+      allAccounts.forEach((account) => {
+        accountMap[account.name] = account.id;
+      });
+
+      const mandateMap: Record<string, string> = {};
+      allMandates.forEach((mandate) => {
+        mandateMap[mandate.project_code] = mandate.id;
+      });
+
+      // Fetch KAM-Account relationships from mandates for validation
+      const { data: mandatesWithAccounts } = await supabase
+        .from("mandates")
+        .select("kam_id, account_id");
+
+      const kamAccountRelations = new Set<string>();
+      if (mandatesWithAccounts) {
+        mandatesWithAccounts.forEach((m: any) => {
+          if (m.kam_id && m.account_id) {
+            kamAccountRelations.add(`${m.kam_id}_${m.account_id}`);
+          }
+        });
+      }
+
+      // Fetch KAM-Mandate relationships for validation
+      const kamMandateRelations = new Set<string>();
+      allMandates.forEach((mandate) => {
+        if (mandate.kam_id) {
+          kamMandateRelations.add(`${mandate.kam_id}_${mandate.id}`);
+        }
+      });
+
+      // Fetch existing targets to check for updates
+      const financialYearString = convertFYToFinancialYear(filterFinancialYear);
+      let existingTargetsQuery = supabase
+        .from("monthly_targets")
+        .select("id, month, year, target_type, kam_id, account_id, mandate_id");
+      
+      if (financialYearString) {
+        existingTargetsQuery = existingTargetsQuery.eq("financial_year", financialYearString);
+      }
+
+      const { data: existingTargetsData } = await existingTargetsQuery;
+      
+      // Create a map of existing targets for quick lookup
+      const existingTargetsMap = new Map<string, string>(); // key -> target id
+      if (existingTargetsData) {
+        existingTargetsData.forEach((target: any) => {
+          let key = "";
+          if (target.target_type === "new_cross_sell" && target.kam_id && target.account_id) {
+            key = `${target.month}_${target.year}_new_cross_sell_${target.kam_id}_${target.account_id}`;
+          } else if (target.target_type === "existing" && target.mandate_id) {
+            key = `${target.month}_${target.year}_existing_${target.mandate_id}`;
+          }
+          if (key) {
+            existingTargetsMap.set(key, target.id);
+          }
+        });
+      }
+
+      // Parse and validate each row
+      const previewRows = csvData.map((row: any, index: number) => {
+        const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
+        const errors: string[] = [];
+
+        // Validate Month
+        if (!row["Month"] || row["Month"].trim() === "") {
+          errors.push("Month is required");
+        } else {
+          const month = parseInt(row["Month"]);
+          if (isNaN(month) || month < 1 || month > 12) {
+            errors.push("Month must be a number between 1 and 12");
+          }
+        }
+
+        // Validate Year
+        if (!row["Year"] || row["Year"].trim() === "") {
+          errors.push("Year is required");
+        } else {
+          const year = parseInt(row["Year"]);
+          if (isNaN(year) || year < 2000 || year > 2100) {
+            errors.push("Year must be a valid number");
+          }
+        }
+
+        // Validate Target Value
+        if (!row["Target Value"] || row["Target Value"].trim() === "") {
+          errors.push("Target Value is required");
+        } else {
+          const target = parseFloat(row["Target Value"]);
+          if (isNaN(target) || target <= 0) {
+            errors.push("Target Value must be a positive number");
+          }
+        }
+
+        if (selectedTargetType === "cross_sell") {
+          // Validate KAM Name
+          const kamName = row["KAM Name"]?.trim();
+          if (!kamName) {
+            errors.push("KAM Name is required");
+          } else if (!kamMap[kamName]) {
+            errors.push(`KAM "${kamName}" does not exist`);
+          }
+
+          // Validate Account Name
+          const accountName = row["Account Name"]?.trim();
+          if (!accountName) {
+            errors.push("Account Name is required");
+          } else if (!accountMap[accountName]) {
+            errors.push(`Account "${accountName}" does not exist`);
+          }
+
+          // Validate KAM-Account relationship
+          if (kamName && accountName && kamMap[kamName] && accountMap[accountName]) {
+            const kamId = kamMap[kamName];
+            const accountId = accountMap[accountName];
+            if (!kamAccountRelations.has(`${kamId}_${accountId}`)) {
+              errors.push(`KAM "${kamName}" and Account "${accountName}" are not related (no mandate exists for this combination)`);
+            }
+          }
+        } else if (selectedTargetType === "existing") {
+          // Validate Mandate Project Code
+          const mandateCode = row["Mandate Project Code"]?.trim();
+          if (!mandateCode) {
+            errors.push("Mandate Project Code is required");
+          } else if (!mandateMap[mandateCode]) {
+            errors.push(`Mandate with Project Code "${mandateCode}" does not exist`);
+          }
+
+          // Validate KAM-Mandate relationship (optional check - mandate should have a KAM)
+          if (mandateCode && mandateMap[mandateCode]) {
+            const mandateId = mandateMap[mandateCode];
+            const mandate = allMandates.find((m) => m.id === mandateId);
+            if (mandate && !mandate.kam_id) {
+              errors.push(`Mandate "${mandateCode}" does not have an associated KAM`);
+            }
+          }
+        }
+
+        // Check if this row will update an existing target
+        let willUpdate = false;
+        if (errors.length === 0) {
+          const month = parseInt(row["Month"]);
+          const year = parseInt(row["Year"]);
+          
+          if (!isNaN(month) && !isNaN(year)) {
+            let lookupKey = "";
+            if (selectedTargetType === "cross_sell") {
+              const kamName = row["KAM Name"]?.trim();
+              const accountName = row["Account Name"]?.trim();
+              const kamId = kamMap[kamName];
+              const accountId = accountMap[accountName];
+              
+              if (kamId && accountId) {
+                lookupKey = `${month}_${year}_new_cross_sell_${kamId}_${accountId}`;
+              }
+            } else {
+              const mandateCode = row["Mandate Project Code"]?.trim();
+              const mandateId = mandateMap[mandateCode];
+              
+              if (mandateId) {
+                lookupKey = `${month}_${year}_existing_${mandateId}`;
+              }
+            }
+            
+            if (lookupKey && existingTargetsMap.has(lookupKey)) {
+              willUpdate = true;
+            }
+          }
+        }
+
+        return {
+          rowNumber,
+          data: row,
+          isValid: errors.length === 0,
+          errors,
+          willUpdate,
+        };
+      });
+
+      // Store preview data and open dialog
+      setCsvPreviewRows(previewRows);
+      setCsvFileToUpload(file);
+      setCsvPreviewOpen(true);
+    } catch (error: any) {
+      console.error("Error parsing CSV:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to parse CSV file. Please check the format.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!csvFileToUpload || !selectedTargetType) return;
+
+    setUploading(true);
+    try {
+      const text = await csvFileToUpload.text();
+      const csvData = parseCSV(text);
+
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error("You must be logged in to upload targets");
+      }
+
+      // Create maps for lookups
+      const kamMap: Record<string, string> = {};
+      kams.forEach((kam) => {
+        kamMap[kam.full_name] = kam.id;
+      });
+
+      const accountMap: Record<string, string> = {};
+      allAccounts.forEach((account) => {
+        accountMap[account.name] = account.id;
+      });
+
+      const mandateMap: Record<string, string> = {};
+      allMandates.forEach((mandate) => {
+        mandateMap[mandate.project_code] = mandate.id;
+      });
+
+      // Prepare data for insertion
+      const targetsToInsert = csvData
+        .map((row: any) => {
+          const month = parseInt(row["Month"]);
+          const year = parseInt(row["Year"]);
+          const target = parseFloat(row["Target Value"]);
+          const financialYear = calculateFinancialYear(month, year);
+
+          if (selectedTargetType === "cross_sell") {
+            const kamName = row["KAM Name"]?.trim();
+            const accountName = row["Account Name"]?.trim();
+            const kamId = kamMap[kamName];
+            const accountId = accountMap[accountName];
+
+            if (!kamId || !accountId) return null;
+
+            return {
+              month,
+              year,
+              financial_year: financialYear,
+              target,
+              target_type: "new_cross_sell" as const,
+              kam_id: kamId,
+              account_id: accountId,
+              mandate_id: null,
+              created_by: user.id,
+              created_at: new Date().toISOString(),
+            };
+          } else {
+            const mandateCode = row["Mandate Project Code"]?.trim();
+            const mandateId = mandateMap[mandateCode];
+
+            if (!mandateId) return null;
+
+            return {
+              month,
+              year,
+              financial_year: financialYear,
+              target,
+              target_type: "existing" as const,
+              kam_id: null,
+              account_id: null,
+              mandate_id: mandateId,
+              created_by: user.id,
+              created_at: new Date().toISOString(),
+            };
+          }
+        })
+        .filter((target: any) => target !== null);
+
+      if (targetsToInsert.length === 0) {
+        throw new Error("No valid targets to insert");
+      }
+
+      // Use upsert to handle duplicates
+      // First try to find existing targets and update them, otherwise insert
+      for (const target of targetsToInsert) {
+        let query = supabase
+          .from("monthly_targets")
+          .select("id")
+          .eq("month", target.month)
+          .eq("year", target.year)
+          .eq("target_type", target.target_type);
+
+        if (target.target_type === "new_cross_sell") {
+          query = query.eq("kam_id", target.kam_id).eq("account_id", target.account_id);
+        } else {
+          query = query.eq("mandate_id", target.mandate_id);
+        }
+
+        const { data: existing } = await query.single();
+
+        if (existing) {
+          // Update existing target
+          const { error: updateError } = await supabase
+            .from("monthly_targets")
+            .update({
+              target: target.target,
+              financial_year: target.financial_year,
+            })
+            .eq("id", existing.id);
+          
+          if (updateError) throw updateError;
+        } else {
+          // Insert new target
+          const { error: insertError } = await supabase.from("monthly_targets").insert([target]);
+          if (insertError) throw insertError;
+        }
+      }
+
+      toast({
+        title: "Success!",
+        description: `Successfully uploaded ${targetsToInsert.length} target(s).`,
+      });
+
+      setCsvPreviewOpen(false);
+      setCsvFileToUpload(null);
+      setBulkUploadDialogOpen(false);
+      setSelectedTargetType(null);
+      
+      // Refresh targets list
+      fetchMonthlyTargets();
+    } catch (error: any) {
+      console.error("Error uploading targets:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload targets. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   // Generate year options (current year - 2 to current year + 2)
   const currentYear = new Date().getFullYear();
   const yearOptions = [];
@@ -960,6 +1497,98 @@ export default function Targets() {
               <SelectItem value="FY28">FY28</SelectItem>
             </SelectContent>
           </Select>
+          
+          {/* Bulk Upload Targets Button */}
+          <Dialog open={bulkUploadDialogOpen} onOpenChange={(open) => {
+            setBulkUploadDialogOpen(open);
+            if (!open) {
+              setSelectedTargetType(null);
+            }
+          }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Upload className="h-4 w-4" />
+                Bulk Upload Targets
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Bulk Upload Targets</DialogTitle>
+                <DialogDescription>
+                  Choose the type of targets you want to upload.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                {!selectedTargetType ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full h-20 text-left justify-start"
+                      onClick={() => setSelectedTargetType("cross_sell")}
+                    >
+                      <div className="flex flex-col items-start">
+                        <span className="font-semibold">Cross Sell Targets</span>
+                        <span className="text-sm text-muted-foreground">Upload targets for new cross sell opportunities</span>
+                      </div>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full h-20 text-left justify-start"
+                      onClick={() => setSelectedTargetType("existing")}
+                    >
+                      <div className="flex flex-col items-start">
+                        <span className="font-semibold">Existing Targets</span>
+                        <span className="text-sm text-muted-foreground">Upload targets for existing mandates</span>
+                      </div>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start"
+                      onClick={() => setSelectedTargetType(null)}
+                    >
+                      ← Back
+                    </Button>
+                    <div className="grid gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={selectedTargetType === "cross_sell" ? handleDownloadCrossSellTemplate : handleDownloadExistingTemplate}
+                      >
+                        Download Template
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          const input = document.createElement("input");
+                          input.type = "file";
+                          input.accept = ".csv";
+                          input.onchange = (e: any) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              handleBulkUploadTargets(file);
+                            }
+                          };
+                          input.click();
+                        }}
+                      >
+                        Upload Targets
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+          
           <Dialog open={formDialogOpen} onOpenChange={(open) => {
           setFormDialogOpen(open);
           if (!open) {
@@ -1247,7 +1876,8 @@ export default function Targets() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="sticky left-0 z-10 bg-background">Mandate</TableHead>
+                    <TableHead className="sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">Mandate</TableHead>
+                    <TableHead className="sticky left-[200px] z-10 bg-background min-w-[200px] w-[200px]">KAM</TableHead>
                     {monthColumns.map((col) => (
                       <TableHead key={col.key} className="text-center min-w-[100px]">
                         {col.label}
@@ -1258,15 +1888,18 @@ export default function Targets() {
                 <TableBody>
                   {allMandates.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={monthColumns.length + 1} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={monthColumns.length + 2} className="text-center text-muted-foreground py-8">
                         No mandates available
                       </TableCell>
                     </TableRow>
                   ) : (
                     allMandates.map((mandate) => (
                       <TableRow key={mandate.id}>
-                        <TableCell className="font-medium sticky left-0 z-10 bg-background">
+                        <TableCell className="font-medium sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">
                           {mandate.project_code} - {mandate.project_name}
+                        </TableCell>
+                        <TableCell className="font-medium sticky left-[200px] z-10 bg-background min-w-[200px] w-[200px]">
+                          {mandate.kamName || <span className="text-muted-foreground">-</span>}
                         </TableCell>
                         {monthColumns.map((col) => {
                           const targetValue = existingTargetsData[mandate.id]?.[col.key] || 0;
@@ -1307,8 +1940,8 @@ export default function Targets() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="sticky left-0 z-10 bg-background">KAM</TableHead>
-                    <TableHead className="sticky left-[120px] z-10 bg-background">Account</TableHead>
+                    <TableHead className="sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">KAM</TableHead>
+                    <TableHead className="sticky left-[200px] z-10 bg-background min-w-[200px] w-[200px]">Account</TableHead>
                     {monthColumns.map((col) => (
                       <TableHead key={col.key} className="text-center min-w-[100px]">
                         {col.label}
@@ -1328,10 +1961,10 @@ export default function Targets() {
                       const compositeKey = `${combo.kamId}_${combo.accountId}`;
                       return (
                         <TableRow key={compositeKey}>
-                          <TableCell className="font-medium sticky left-0 z-10 bg-background">
+                          <TableCell className="font-medium sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">
                             {combo.kamName}
                           </TableCell>
-                          <TableCell className="font-medium sticky left-[120px] z-10 bg-background">
+                          <TableCell className="font-medium sticky left-[200px] z-10 bg-background min-w-[200px] w-[200px]">
                             {combo.accountName}
                           </TableCell>
                           {monthColumns.map((col) => {
@@ -1358,6 +1991,20 @@ export default function Targets() {
           )}
         </CardContent>
       </Card>
+
+      {/* CSV Preview Dialog */}
+      <CSVPreviewDialog
+        open={csvPreviewOpen}
+        onOpenChange={setCsvPreviewOpen}
+        rows={csvPreviewRows}
+        onConfirm={handleConfirmUpload}
+        onCancel={() => {
+          setCsvPreviewOpen(false);
+          setCsvFileToUpload(null);
+        }}
+        loading={uploading}
+        title={`Upload ${selectedTargetType === "cross_sell" ? "Cross Sell" : "Existing"} Targets`}
+      />
     </div>
   );
 }
