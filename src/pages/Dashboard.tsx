@@ -100,6 +100,7 @@ export default function Dashboard() {
     closedWon: number;
     dropped: number;
   }>({ tofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+  const [crossSellTargetSum, setCrossSellTargetSum] = useState<number>(0);
   
   // Meetings and Proposals Metrics
   const [meetingsDoneLastWeek, setMeetingsDoneLastWeek] = useState<number>(0);
@@ -124,7 +125,7 @@ export default function Dashboard() {
     
     return `FY${fyYearDigits}`;
   });
-  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("Existing");
+  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("All Cross Sell + Existing");
   const [filterKam, setFilterKam] = useState<string>("");
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
@@ -244,7 +245,7 @@ export default function Dashboard() {
     fetchKams();
     fetchConversionTableData();
     fetchMeetingsAndProposalsData();
-  }, [filterFinancialYear, filterUpsellStatus, performanceDashboardFY]);
+  }, [filterFinancialYear, filterUpsellStatus, performanceDashboardFY, filterKam]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -303,6 +304,14 @@ export default function Dashboard() {
       return query.eq("type", "New Acquisition");
     }
     return query; // Default: no filter
+  };
+
+  // Helper function to apply KAM filter to a Supabase query
+  const applyKamFilter = (query: any, kamFilter: string): any => {
+    if (!kamFilter || kamFilter === "") {
+      return query; // No filter applied
+    }
+    return query.eq("kam_id", kamFilter);
   };
 
   // Helper function to apply target type filter to a Supabase query
@@ -500,6 +509,7 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from("profiles")
         .select("id, full_name")
+        .eq("role", "kam")
         .not("full_name", "is", null)
         .order("full_name", { ascending: true });
 
@@ -553,6 +563,9 @@ export default function Dashboard() {
       // Apply status filter
       mandatesCountQuery = applyStatusFilter(mandatesCountQuery, filterUpsellStatus);
       
+      // Apply KAM filter
+      mandatesCountQuery = applyKamFilter(mandatesCountQuery, filterKam);
+      
       // Filter by created_at within selected financial year
       mandatesCountQuery = mandatesCountQuery
         .gte("created_at", fyDateRange.start.toISOString())
@@ -563,11 +576,16 @@ export default function Dashboard() {
       if (totalError) throw totalError;
 
       // Fetch mandates created this month
-      const { count: monthCount, error: monthError } = await supabase
+      let monthCountQuery = supabase
         .from("mandates")
         .select("*", { count: "exact", head: true })
         .gte("created_at", startOfMonth.toISOString())
         .lte("created_at", endOfMonth.toISOString());
+      
+      // Apply KAM filter
+      monthCountQuery = applyKamFilter(monthCountQuery, filterKam);
+      
+      const { count: monthCount, error: monthError } = await monthCountQuery;
 
       if (monthError) throw monthError;
 
@@ -579,10 +597,15 @@ export default function Dashboard() {
       if (accountsError) throw accountsError;
 
       // Fetch mandates with awign_share_percent to calculate average
-      const { data: mandatesData, error: mandatesDataError } = await supabase
+      let mandatesDataQuery = supabase
         .from("mandates")
         .select("awign_share_percent")
         .not("awign_share_percent", "is", null);
+      
+      // Apply KAM filter
+      mandatesDataQuery = applyKamFilter(mandatesDataQuery, filterKam);
+      
+      const { data: mandatesData, error: mandatesDataError } = await mandatesDataQuery;
 
       if (mandatesDataError) throw mandatesDataError;
 
@@ -613,11 +636,16 @@ export default function Dashboard() {
         : null;
 
       // Fetch mandates with retention_type = "B" for Group B upsell data
-      const { data: groupBMandates, error: groupBError } = await supabase
+      let groupBMandatesQuery = supabase
         .from("mandates")
         .select("upsell_action_status, revenue_mcv, account_id")
         .eq("retention_type", "B")
         .not("upsell_action_status", "is", null);
+      
+      // Apply KAM filter
+      groupBMandatesQuery = applyKamFilter(groupBMandatesQuery, filterKam);
+      
+      const { data: groupBMandates, error: groupBError } = await groupBMandatesQuery;
 
       if (groupBError) throw groupBError;
 
@@ -657,11 +685,16 @@ export default function Dashboard() {
       });
 
       // Fetch mandates with retention_type = "C" for Group C upsell data
-      const { data: groupCMandates, error: groupCError } = await supabase
+      let groupCMandatesQuery = supabase
         .from("mandates")
         .select("upsell_action_status, revenue_mcv, account_id")
         .eq("retention_type", "C")
         .not("upsell_action_status", "is", null);
+      
+      // Apply KAM filter
+      groupCMandatesQuery = applyKamFilter(groupCMandatesQuery, filterKam);
+      
+      const { data: groupCMandates, error: groupCError } = await groupCMandatesQuery;
 
       if (groupCError) throw groupCError;
 
@@ -701,10 +734,15 @@ export default function Dashboard() {
       });
 
       // Fetch all unique retention types for upsell performance
-      const { data: allMandates, error: allMandatesError } = await supabase
+      let allMandatesQuery = supabase
         .from("mandates")
         .select("retention_type, revenue_mcv, account_id, created_at")
         .not("retention_type", "is", null);
+      
+      // Apply KAM filter
+      allMandatesQuery = applyKamFilter(allMandatesQuery, filterKam);
+      
+      const { data: allMandates, error: allMandatesError } = await allMandatesQuery;
 
       if (allMandatesError) throw allMandatesError;
 
@@ -822,6 +860,7 @@ export default function Dashboard() {
         .from("mandates")
         .select("lob, monthly_data, type");
       lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus);
+      lobMandatesQuery = applyKamFilter(lobMandatesQuery, filterKam);
       const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
 
       // Initialize all LoBs from the mandate form with 0 values
@@ -888,6 +927,7 @@ export default function Dashboard() {
         .from("mandates")
         .select("kam_id, monthly_data, type");
       kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus);
+      kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam);
       const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
 
       // Fetch all KAMs to get their names (only profiles with role = 'kam')
@@ -1019,6 +1059,7 @@ export default function Dashboard() {
         .from("mandates")
         .select("monthly_data, type");
       mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus);
+      mandatesQuery = applyKamFilter(mandatesQuery, filterKam);
       const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
 
       if (filterUpsellStatus === "All Cross Sell") {
@@ -1900,6 +1941,71 @@ export default function Dashboard() {
         });
       }
 
+      // Fetch Cross Sell Target Sum for selected Financial Year
+      // Convert performanceDashboardFY to financial_year format used in monthly_targets
+      const perfFyYearMatch = performanceDashboardFY.match(/FY(\d{2})/);
+      const perfFinancialYearString = perfFyYearMatch 
+        ? (() => {
+            const startYear = 2000 + parseInt(perfFyYearMatch[1], 10);
+            const endYearDigits = String(parseInt(perfFyYearMatch[1], 10) + 1).padStart(2, '0');
+            return `${startYear}-${endYearDigits}`;
+          })()
+        : null;
+
+      // Get FY date range to determine which months to include
+      const perfFyDateRangeForTarget = getFinancialYearDateRange(performanceDashboardFY);
+      const perfFyStartYear = perfFyDateRangeForTarget.start.getFullYear();
+      const perfFyEndYear = perfFyDateRangeForTarget.end.getFullYear();
+
+      // All months in the financial year (April to March)
+      const perfFyMonths = [
+        { month: 4, year: perfFyStartYear },   // April
+        { month: 5, year: perfFyStartYear },   // May
+        { month: 6, year: perfFyStartYear },   // June
+        { month: 7, year: perfFyStartYear },   // July
+        { month: 8, year: perfFyStartYear },   // August
+        { month: 9, year: perfFyStartYear },   // September
+        { month: 10, year: perfFyStartYear },  // October
+        { month: 11, year: perfFyStartYear },  // November
+        { month: 12, year: perfFyStartYear },  // December
+        { month: 1, year: perfFyEndYear },     // January
+        { month: 2, year: perfFyEndYear },     // February
+        { month: 3, year: perfFyEndYear },     // March
+      ];
+
+      // Fetch all cross sell type targets for the selected FY
+      const perfFyMonthNumbers = perfFyMonths.map(m => m.month);
+      const perfFyYears = [perfFyStartYear, perfFyEndYear];
+
+      let crossSellTargetsQuery = supabase
+        .from("monthly_targets")
+        .select("target, month, year")
+        .eq("target_type", "new_cross_sell")
+        .in("month", perfFyMonthNumbers)
+        .in("year", perfFyYears);
+
+      // Filter by financial_year if available
+      if (perfFinancialYearString) {
+        crossSellTargetsQuery = crossSellTargetsQuery.eq("financial_year", perfFinancialYearString);
+      }
+
+      const { data: crossSellTargets, error: crossSellTargetsError } = await crossSellTargetsQuery;
+
+      let totalCrossSellTarget = 0;
+      if (!crossSellTargetsError && crossSellTargets) {
+        // Filter to only include targets that match the FY months exactly
+        crossSellTargets.forEach((target: any) => {
+          const matchesFyMonth = perfFyMonths.some(
+            (fyMonth) => fyMonth.month === target.month && fyMonth.year === target.year
+          );
+          if (matchesFyMonth) {
+            totalCrossSellTarget += parseFloat(target.target?.toString() || "0") || 0;
+          }
+        });
+      }
+
+      setCrossSellTargetSum(totalCrossSellTarget);
+
       // Calculate MCV Tier and Company Size Tier data
       // Generate month columns from April to current month
       // Use currentMonth and currentYear already declared above
@@ -1966,6 +2072,7 @@ export default function Dashboard() {
         .from("mandates")
         .select("account_id, monthly_data, type");
       mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus);
+      mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam);
       const { data: mandatesTierData, error: mandatesTierError } = await mandatesTierQuery;
 
       // Calculate last month's achieved MCV for each account to determine MCV Tier dynamically
@@ -2144,21 +2251,41 @@ export default function Dashboard() {
 
 
 
+  // Helper function to ensure minimum bar length for visibility
+  const ensureMinimumBarLength = (achieved: number, target: number): number => {
+    if (target === 0) return achieved;
+    // If achieved is 0, don't show a bar
+    if (achieved === 0) return 0;
+    // Ensure achieved is at least 2% of target for visibility, but don't exceed actual value if it's already larger
+    const minValue = target * 0.02;
+    return Math.max(achieved, minValue);
+  };
+
+  // Helper function to ensure minimum bar length for both target and achieved bars
+  const ensureMinimumBarLengthForBoth = (value: number, maxValue: number): number => {
+    if (maxValue === 0) return value;
+    // If value is 0, don't show a bar
+    if (value === 0) return 0;
+    // Ensure value is at least 2% of maxValue for visibility, but don't exceed actual value if it's already larger
+    const minValue = maxValue * 0.02;
+    return Math.max(value, minValue);
+  };
+
   // Calculate actualVsTargetAnnual dynamically based on state
   const actualVsTargetAnnual = [
-    { name: "Achieved", value: annualAchieved, fill: "#4169E1" },
+    { name: "Achieved", value: ensureMinimumBarLength(annualAchieved, annualTarget), fill: "#4169E1" },
     { name: "Target", value: annualTarget, fill: "#E0E0E0" },
   ];
 
   // Calculate actualVsTargetQ2 dynamically based on state
   const actualVsTargetQ2 = [
-    { name: "Achieved", value: quarterAchieved, fill: "#4169E1" },
+    { name: "Achieved", value: ensureMinimumBarLength(quarterAchieved, quarterTarget), fill: "#4169E1" },
     { name: "Target", value: quarterTarget, fill: "#E0E0E0" },
   ];
 
   // Calculate actualVsTargetCurrent dynamically based on state
   const actualVsTargetCurrent = [
-    { name: "Achieved", value: currentMonthAchieved, fill: "#4169E1" },
+    { name: "Achieved", value: ensureMinimumBarLength(currentMonthAchieved, currentMonthTarget), fill: "#4169E1" },
     { name: "Target", value: currentMonthTarget, fill: "#E0E0E0" },
   ];
 
@@ -2332,7 +2459,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <p className="text-base font-bold mb-2">MCV Planned</p>
+                <p className="text-base font-bold mb-2">Target MCV</p>
                 <div className="text-3xl font-bold">{formatCurrency(mcvPlanned)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
                   {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
@@ -2364,7 +2491,7 @@ export default function Dashboard() {
                     const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
                     const fyEndYear = (fyStartYear + 1).toString().slice(-2);
                     const fyString = `FY${fyEndYear}`;
-                    return `${fyString} (${ffmAchievedFyPercentage.toFixed(1)}% of MCV Planned)`;
+                    return `${fyString} (${ffmAchievedFyPercentage.toFixed(1)}% of Target MCV)`;
                   })()}
                 </p>
               </>
@@ -2761,7 +2888,15 @@ export default function Dashboard() {
           ) : (
             <ResponsiveContainer width="100%" height={500}>
               <BarChart 
-                data={lobSalesPerformance}
+                data={lobSalesPerformance.map((item) => {
+                  // Find the maximum value between target and achieved for this LoB
+                  const maxValue = Math.max(item.targetMpv, item.achievedMpv);
+                  return {
+                    ...item,
+                    targetMpv: ensureMinimumBarLengthForBoth(item.targetMpv, maxValue),
+                    achievedMpv: ensureMinimumBarLengthForBoth(item.achievedMpv, maxValue),
+                  };
+                })}
                 margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
                 barCategoryGap="20%"
                 barGap={0}
@@ -3049,19 +3184,7 @@ export default function Dashboard() {
       {/* Upsell Performance Table */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Upsell Performance</CardTitle>
-            <Select defaultValue="all">
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="MCV Tier" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Tiers</SelectItem>
-                <SelectItem value="tier1">Tier 1</SelectItem>
-                <SelectItem value="tier2">Tier 2</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <CardTitle>Upsell Performance</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -3201,7 +3324,7 @@ export default function Dashboard() {
                         
                         return (
                           <svg className="absolute top-0 left-0" style={{ width: `${maxWidth}px`, height: `${totalHeight}px`, pointerEvents: 'none' }}>
-                            {/* Green funnel segment: Line 1 to Line 2 */}
+                            {/* Blue funnel segment: Line 1 to Line 2 (TOFU) */}
                             <polygon
                               points={`
                                 ${maxWidth / 2 - calculateWidth(values.tofu) / 2},${y1Top}
@@ -3209,10 +3332,10 @@ export default function Dashboard() {
                                 ${maxWidth / 2 + calculateWidth(values.bofu) / 2},${y2Bottom}
                                 ${maxWidth / 2 - calculateWidth(values.bofu) / 2},${y2Bottom}
                               `}
-                              fill="#4ade80"
+                              fill="#3b82f6"
                             />
                             
-                            {/* Light blue funnel segment: Line 3 to Line 4 */}
+                            {/* Yellow funnel segment: Line 3 to Line 4 (BOFU) */}
                             <polygon
                               points={`
                                 ${maxWidth / 2 - calculateWidth(values.bofu) / 2},${y3Top}
@@ -3220,10 +3343,10 @@ export default function Dashboard() {
                                 ${maxWidth / 2 + calculateWidth(values.closedWon) / 2},${y4Bottom}
                                 ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y4Bottom}
                               `}
-                              fill="#93c5fd"
+                              fill="#eab308"
                             />
                             
-                            {/* Dark blue funnel segment: Line 5 to Line 6 */}
+                            {/* Green funnel segment: Line 5 to Line 6 (Closed Won) */}
                             <polygon
                               points={`
                                 ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y5Top}
@@ -3231,7 +3354,7 @@ export default function Dashboard() {
                                 ${maxWidth / 2 + calculateWidth(values.dropped) / 2},${y6Bottom}
                                 ${maxWidth / 2 - calculateWidth(values.dropped) / 2},${y6Bottom}
                               `}
-                              fill="#2563eb"
+                              fill="#22c55e"
                             />
                             
                             {/* Line 1: TOFU */}
@@ -3240,7 +3363,7 @@ export default function Dashboard() {
                               y={y1Top}
                               width={calculateWidth(values.tofu)}
                               height={barHeight}
-                              fill="#4ade80"
+                              fill="#3b82f6"
                             />
                             
                             {/* Line 2: BOFU's 1st */}
@@ -3249,7 +3372,7 @@ export default function Dashboard() {
                               y={y2Top}
                               width={calculateWidth(values.bofu)}
                               height={barHeight}
-                              fill="#4ade80"
+                              fill="#3b82f6"
                             />
                             
                             {/* Line 3: BOFU's 2nd */}
@@ -3258,7 +3381,7 @@ export default function Dashboard() {
                               y={y3Top}
                               width={calculateWidth(values.bofu)}
                               height={barHeight}
-                              fill="#93c5fd"
+                              fill="#eab308"
                             />
                             
                             {/* Line 4: Closed Won's 1st */}
@@ -3267,7 +3390,7 @@ export default function Dashboard() {
                               y={y4Top}
                               width={calculateWidth(values.closedWon)}
                               height={barHeight}
-                              fill="#93c5fd"
+                              fill="#eab308"
                             />
                             
                             {/* Line 5: Closed Won's 2nd */}
@@ -3276,7 +3399,7 @@ export default function Dashboard() {
                               y={y5Top}
                               width={calculateWidth(values.closedWon)}
                               height={barHeight}
-                              fill="#2563eb"
+                              fill="#22c55e"
                             />
                             
                             {/* Line 6: Dropped's 1st */}
@@ -3285,7 +3408,7 @@ export default function Dashboard() {
                               y={y6Top}
                               width={calculateWidth(values.dropped)}
                               height={barHeight}
-                              fill="#2563eb"
+                              fill="#d1d5db"
                             />
                             
                             {/* Square at the bottom with side length equal to dropped value */}
@@ -3294,7 +3417,7 @@ export default function Dashboard() {
                               y={squareY}
                               width={squareSize}
                               height={squareSize}
-                              fill="#facc15"
+                              fill="#d1d5db"
                             />
                           </svg>
                         );
@@ -3371,21 +3494,69 @@ export default function Dashboard() {
             <CardTitle className="text-base">Funnel Stage Expected Revenue</CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Total Box */}
-            <div className="mb-4 flex justify-center">
-              <div className="inline-flex items-center gap-2 rounded-lg border bg-muted px-4 py-2">
-                <span className="text-lg font-bold">Total:</span>
-                <span className="text-lg font-bold">
+            {/* Detailed Analytics */}
+            <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* Target */}
+              <div className="rounded-lg border bg-muted p-3">
+                <div className="text-xs font-medium text-muted-foreground mb-1">Target</div>
+                <div className="text-xs font-bold">
                   {(() => {
-                    const totalRevenue = funnelRevenue.tofu + funnelRevenue.bofu + funnelRevenue.closedWon + funnelRevenue.dropped;
-                    if (totalRevenue >= 10000000) {
-                      return `₹${(totalRevenue / 10000000).toFixed(2)} Cr`;
-                    } else if (totalRevenue >= 100000) {
-                      return `₹${(totalRevenue / 100000).toFixed(2)} L`;
+                    if (crossSellTargetSum >= 10000000) {
+                      return `₹${(crossSellTargetSum / 10000000).toFixed(2)} Cr`;
+                    } else if (crossSellTargetSum >= 100000) {
+                      return `₹${(crossSellTargetSum / 100000).toFixed(2)} L`;
                     }
-                    return `₹${totalRevenue.toLocaleString("en-IN")}`;
+                    return `₹${crossSellTargetSum.toLocaleString("en-IN")}`;
                   })()}
-                </span>
+                </div>
+              </div>
+
+              {/* Achieved */}
+              <div className="rounded-lg border bg-muted p-3">
+                <div className="text-xs font-medium text-muted-foreground mb-1">Achieved</div>
+                <div className="text-xs font-bold">
+                  {(() => {
+                    const achieved = funnelRevenue.closedWon;
+                    if (achieved >= 10000000) {
+                      return `₹${(achieved / 10000000).toFixed(2)} Cr`;
+                    } else if (achieved >= 100000) {
+                      return `₹${(achieved / 100000).toFixed(2)} L`;
+                    }
+                    return `₹${achieved.toLocaleString("en-IN")}`;
+                  })()}
+                </div>
+              </div>
+
+              {/* In Pipeline */}
+              <div className="rounded-lg border bg-muted p-3">
+                <div className="text-xs font-medium text-muted-foreground mb-1">Pipeline</div>
+                <div className="text-xs font-bold">
+                  {(() => {
+                    const inPipeline = funnelRevenue.tofu + funnelRevenue.bofu;
+                    if (inPipeline >= 10000000) {
+                      return `₹${(inPipeline / 10000000).toFixed(2)} Cr`;
+                    } else if (inPipeline >= 100000) {
+                      return `₹${(inPipeline / 100000).toFixed(2)} L`;
+                    }
+                    return `₹${inPipeline.toLocaleString("en-IN")}`;
+                  })()}
+                </div>
+              </div>
+
+              {/* Dropped */}
+              <div className="rounded-lg border bg-muted p-3">
+                <div className="text-xs font-medium text-muted-foreground mb-1">Dropped</div>
+                <div className="text-xs font-bold">
+                  {(() => {
+                    const dropped = funnelRevenue.dropped;
+                    if (dropped >= 10000000) {
+                      return `₹${(dropped / 10000000).toFixed(2)} Cr`;
+                    } else if (dropped >= 100000) {
+                      return `₹${(dropped / 100000).toFixed(2)} L`;
+                    }
+                    return `₹${dropped.toLocaleString("en-IN")}`;
+                  })()}
+                </div>
               </div>
             </div>
             <div className="flex gap-4">
@@ -3432,7 +3603,7 @@ export default function Dashboard() {
                         
                         return (
                           <svg className="absolute top-0 left-0" style={{ width: `${maxWidth}px`, height: `${totalHeight}px`, pointerEvents: 'none' }}>
-                            {/* Green funnel segment: Line 1 to Line 2 */}
+                            {/* Blue funnel segment: Line 1 to Line 2 (TOFU) */}
                             <polygon
                               points={`
                                 ${maxWidth / 2 - calculateWidth(values.tofu) / 2},${y1Top}
@@ -3440,10 +3611,10 @@ export default function Dashboard() {
                                 ${maxWidth / 2 + calculateWidth(values.bofu) / 2},${y2Bottom}
                                 ${maxWidth / 2 - calculateWidth(values.bofu) / 2},${y2Bottom}
                               `}
-                              fill="#4ade80"
+                              fill="#3b82f6"
                             />
                             
-                            {/* Light blue funnel segment: Line 3 to Line 4 */}
+                            {/* Yellow funnel segment: Line 3 to Line 4 (BOFU) */}
                             <polygon
                               points={`
                                 ${maxWidth / 2 - calculateWidth(values.bofu) / 2},${y3Top}
@@ -3451,10 +3622,10 @@ export default function Dashboard() {
                                 ${maxWidth / 2 + calculateWidth(values.closedWon) / 2},${y4Bottom}
                                 ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y4Bottom}
                               `}
-                              fill="#93c5fd"
+                              fill="#eab308"
                             />
                             
-                            {/* Dark blue funnel segment: Line 5 to Line 6 */}
+                            {/* Green funnel segment: Line 5 to Line 6 (Closed Won) */}
                             <polygon
                               points={`
                                 ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y5Top}
@@ -3462,7 +3633,7 @@ export default function Dashboard() {
                                 ${maxWidth / 2 + calculateWidth(values.dropped) / 2},${y6Bottom}
                                 ${maxWidth / 2 - calculateWidth(values.dropped) / 2},${y6Bottom}
                               `}
-                              fill="#2563eb"
+                              fill="#22c55e"
                             />
                             
                             {/* Line 1: TOFU */}
@@ -3471,7 +3642,7 @@ export default function Dashboard() {
                               y={y1Top}
                               width={calculateWidth(values.tofu)}
                               height={barHeight}
-                              fill="#4ade80"
+                              fill="#3b82f6"
                             />
                             
                             {/* Line 2: BOFU's 1st */}
@@ -3480,7 +3651,7 @@ export default function Dashboard() {
                               y={y2Top}
                               width={calculateWidth(values.bofu)}
                               height={barHeight}
-                              fill="#4ade80"
+                              fill="#3b82f6"
                             />
                             
                             {/* Line 3: BOFU's 2nd */}
@@ -3489,7 +3660,7 @@ export default function Dashboard() {
                               y={y3Top}
                               width={calculateWidth(values.bofu)}
                               height={barHeight}
-                              fill="#93c5fd"
+                              fill="#eab308"
                             />
                             
                             {/* Line 4: Closed Won's 1st */}
@@ -3498,7 +3669,7 @@ export default function Dashboard() {
                               y={y4Top}
                               width={calculateWidth(values.closedWon)}
                               height={barHeight}
-                              fill="#93c5fd"
+                              fill="#eab308"
                             />
                             
                             {/* Line 5: Closed Won's 2nd */}
@@ -3507,7 +3678,7 @@ export default function Dashboard() {
                               y={y5Top}
                               width={calculateWidth(values.closedWon)}
                               height={barHeight}
-                              fill="#2563eb"
+                              fill="#22c55e"
                             />
                             
                             {/* Line 6: Dropped's 1st */}
@@ -3516,7 +3687,7 @@ export default function Dashboard() {
                               y={y6Top}
                               width={calculateWidth(values.dropped)}
                               height={barHeight}
-                              fill="#2563eb"
+                              fill="#d1d5db"
                             />
                             
                             {/* Square at the bottom with side length equal to dropped value */}
@@ -3525,7 +3696,7 @@ export default function Dashboard() {
                               y={squareY}
                               width={squareSize}
                               height={squareSize}
-                              fill="#facc15"
+                              fill="#d1d5db"
                             />
                           </svg>
                         );
