@@ -2873,22 +2873,24 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* LoB Sales Performance Comparison - Full Width */}
-      <Card>
-        <CardHeader>
-          <CardTitle>LoB Sales Performance Comparison</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center h-[300px]">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : lobSalesPerformance.length === 0 ? (
-            <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-              No data available
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={500}>
+      {/* LoB Sales Performance Comparison and Annual Sales Target - Side by Side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* LoB Sales Performance Comparison */}
+        <Card>
+          <CardHeader>
+            <CardTitle>LoB Sales Performance Comparison</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : lobSalesPerformance.length === 0 ? (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={400}>
               <BarChart 
                 data={lobSalesPerformance.map((item) => {
                   // Find the maximum value between target and achieved for this LoB
@@ -2972,10 +2974,10 @@ export default function Dashboard() {
             </ResponsiveContainer>
           )}
         </CardContent>
-      </Card>
+        </Card>
 
-      {/* Annual Sales Target - Individual */}
-      <Card>
+        {/* Annual Sales Target - Individual */}
+        <Card>
         <CardHeader>
           <CardTitle>{filterFinancialYear} Annual Sales Target - Individual</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">Compare target vs achieved sales for individual staff members.</p>
@@ -3043,7 +3045,8 @@ export default function Dashboard() {
             </ResponsiveContainer>
           )}
         </CardContent>
-      </Card>
+        </Card>
+      </div>
 
       {/* MCV Tier and Company Size Tier Table */}
       <Card>
