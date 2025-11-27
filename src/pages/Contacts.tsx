@@ -202,7 +202,7 @@ export default function Contacts() {
         department: formData.department,
         kra: sanitizeValue(formData.kra),
         title: formData.title,
-        level: ensureEnumValue(formData.level, ['Lv.1', 'Lv.2', 'Lv.3']) || formData.level,
+        level: (ensureEnumValue(formData.level, ['Lv.1', 'Lv.2', 'Lv.3']) || formData.level) as "Lv.1" | "Lv.2" | "Lv.3",
         zone: formData.zone,
         region: formData.zone === "Regional" ? sanitizeValue(formData.region) : null,
         reports_to: sanitizeValue(formData.reportsTo),

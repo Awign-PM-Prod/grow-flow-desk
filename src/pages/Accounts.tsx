@@ -202,7 +202,7 @@ export default function Accounts() {
         total_acv: 0, // Will be calculated from mandates
         total_mcv: 0, // Will be calculated from mandates
         mcv_tier: null, // Will be calculated from mandates
-        company_size_tier: ensureEnumValue(formData.companySizeTier, ['Tier 1', 'Tier 2']),
+        company_size_tier: ensureEnumValue(formData.companySizeTier, ['Tier 1', 'Tier 2']) as "Tier 1" | "Tier 2" | null,
         created_by: user.id,
       };
 

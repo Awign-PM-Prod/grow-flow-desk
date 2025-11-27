@@ -982,7 +982,7 @@ export default function Mandates() {
         project_name: formData.projectName,
         account_id: sanitizeValue(formData.accountId),
         kam_id: sanitizeValue(formData.kamId),
-        lob: ensureEnumValue(formData.lob, [
+        lob: (ensureEnumValue(formData.lob, [
           'Diligence & Audit',
           'New Business Development',
           'Digital Gigs',
@@ -991,7 +991,7 @@ export default function Mandates() {
           'Invigilation & Proctoring',
           'Staffing',
           'Others'
-        ]) || formData.lob, // Fallback to original if not in enum (shouldn't happen)
+        ]) || formData.lob) as any, // Fallback to original if not in enum (shouldn't happen)
         use_case: ensureEnumValue(formData.useCase, [
           'Mystery Audit',
           'Non-Mystery Audit',
@@ -1006,21 +1006,23 @@ export default function Mandates() {
           'Market Survey',
           'Edtech',
           'SaaS',
-          'Others'
-        ]),
+          'Others',
+          '-'
+        ]) as any,
         sub_use_case: ensureEnumValue(formData.subUseCase, [
           'Stock Audit',
           'Store Audit',
           'Warehouse Audit',
           'Retail Outlet Audit',
           'Distributor Audit',
-          'Others'
-        ]),
+          'Others',
+          '-'
+        ]) as any,
         type: ensureEnumValue(formData.type, [
           'New Acquisition',
           'New Cross Sell',
           'Existing'
-        ]),
+        ]) as any,
         
         // Handover Info - Set to null if type is "New Cross Sell"
         new_sales_owner: formData.type === "New Cross Sell" ? null : (formData.newSalesOwner || null),
@@ -1029,37 +1031,37 @@ export default function Mandates() {
         handover_mcv: formData.type === "New Cross Sell" ? null : (formData.handoverMcv ? parseFloat(formData.handoverMcv) : null),
         prj_duration_months: formData.type === "New Cross Sell" ? null : (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null),
         handover_acv: formData.type === "New Cross Sell" ? null : (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null),
-        handover_prj_type: formData.type === "New Cross Sell" ? null : ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
+        handover_prj_type: formData.type === "New Cross Sell" ? null : (ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']) as any),
         
         // Revenue Info
         revenue_monthly_volume: formData.revenueMonthlyVolume ? parseFloat(formData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: formData.revenueCommercialPerHead ? parseFloat(formData.revenueCommercialPerHead) : null,
         revenue_mcv: formData.revenueMcv ? parseFloat(formData.revenueMcv) : null,
         revenue_acv: formData.revenueAcv ? parseFloat(formData.revenueAcv) : null,
-        revenue_prj_type: ensureEnumValue(formData.revenuePrjType, ['Recurring', 'One-time']),
+        revenue_prj_type: ensureEnumValue(formData.revenuePrjType, ['Recurring', 'One-time']) as any,
         
         // Mandate Checker
         mandate_health: ensureEnumValue(formData.mandateHealth, [
           'Exceeds Expectations',
           'Meets Expectations',
           'Need Improvement'
-        ]),
-        upsell_constraint: ensureEnumValue(formData.upsellConstraint, ['YES', 'NO']),
-        upsell_constraint_type: ensureEnumValue(formData.upsellConstraintType, ['Internal', 'External']),
+        ]) as any,
+        upsell_constraint: ensureEnumValue(formData.upsellConstraint, ['YES', 'NO']) as any,
+        upsell_constraint_type: ensureEnumValue(formData.upsellConstraintType, ['Internal', 'External']) as any,
         upsell_constraint_sub: ensureEnumValue(formData.upsellConstraintSub, [
           'Profitability',
           'Delivery',
           'Others',
           'Not enough demand',
           'Collection Issue'
-        ]),
+        ]) as any,
         upsell_constraint_sub2: sanitizeValue(formData.upsellConstraintSub2), // Can be free text, so just sanitize
-        client_budget_trend: ensureEnumValue(formData.clientBudgetTrend, ['Increase', 'Same', 'Decrease']),
-        awign_share_percent: ensureEnumValue(formData.awignSharePercent, ['Below 70%', '70% & Above']),
-        retention_type: ensureEnumValue(formData.retentionType, ['STAR', 'A', 'B', 'C', 'D', 'E', 'NI']),
+        client_budget_trend: ensureEnumValue(formData.clientBudgetTrend, ['Increase', 'Same', 'Decrease']) as any,
+        awign_share_percent: ensureEnumValue(formData.awignSharePercent, ['Below 70%', '70% & Above']) as any,
+        retention_type: ensureEnumValue(formData.retentionType, ['Star', 'A', 'B', 'C', 'D', 'E', 'NI']) as any,
         
         // Upsell Action Status
-        upsell_action_status: ensureEnumValue(formData.upsellActionStatus, ['Not Started', 'Ongoing', 'Done']),
+        upsell_action_status: ensureEnumValue(formData.upsellActionStatus, ['Not Started', 'Ongoing', 'Done']) as any,
         
         // Metadata
         created_by: user.id,
@@ -1087,6 +1089,7 @@ export default function Mandates() {
         lob: "",
         useCase: "",
         subUseCase: "",
+        type: "",
         newSalesOwner: "",
         handoverMonthlyVolume: "",
         handoverCommercialPerHead: "",
@@ -3097,13 +3100,13 @@ export default function Mandates() {
                           value={formData.upsellConstraintSub}
                           onValueChange={(value) => handleInputChange("upsellConstraintSub", value)}
                           required
-                          disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-"}
+                          disabled={!formData.upsellConstraint || formData.upsellConstraint !== "YES" || !formData.upsellConstraintType || formData.upsellConstraintType === "-"}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select" />
                           </SelectTrigger>
                           <SelectContent>
-                            {formData.upsellConstraint === "NO" ? (
+                            {formData.upsellConstraint !== "YES" ? (
                               <div className="px-2 py-1.5 text-sm text-muted-foreground">
                                 Not applicable
                               </div>
@@ -3152,7 +3155,7 @@ export default function Mandates() {
                             value={formData.upsellConstraintSub2}
                             onValueChange={(value) => handleInputChange("upsellConstraintSub2", value)}
                             required
-                            disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-" || !formData.upsellConstraintSub || formData.upsellConstraintSub === "-" || getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length === 0}
+                            disabled={!formData.upsellConstraint || formData.upsellConstraint !== "YES" || !formData.upsellConstraintType || formData.upsellConstraintType === "-" || !formData.upsellConstraintSub || formData.upsellConstraintSub === "-" || getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length === 0}
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Select" />
@@ -4498,7 +4501,7 @@ export default function Mandates() {
               if (fetchError) throw fetchError;
 
               // Update or create monthly_data
-              const currentData = currentMandate?.monthly_data || {};
+              const currentData = (currentMandate?.monthly_data as Record<string, any>) || {};
               const updatedData = {
                 ...currentData,
                 [monthYear]: [plannedMcv, achievedMcv],

@@ -1380,7 +1380,7 @@ export default function Pipeline() {
         spoc_id: sanitizeValue(formData.spocId),
         spoc2_id: sanitizeValue(formData.spoc2Id),
         spoc3_id: sanitizeValue(formData.spoc3Id),
-        lob: ensureEnumValue(formData.lob, [
+        lob: (ensureEnumValue(formData.lob, [
           'Diligence & Audit',
           'New Business Development',
           'Digital Gigs',
@@ -1389,8 +1389,8 @@ export default function Pipeline() {
           'Invigilation & Proctoring',
           'Staffing',
           'Others'
-        ]) || formData.lob, // Fallback to original if not in enum (shouldn't happen)
-        use_case: ensureEnumValue(formData.useCase, [
+        ]) || formData.lob) as any, // Fallback to original if not in enum (shouldn't happen)
+        use_case: (ensureEnumValue(formData.useCase, [
           'Mystery Audit',
           'Non-Mystery Audit',
           'Background Verification',
@@ -1405,15 +1405,15 @@ export default function Pipeline() {
           'Edtech',
           'SaaS',
           'Others'
-        ]) || "Others", // Required field, default to "Others" if "-" or invalid
-        sub_use_case: ensureEnumValue(formData.subUseCase, [
+        ]) || "Others") as any, // Required field, default to "Others" if "-" or invalid
+        sub_use_case: (ensureEnumValue(formData.subUseCase, [
           'Stock Audit',
           'Store Audit',
           'Warehouse Audit',
           'Retail Outlet Audit',
           'Distributor Audit',
           'Others'
-        ]) || "Others", // Required field, default to "Others" if "-" or invalid
+        ]) || "Others") as any, // Required field, default to "Others" if "-" or invalid
         monthly_volume: parseFloat(formData.monthlyVolume) || 0,
         max_monthly_volume: parseFloat(formData.maxMonthlyVolume) || 0,
         commercial_per_head: parseFloat(formData.commercialPerHead) || 0,
@@ -1422,8 +1422,8 @@ export default function Pipeline() {
         max_mpv: parseFloat(formData.maxMpv) || 0,
         prj_duration_months: parseInt(formData.prjDurationMonths) || 0,
         gm_threshold: parseFloat(formData.gmThreshold) || 0,
-        prj_frequency: ensureEnumValue(formData.prjFrequency, ['Recurring', 'One-time']) || formData.prjFrequency,
-        status: ensureEnumValue(formData.status, [
+        prj_frequency: (ensureEnumValue(formData.prjFrequency, ['Recurring', 'One-time']) || formData.prjFrequency) as any,
+        status: (ensureEnumValue(formData.status, [
           'Listed',
           'Pre-Appointment Prep Done',
           'Discovery Meeting Done',
@@ -1434,7 +1434,7 @@ export default function Pipeline() {
           'Commercial Agreed',
           'Closed Won',
           'Dropped'
-        ]) || formData.status,
+        ]) || formData.status) as any,
         prj_start_date: sanitizeValue(formData.prjStartDate) || null,
         probability: parseInt(formData.probability) || 10,
         discovery_meeting_slides: sanitizeValue(formData.discoveryMeetingSlides),
@@ -1449,7 +1449,7 @@ export default function Pipeline() {
           'Requirement not feasible',
           'Commercials above Client\'s Threshold',
           'Others (put details below)'
-        ]),
+        ]) as any,
         dropped_reason_others: sanitizeValue(formData.droppedReasonOthers),
         created_by: user.id,
       };
@@ -3120,8 +3120,8 @@ export default function Pipeline() {
                   </div>
                   <Calendar
                     mode="range"
-                    selected={filterExpectedContractSignDateRange}
-                    onSelect={setFilterExpectedContractSignDateRange}
+                    selected={filterExpectedContractSignDateRange as any}
+                    onSelect={(range: any) => setFilterExpectedContractSignDateRange(range || undefined)}
                     numberOfMonths={2}
                   />
                 </PopoverContent>
