@@ -2673,7 +2673,7 @@ export default function Dashboard() {
                       dataKey="target" 
                       fill="#E0E0E0" 
                       name="Target" 
-                      barSize={50}
+                      barSize={60}
                       radius={[0, 4, 4, 0]}
                       isAnimationActive={false}
                     />
@@ -2682,7 +2682,7 @@ export default function Dashboard() {
                       dataKey="achieved" 
                       fill="#4169E1" 
                       name="Achieved" 
-                      barSize={40}
+                      barSize={48}
                       radius={[0, 4, 4, 0]}
                       isAnimationActive={false}
                     />
@@ -2726,7 +2726,7 @@ export default function Dashboard() {
                       dataKey="target" 
                       fill="#E0E0E0" 
                       name="Target" 
-                      barSize={50}
+                      barSize={60}
                       radius={[0, 4, 4, 0]}
                       isAnimationActive={false}
                     />
@@ -2735,7 +2735,7 @@ export default function Dashboard() {
                       dataKey="achieved" 
                       fill="#4169E1" 
                       name="Achieved" 
-                      barSize={40}
+                      barSize={48}
                       radius={[0, 4, 4, 0]}
                       isAnimationActive={false}
                     />
@@ -2786,7 +2786,7 @@ export default function Dashboard() {
                       dataKey="target" 
                       fill="#E0E0E0" 
                       name="Target" 
-                      barSize={50}
+                      barSize={60}
                       radius={[0, 4, 4, 0]}
                       isAnimationActive={false}
                     />
@@ -2795,7 +2795,7 @@ export default function Dashboard() {
                       dataKey="achieved" 
                       fill="#4169E1" 
                       name="Achieved" 
-                      barSize={40}
+                      barSize={48}
                       radius={[0, 4, 4, 0]}
                       isAnimationActive={false}
                     />
