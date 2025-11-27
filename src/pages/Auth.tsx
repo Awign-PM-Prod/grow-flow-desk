@@ -25,7 +25,7 @@ export default function Auth() {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   useEffect(() => {
-    // Handle password recovery flow from URL hash or query params
+    // Handle password recovery and invitation flow from URL hash or query params
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const queryParams = new URLSearchParams(window.location.search);
     
@@ -36,17 +36,20 @@ export default function Auth() {
     if (error) {
       toast({
         title: "Error",
-        description: errorDescription || "Invalid or expired reset link. Please request a new one.",
+        description: errorDescription || "Invalid or expired link. Please request a new one.",
         variant: "destructive",
       });
       return;
     }
     
-    if (type === "recovery") {
+    // Handle both recovery and invite types - both need password setup
+    if (type === "recovery" || type === "invite") {
       setIsPasswordRecovery(true);
       toast({
         title: "Set your password",
-        description: "Please enter your new password below.",
+        description: type === "invite" 
+          ? "Welcome! Please create a password for your account." 
+          : "Please enter your new password below.",
       });
       return;
     }
