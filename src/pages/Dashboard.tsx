@@ -2667,7 +2667,7 @@ export default function Dashboard() {
                       formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
                       labelFormatter={() => ''}
                     />
-                    <Legend />
+                    <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
                     {/* Target bar (grey) rendered first with larger size to appear behind */}
                     <Bar 
                       dataKey="target" 
@@ -2720,7 +2720,7 @@ export default function Dashboard() {
                       formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
                       labelFormatter={() => ''}
                     />
-                    <Legend />
+                    <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
                     {/* Target bar (grey) rendered first with larger size to appear behind */}
                     <Bar 
                       dataKey="target" 
@@ -2780,7 +2780,7 @@ export default function Dashboard() {
                       formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
                       labelFormatter={() => ''}
                     />
-                    <Legend />
+                    <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
                     {/* Target bar (grey) rendered first with larger size to appear behind */}
                     <Bar 
                       dataKey="target" 
@@ -3064,7 +3064,7 @@ export default function Dashboard() {
                   }}
                   cursor={false}
                 />
-                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
                 {/* Target bar (grey) rendered first with larger size to appear behind */}
                 <Bar 
                   dataKey="targetMpv" 
@@ -3134,7 +3134,7 @@ export default function Dashboard() {
                   }}
                   cursor={false}
                 />
-                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
                 {/* Target bar (grey) rendered first with larger size to appear behind */}
                 <Bar 
                   dataKey="targetMpv" 
