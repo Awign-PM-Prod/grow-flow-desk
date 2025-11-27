@@ -3024,16 +3024,16 @@ export default function Dashboard() {
                   cursor={false}
                 />
                 <Legend />
-                {/* Render both bars without stacking - they'll overlap starting from 0 */}
-                {/* Render the higher value bar first, then the lower value bar on top */}
+                {/* Target bar (grey) rendered first with larger size to appear behind */}
                 <Bar 
                   dataKey="targetMpv" 
                   fill="#E0E0E0" 
                   name="Target MPV" 
-                  barSize={40}
+                  barSize={50}
                   activeBar={false}
                   isAnimationActive={false}
                 />
+                {/* Achieved bar (blue) rendered on top with smaller size */}
                 <Bar 
                   dataKey="achievedMpv" 
                   fill="#4169E1" 
@@ -3096,15 +3096,16 @@ export default function Dashboard() {
                   cursor={false}
                 />
                 <Legend />
-                {/* Render both bars without stacking - they'll overlap starting from 0 */}
+                {/* Target bar (grey) rendered first with larger size to appear behind */}
                 <Bar 
                   dataKey="targetMpv" 
                   fill="#E0E0E0" 
                   name="Target MPV" 
-                  barSize={40}
+                  barSize={50}
                   activeBar={false}
                   isAnimationActive={false}
                 />
+                {/* Achieved bar (blue) rendered on top with smaller size */}
                 <Bar 
                   dataKey="achievedMpv" 
                   fill="#4169E1" 
