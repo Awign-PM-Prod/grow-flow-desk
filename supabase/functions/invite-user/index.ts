@@ -1,8 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.0";
-import { Resend } from "https://esm.sh/resend@4.0.0";
-
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -80,163 +77,55 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("User with this email already exists");
     }
 
-    // Create user with a temporary password (they'll set their own via magic link)
-    const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      email_confirm: true,
-      user_metadata: {
-        full_name,
-      },
-    });
-
-    if (createError || !newUser.user) {
-      console.error("Error creating user:", createError);
-      throw new Error("Failed to create user");
-    }
-
-    console.log("User created successfully:", newUser.user.id);
-
-    // Update profile with role
-    const { error: roleUpdateError } = await supabaseAdmin
-      .from("profiles")
-      .update({
-        role: role,
-      })
-      .eq("id", newUser.user.id);
-
-    if (roleUpdateError) {
-      console.error("Error assigning role:", roleUpdateError);
-      // Clean up: delete the user if role assignment fails
-      await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
-      throw new Error("Failed to assign role to user");
-    }
-
-    console.log("Role assigned successfully");
-
-    // Generate password reset link
-    const { data: resetData, error: resetError } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'recovery',
-      email: email,
-    });
-
-    if (resetError || !resetData) {
-      console.error("Error generating reset link:", resetError);
-      throw new Error("Failed to generate password setup link");
-    }
-
-    console.log("Password reset link generated");
-
-    // Get the origin from the request
-    const origin = req.headers.get("origin") || Deno.env.get("SITE_URL") || supabaseUrl;
+    // Get the redirect URL from the request origin
+    const origin = req.headers.get("origin") || req.headers.get("referer");
+    let redirectTo = `${supabaseUrl.replace('.supabase.co', '.lovable.app')}/auth`;
     
-    // Create the setup password URL
-    const setupUrl = `${origin}/auth?type=recovery&access_token=${resetData.properties.action_link.split('access_token=')[1]}`;
+    if (origin) {
+      // Extract the base URL from origin
+      const url = new URL(origin);
+      redirectTo = `${url.origin}/auth`;
+    }
 
-    // Send invitation email
-    const roleLabels = {
-      kam: "Key Account Manager",
-      manager: "Manager",
-      leadership: "Leadership",
-      superadmin: "Super Admin",
-    };
+    console.log("Redirect URL:", redirectTo);
 
-    const emailResponse = await resend.emails.send({
-      from: "CRM Pro <userinvitation@awign.in>",
-      to: [email],
-      subject: "Welcome to CRM Pro - Set Up Your Account",
-      html: `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <style>
-              body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-                line-height: 1.6;
-                color: #333;
-                max-width: 600px;
-                margin: 0 auto;
-                padding: 20px;
-              }
-              .header {
-                background: linear-gradient(135deg, hsl(200, 95%, 45%), hsl(195, 85%, 50%));
-                color: white;
-                padding: 30px;
-                border-radius: 8px 8px 0 0;
-                text-align: center;
-              }
-              .content {
-                background: #f8f9fa;
-                padding: 30px;
-                border-radius: 0 0 8px 8px;
-              }
-              .button {
-                display: inline-block;
-                background: hsl(200, 95%, 45%);
-                color: white;
-                padding: 12px 30px;
-                text-decoration: none;
-                border-radius: 6px;
-                font-weight: 600;
-                margin: 20px 0;
-              }
-              .info-box {
-                background: white;
-                padding: 15px;
-                border-left: 4px solid hsl(200, 95%, 45%);
-                margin: 20px 0;
-              }
-              .footer {
-                text-align: center;
-                margin-top: 30px;
-                color: #666;
-                font-size: 12px;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>Welcome to CRM Pro!</h1>
-            </div>
-            <div class="content">
-              <p>Hi ${full_name},</p>
-              
-              <p>You've been invited to join CRM Pro as a <strong>${roleLabels[role]}</strong>.</p>
-              
-              <p>To get started, please click the button below to set up your password and access your account:</p>
-              
-              <div style="text-align: center;">
-                <a href="${setupUrl}" class="button">Set Up Your Password</a>
-              </div>
-              
-              <div class="info-box">
-                <strong>Your Account Details:</strong><br>
-                Email: ${email}<br>
-                Role: ${roleLabels[role]}
-              </div>
-              
-              <p>This link will expire in 24 hours for security reasons.</p>
-              
-              <p>If you have any questions, please contact your administrator.</p>
-              
-              <p>Best regards,<br>The CRM Pro Team</p>
-            </div>
-            <div class="footer">
-              <p>© 2025 CRM Pro. All rights reserved.</p>
-            </div>
-          </body>
-        </html>
-      `,
-    });
+    // Invite user using Supabase's built-in invitation system
+    // This will create the user and send an invitation email automatically
+    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      email,
+      {
+        data: {
+          full_name,
+        },
+        redirectTo,
+      }
+    );
 
-    console.log("Email sent successfully:", emailResponse);
+    if (inviteError) {
+      console.error("Error inviting user:", inviteError);
+      throw new Error(inviteError.message);
+    }
+
+    console.log("User invited successfully:", inviteData.user?.id);
+
+    // Update the user's role in the profiles table
+    const { error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .update({ role, full_name })
+      .eq("id", inviteData.user!.id);
+
+    if (profileError) {
+      console.error("Error updating profile:", profileError);
+      // Don't fail the entire operation if profile update fails
+    }
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        message: "User invited successfully",
+        message: "User invited successfully. They will receive an email with instructions to set their password.",
         user: {
-          id: newUser.user.id,
-          email: newUser.user.email,
+          id: inviteData.user!.id,
+          email: inviteData.user!.email,
           role: role,
         }
       }),

@@ -11,16 +11,19 @@ export function UserInviteInfo() {
           <strong>1. Invite:</strong> Click "Invite User" to send an invitation email with a secure setup link.
         </p>
         <p>
-          <strong>2. Email:</strong> The user receives an email with instructions to set their password.
+          <strong>2. Email:</strong> The user receives an authentication email from Supabase with instructions to set their password.
         </p>
         <p>
           <strong>3. Setup:</strong> They click the link, which takes them to the auth page to create their password.
         </p>
         <p>
-          <strong>4. Access:</strong> Once set up, they can log in and access the system with their assigned role.
+          <strong>4. Verification:</strong> Once the password is set, the user account is verified automatically.
+        </p>
+        <p>
+          <strong>5. Access:</strong> They are redirected to the login page and can start using the portal with their assigned role.
         </p>
         <p className="mt-3 text-xs text-muted-foreground">
-          Note: Make sure you have configured your Resend account and verified your sending domain.
+          Note: Make sure your Supabase authentication email templates are configured and the Site URL and Redirect URLs are set correctly in Supabase.
         </p>
       </AlertDescription>
     </Alert>
