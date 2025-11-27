@@ -2634,7 +2634,7 @@ export default function Dashboard() {
         {/* Annual */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
+            <CardTitle>
               {`${filterFinancialYear} Actual vs Target (Annual)`}
             </CardTitle>
           </CardHeader>
@@ -2675,7 +2675,7 @@ export default function Dashboard() {
         {/* Current Quarter */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
+            <CardTitle>
               {`${filterFinancialYear} Actual vs Target (${getCurrentFinancialYearQuarter()})`}
             </CardTitle>
           </CardHeader>
@@ -2719,7 +2719,7 @@ export default function Dashboard() {
         {/* Current Month */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
+            <CardTitle>
               {(() => {
                 const now = new Date();
                 const monthName = now.toLocaleString('default', { month: 'long' });
@@ -2777,96 +2777,168 @@ export default function Dashboard() {
                   No dropped deals found
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height={400}>
-                  <PieChart>
-                    <Pie
-                      data={droppedSalesData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={5}
-                      dataKey="value"
-                      label={(props: any) => {
-                        const { cx, cy, midAngle, innerRadius, outerRadius, value, name, fill } = props;
-                        const total = droppedSalesData.reduce((sum, item) => sum + item.value, 0);
-                        const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : "0.00";
-                        
-                        // Capitalize first letter of each word
-                        const capitalizeWords = (text: string) => {
-                          return text
-                            .split(' ')
-                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                            .join(' ');
-                        };
-                        
-                        const capitalizedName = capitalizeWords(name);
-                        
-                        const RADIAN = Math.PI / 180;
-                        // Point on the outer edge of the pie segment
-                        const radius = outerRadius;
-                        const xLabel = cx + radius * Math.cos(-midAngle * RADIAN);
-                        const yLabel = cy + radius * Math.sin(-midAngle * RADIAN);
-                        
-                        // Calculate label position (outside the pie with gap)
-                        const gap = 15; // Gap between line end and text
-                        const labelRadius = outerRadius + 30;
-                        const labelX = cx + (labelRadius + gap) * Math.cos(-midAngle * RADIAN);
-                      const labelY = cy + (labelRadius + gap) * Math.sin(-midAngle * RADIAN);
-                      
-                      // Line end position (before the gap)
-                      const lineEndX = cx + labelRadius * Math.cos(-midAngle * RADIAN);
-                      const lineEndY = cy + labelRadius * Math.sin(-midAngle * RADIAN);
-                      
-                      // Determine text anchor based on position
-                      const textAnchor = xLabel > cx ? "start" : "end";
-                      
-                      return (
-                        <g>
-                          {/* Line from segment edge to label (with gap before text) */}
-                          <line
-                            x1={xLabel}
-                            y1={yLabel}
-                            x2={lineEndX}
-                            y2={lineEndY}
-                            stroke={fill}
-                            strokeWidth={1.5}
-                          />
-                          {/* Label text - reason name */}
-                          <text
-                            x={labelX}
-                            y={labelY}
-                            textAnchor={textAnchor}
-                            fill={fill}
-                            fontSize={14}
-                            fontWeight={500}
-                            dy={-8}
-                          >
-                            {capitalizedName}
-                          </text>
-                          {/* Label text - count and percentage */}
-                          <text
-                            x={labelX}
-                            y={labelY}
-                            textAnchor={textAnchor}
-                            fill={fill}
-                            fontSize={13}
-                            dy={8}
-                          >
-                            {value} ({percentage}%)
-                          </text>
-                        </g>
-                      );
-                    }}
-                    labelLine={false}
-                  >
-                    {droppedSalesData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+                <div className="overflow-hidden">
+                  <ResponsiveContainer width="100%" height={400}>
+                    <PieChart>
+                      <Pie
+                        data={droppedSalesData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={5}
+                        dataKey="value"
+                        label={(props: any) => {
+                          const { cx, cy, midAngle, innerRadius, outerRadius, value, name, fill } = props;
+                          const total = droppedSalesData.reduce((sum, item) => sum + item.value, 0);
+                          const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : "0.00";
+                          
+                          // Capitalize first letter of each word
+                          const capitalizeWords = (text: string) => {
+                            return text
+                              .split(' ')
+                              .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                              .join(' ');
+                          };
+                          
+                          const capitalizedName = capitalizeWords(name);
+                          
+                          // Split long labels into 2 lines to prevent overflow
+                          const maxLabelLength = 20;
+                          const splitIntoTwoLines = (text: string): string[] => {
+                            if (text.length <= maxLabelLength) {
+                              return [text];
+                            }
+                            
+                            // Try to split at a word boundary
+                            const words = text.split(' ');
+                            if (words.length > 1) {
+                              let firstLine = '';
+                              let secondLine = '';
+                              
+                              for (const word of words) {
+                                if ((firstLine + ' ' + word).trim().length <= maxLabelLength) {
+                                  firstLine = (firstLine + ' ' + word).trim();
+                                } else {
+                                  secondLine = (secondLine + ' ' + word).trim();
+                                }
+                              }
+                              
+                              // If we couldn't split at word boundary, split at character
+                              if (!secondLine) {
+                                firstLine = text.substring(0, maxLabelLength);
+                                secondLine = text.substring(maxLabelLength);
+                              }
+                              
+                              return [firstLine, secondLine];
+                            }
+                            
+                            // If no spaces, split at character
+                            return [
+                              text.substring(0, maxLabelLength),
+                              text.substring(maxLabelLength)
+                            ];
+                          };
+                          
+                          const labelLines = splitIntoTwoLines(capitalizedName);
+                          const isTwoLines = labelLines.length > 1;
+                          
+                          const RADIAN = Math.PI / 180;
+                          // Point on the outer edge of the pie segment
+                          const radius = outerRadius;
+                          const xLabel = cx + radius * Math.cos(-midAngle * RADIAN);
+                          const yLabel = cy + radius * Math.sin(-midAngle * RADIAN);
+                          
+                          // Calculate label position (outside the pie with gap)
+                          // Use a more conservative label radius to prevent overflow
+                          const gap = 10; // Gap between line end and text
+                          const labelRadius = outerRadius + 20; // Reduced from 30 to prevent overflow
+                          const labelX = cx + (labelRadius + gap) * Math.cos(-midAngle * RADIAN);
+                          const labelY = cy + (labelRadius + gap) * Math.sin(-midAngle * RADIAN);
+                          
+                          // Line end position (before the gap)
+                          const lineEndX = cx + labelRadius * Math.cos(-midAngle * RADIAN);
+                          const lineEndY = cy + labelRadius * Math.sin(-midAngle * RADIAN);
+                          
+                          // Determine text anchor based on position
+                          const textAnchor = xLabel > cx ? "start" : "end";
+                          
+                          return (
+                            <g>
+                              {/* Line from segment edge to label (with gap before text) */}
+                              <line
+                                x1={xLabel}
+                                y1={yLabel}
+                                x2={lineEndX}
+                                y2={lineEndY}
+                                stroke={fill}
+                                strokeWidth={1.5}
+                              />
+                              {/* Label text - reason name (single or two lines) */}
+                              {isTwoLines ? (
+                                <>
+                                  {/* First line */}
+                                  <text
+                                    x={labelX}
+                                    y={labelY}
+                                    textAnchor={textAnchor}
+                                    fill={fill}
+                                    fontSize={14}
+                                    fontWeight={500}
+                                    dy={-8}
+                                  >
+                                    {labelLines[0]}
+                                  </text>
+                                  {/* Second line */}
+                                  <text
+                                    x={labelX}
+                                    y={labelY}
+                                    textAnchor={textAnchor}
+                                    fill={fill}
+                                    fontSize={14}
+                                    fontWeight={500}
+                                    dy={4}
+                                  >
+                                    {labelLines[1]}
+                                  </text>
+                                </>
+                              ) : (
+                                <text
+                                  x={labelX}
+                                  y={labelY}
+                                  textAnchor={textAnchor}
+                                  fill={fill}
+                                  fontSize={14}
+                                  fontWeight={500}
+                                  dy={-8}
+                                >
+                                  {labelLines[0]}
+                                </text>
+                              )}
+                              {/* Label text - count and percentage */}
+                              <text
+                                x={labelX}
+                                y={labelY}
+                                textAnchor={textAnchor}
+                                fill={fill}
+                                fontSize={13}
+                                dy={isTwoLines ? 20 : 8}
+                              >
+                                {value} ({percentage}%)
+                              </text>
+                            </g>
+                          );
+                        }}
+                        labelLine={false}
+                      >
+                        {droppedSalesData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
             )}
           </CardContent>
         </Card>
