@@ -3007,7 +3007,7 @@ export default function Dashboard() {
                 No data available
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={400}>
+              <ResponsiveContainer width="100%" height={lobSalesPerformance.length * 50 + 100}>
               <BarChart 
                 data={lobSalesPerformance.map((item) => {
                   // Find the maximum value between target and achieved for this LoB
@@ -3018,21 +3018,17 @@ export default function Dashboard() {
                     achievedMpv: ensureMinimumBarLengthForBoth(item.achievedMpv, maxValue),
                   };
                 })}
-                margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-                barCategoryGap="20%"
+                layout="vertical"
+                margin={{ top: 10, right: 30, left: 150, bottom: 10 }}
+                barCategoryGap="15%"
                 barGap={0}
               >
-                <XAxis 
-                  dataKey="lob" 
-                  angle={-45}
-                  textAnchor="end"
-                  height={100}
-                  interval={0}
-                  tick={{ fontSize: 12 }}
-                />
+                <XAxis type="number" />
                 <YAxis 
-                  domain={[0, 'auto']}
-                  allowDataOverflow={false}
+                  dataKey="lob"
+                  type="category"
+                  width={140}
+                  tick={{ fontSize: 12 }}
                 />
                 <Tooltip 
                   formatter={(value: number, name: string) => {
@@ -3073,7 +3069,8 @@ export default function Dashboard() {
                   dataKey="targetMpv" 
                   fill="#E0E0E0" 
                   name="Target MPV" 
-                  barSize={50}
+                  barSize={20}
+                  radius={[0, 4, 4, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 />
@@ -3082,7 +3079,8 @@ export default function Dashboard() {
                   dataKey="achievedMpv" 
                   fill="#4169E1" 
                   name="Achieved MPV" 
-                  barSize={40}
+                  barSize={15}
+                  radius={[0, 4, 4, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 />
@@ -3108,23 +3106,19 @@ export default function Dashboard() {
               No data available
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={400}>
+            <ResponsiveContainer width="100%" height={kamSalesPerformance.length * 50 + 100}>
               <BarChart
                 data={kamSalesPerformance}
-                margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-                barCategoryGap="20%"
+                layout="vertical"
+                margin={{ top: 10, right: 30, left: 120, bottom: 10 }}
+                barCategoryGap="15%"
               >
-                <XAxis 
-                  dataKey="kamName" 
-                  angle={-45}
-                  textAnchor="end"
-                  height={100}
-                  interval={0}
-                  tick={{ fontSize: 12 }}
-                />
+                <XAxis type="number" />
                 <YAxis 
-                  domain={[0, 'auto']}
-                  allowDataOverflow={false}
+                  dataKey="kamName"
+                  type="category"
+                  width={110}
+                  tick={{ fontSize: 12 }}
                 />
                 <Tooltip 
                   formatter={(value: number) => {
@@ -3144,7 +3138,8 @@ export default function Dashboard() {
                   dataKey="targetMpv" 
                   fill="#E0E0E0" 
                   name="Target MPV" 
-                  barSize={50}
+                  barSize={20}
+                  radius={[0, 4, 4, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 />
@@ -3153,7 +3148,8 @@ export default function Dashboard() {
                   dataKey="achievedMpv" 
                   fill="#4169E1" 
                   name="Achieved MPV" 
-                  barSize={40}
+                  barSize={15}
+                  radius={[0, 4, 4, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 />
