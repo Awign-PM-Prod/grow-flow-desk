@@ -3022,7 +3022,6 @@ export default function Dashboard() {
                 barCategoryGap="20%"
                 barGap={0}
               >
-                <CartesianGrid strokeDasharray="3 3" />
                 <XAxis 
                   dataKey="lob" 
                   angle={-45}
@@ -3115,7 +3114,6 @@ export default function Dashboard() {
                 margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
                 barCategoryGap="20%"
               >
-                <CartesianGrid strokeDasharray="3 3" />
                 <XAxis 
                   dataKey="kamName" 
                   angle={-45}
