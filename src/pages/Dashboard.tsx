@@ -2654,9 +2654,13 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
+                <div className="mb-4">
+                  <p className="text-sm">
+                    Target: {formatCurrency(annualTarget)} | Achieved: {formatCurrency(annualAchieved)} | {annualTarget > 0 ? `${((annualAchieved / annualTarget) * 100).toFixed(1)}% of Target` : "N/A"}
+                  </p>
+                </div>
                 <ResponsiveContainer width="100%" height={100}>
                   <BarChart data={actualVsTargetAnnual} layout="vertical" barCategoryGap="20%">
-                    <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
@@ -2684,15 +2688,6 @@ export default function Dashboard() {
                     />
                   </BarChart>
                 </ResponsiveContainer>
-                <div className="mt-4 space-y-1">
-                  <p className="text-sm">Target: {formatCurrency(annualTarget)}</p>
-                  <p className="text-sm">Achieved: {formatCurrency(annualAchieved)}</p>
-                  <p className="text-sm font-medium">
-                    {annualTarget > 0 
-                      ? `${((annualAchieved / annualTarget) * 100).toFixed(1)}% of Target`
-                      : "N/A"}
-                  </p>
-                </div>
               </>
             )}
           </CardContent>
@@ -2712,9 +2707,13 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
+                <div className="mb-4">
+                  <p className="text-sm">
+                    Target: {formatCurrency(quarterTarget)} | Achieved: {formatCurrency(quarterAchieved)} | {quarterTarget > 0 ? `${((quarterAchieved / quarterTarget) * 100).toFixed(1)}% of Target` : "N/A"}
+                  </p>
+                </div>
                 <ResponsiveContainer width="100%" height={100}>
                   <BarChart data={actualVsTargetQ2} layout="vertical" barCategoryGap="20%">
-                    <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
@@ -2742,15 +2741,6 @@ export default function Dashboard() {
                     />
                   </BarChart>
                 </ResponsiveContainer>
-                <div className="mt-4 space-y-1">
-                  <p className="text-sm">Target: {formatCurrency(quarterTarget)}</p>
-                  <p className="text-sm">Achieved: {formatCurrency(quarterAchieved)}</p>
-                  <p className="text-sm font-medium">
-                    {quarterTarget > 0 
-                      ? `${((quarterAchieved / quarterTarget) * 100).toFixed(1)}% of Target`
-                      : "N/A"}
-                  </p>
-                </div>
               </>
             )}
           </CardContent>
@@ -2777,9 +2767,13 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
+                <div className="mb-4">
+                  <p className="text-sm">
+                    Target: {formatCurrency(currentMonthTarget)} | Achieved: {formatCurrency(currentMonthAchieved)} | {currentMonthTarget > 0 ? `${((currentMonthAchieved / currentMonthTarget) * 100).toFixed(1)}% of Target` : "N/A"}
+                  </p>
+                </div>
                 <ResponsiveContainer width="100%" height={100}>
                   <BarChart data={actualVsTargetCurrent} layout="vertical" barCategoryGap="20%">
-                    <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
@@ -2807,15 +2801,6 @@ export default function Dashboard() {
                     />
                   </BarChart>
                 </ResponsiveContainer>
-                <div className="mt-4 space-y-1">
-                  <p className="text-sm">Target: {formatCurrency(currentMonthTarget)}</p>
-                  <p className="text-sm">Achieved: {formatCurrency(currentMonthAchieved)}</p>
-                  <p className="text-sm font-medium">
-                    {currentMonthTarget > 0 
-                      ? `${((currentMonthAchieved / currentMonthTarget) * 100).toFixed(1)}% of Target`
-                      : "N/A"}
-                  </p>
-                </div>
               </>
             )}
           </CardContent>
