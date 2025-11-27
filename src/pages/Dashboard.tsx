@@ -314,6 +314,23 @@ export default function Dashboard() {
     return query.eq("kam_id", kamFilter);
   };
 
+  // Helper function to get current financial year quarter
+  const getCurrentFinancialYearQuarter = (): string => {
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    
+    // Financial year quarters: Q1 (Apr-Jun), Q2 (Jul-Sep), Q3 (Oct-Dec), Q4 (Jan-Mar)
+    if (currentMonth >= 4 && currentMonth <= 6) {
+      return "Q1";
+    } else if (currentMonth >= 7 && currentMonth <= 9) {
+      return "Q2";
+    } else if (currentMonth >= 10 && currentMonth <= 12) {
+      return "Q3";
+    } else {
+      return "Q4";
+    }
+  };
+
   // Helper function to apply target type filter to a Supabase query
   // Note: For each month/year combination, there can be maximum 2 targets:
   // 1 with target_type = 'existing' and 1 with target_type = 'new_cross_sell'
@@ -2659,24 +2676,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              {(() => {
-                const now = new Date();
-                const currentMonth = now.getMonth() + 1;
-                
-                // Determine current quarter
-                let quarterLabel = "";
-                if (currentMonth >= 4 && currentMonth <= 6) {
-                  quarterLabel = "Q1";
-                } else if (currentMonth >= 7 && currentMonth <= 9) {
-                  quarterLabel = "Q2";
-                } else if (currentMonth >= 10 && currentMonth <= 12) {
-                  quarterLabel = "Q3";
-                } else {
-                  quarterLabel = "Q4";
-                }
-                
-                return `${filterFinancialYear} Actual vs Target (${quarterLabel})`;
-              })()}
+              {`${filterFinancialYear} Actual vs Target (${getCurrentFinancialYearQuarter()})`}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -2761,56 +2761,57 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Dropped Sales and Reasons */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Dropped Sales and Reasons</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center h-[300px]">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : droppedSalesData.length === 0 ? (
-              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                No dropped deals found
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={400}>
-                <PieChart>
-                  <Pie
-                    data={droppedSalesData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={5}
-                    dataKey="value"
-                    label={(props: any) => {
-                      const { cx, cy, midAngle, innerRadius, outerRadius, value, name, fill } = props;
-                      const total = droppedSalesData.reduce((sum, item) => sum + item.value, 0);
-                      const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : "0.00";
-                      
-                      // Capitalize first letter of each word
-                      const capitalizeWords = (text: string) => {
-                        return text
-                          .split(' ')
-                          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                          .join(' ');
-                      };
-                      
-                      const capitalizedName = capitalizeWords(name);
-                      
-                      const RADIAN = Math.PI / 180;
-                      // Point on the outer edge of the pie segment
-                      const radius = outerRadius;
-                      const xLabel = cx + radius * Math.cos(-midAngle * RADIAN);
-                      const yLabel = cy + radius * Math.sin(-midAngle * RADIAN);
-                      
-                      // Calculate label position (outside the pie with gap)
-                      const gap = 15; // Gap between line end and text
-                      const labelRadius = outerRadius + 30;
-                      const labelX = cx + (labelRadius + gap) * Math.cos(-midAngle * RADIAN);
+        {/* Dropped Sales and Reasons - Only visible when status filter is "All Cross Sell" */}
+        {filterUpsellStatus === "All Cross Sell" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Dropped Sales and Reasons</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex items-center justify-center h-[300px]">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : droppedSalesData.length === 0 ? (
+                <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                  No dropped deals found
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={400}>
+                  <PieChart>
+                    <Pie
+                      data={droppedSalesData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={(props: any) => {
+                        const { cx, cy, midAngle, innerRadius, outerRadius, value, name, fill } = props;
+                        const total = droppedSalesData.reduce((sum, item) => sum + item.value, 0);
+                        const percentage = total > 0 ? ((value / total) * 100).toFixed(2) : "0.00";
+                        
+                        // Capitalize first letter of each word
+                        const capitalizeWords = (text: string) => {
+                          return text
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                            .join(' ');
+                        };
+                        
+                        const capitalizedName = capitalizeWords(name);
+                        
+                        const RADIAN = Math.PI / 180;
+                        // Point on the outer edge of the pie segment
+                        const radius = outerRadius;
+                        const xLabel = cx + radius * Math.cos(-midAngle * RADIAN);
+                        const yLabel = cy + radius * Math.sin(-midAngle * RADIAN);
+                        
+                        // Calculate label position (outside the pie with gap)
+                        const gap = 15; // Gap between line end and text
+                        const labelRadius = outerRadius + 30;
+                        const labelX = cx + (labelRadius + gap) * Math.cos(-midAngle * RADIAN);
                       const labelY = cy + (labelRadius + gap) * Math.sin(-midAngle * RADIAN);
                       
                       // Line end position (before the gap)
@@ -2869,6 +2870,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* LoB Sales Performance Comparison - Full Width */}
