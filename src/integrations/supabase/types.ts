@@ -445,7 +445,7 @@ export type Database = {
           mpv: number
           prj_duration_months: number
           prj_frequency: Database["public"]["Enums"]["prj_type"]
-          prj_start_date: string
+          prj_start_date: string | null
           probability: number
           sales_module_name: string
           signed_contract_link: string | null
@@ -481,7 +481,7 @@ export type Database = {
           mpv: number
           prj_duration_months: number
           prj_frequency: Database["public"]["Enums"]["prj_type"]
-          prj_start_date: string
+          prj_start_date?: string | null
           probability?: number
           sales_module_name: string
           signed_contract_link?: string | null
@@ -517,7 +517,7 @@ export type Database = {
           mpv?: number
           prj_duration_months?: number
           prj_frequency?: Database["public"]["Enums"]["prj_type"]
-          prj_start_date?: string
+          prj_start_date?: string | null
           probability?: number
           sales_module_name?: string
           signed_contract_link?: string | null
@@ -687,6 +687,7 @@ export type Database = {
         | "Edtech"
         | "SaaS"
         | "Others"
+        | "-"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -899,6 +900,7 @@ export const Constants = {
         "Edtech",
         "SaaS",
         "Others",
+        "-",
       ],
     },
   },
