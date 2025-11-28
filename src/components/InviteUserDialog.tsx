@@ -29,6 +29,11 @@ const inviteSchema = z.object({
   role: z.enum(["kam", "manager", "leadership", "superadmin"], {
     errorMap: () => ({ message: "Please select a valid role" }),
   }),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
 });
 
 interface InviteUserDialogProps {
@@ -41,6 +46,8 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<string>("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -53,6 +60,8 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
         email,
         fullName,
         role,
+        password,
+        confirmPassword,
       });
 
       if (!validationResult.success) {
@@ -72,6 +81,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
           email: validationResult.data.email,
           full_name: validationResult.data.fullName,
           role: validationResult.data.role,
+          password: validationResult.data.password,
         },
       });
 
@@ -85,13 +95,15 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
 
       toast({
         title: "Success!",
-        description: `Invitation sent to ${email}. They will receive an email to set up their password.`,
+        description: `User account created for ${email}. They will receive an email to verify their account.`,
       });
 
       // Reset form
       setEmail("");
       setFullName("");
       setRole("");
+      setPassword("");
+      setConfirmPassword("");
       setOpen(false);
       onUserInvited();
     } catch (error: any) {
@@ -119,7 +131,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
           <DialogHeader>
             <DialogTitle>Invite New User</DialogTitle>
             <DialogDescription>
-              Send an invitation email to a new user. They'll receive a link to set up their password and access the system.
+              Create a new user account. They'll receive an email to verify their account and can then sign in with the password you set.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -166,6 +178,30 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
                 {role === "superadmin" && "Full access including user management"}
               </p>
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password">Password *</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="Enter password (min 8 characters)"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={8}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="confirmPassword">Confirm Password *</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                placeholder="Confirm password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                minLength={8}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -176,7 +212,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || !email || !fullName || !role}>
+            <Button type="submit" disabled={loading || !email || !fullName || !role || !password || !confirmPassword}>
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -14,6 +14,7 @@ interface InviteUserRequest {
   email: string;
   full_name: string;
   role: "kam" | "manager" | "leadership" | "superadmin";
+  password: string;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -58,13 +59,18 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Only superadmins can invite users");
     }
 
-    const { email, full_name, role }: InviteUserRequest = await req.json();
+    const { email, full_name, role, password }: InviteUserRequest = await req.json();
 
     console.log("Inviting user:", { email, full_name, role });
 
     // Validate input
-    if (!email || !full_name || !role) {
+    if (!email || !full_name || !role || !password) {
       throw new Error("Missing required fields");
+    }
+
+    // Validate password length
+    if (password.length < 8) {
+      throw new Error("Password must be at least 8 characters");
     }
 
     const validRoles = ["kam", "manager", "leadership", "superadmin"];
@@ -80,10 +86,12 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("User with this email already exists");
     }
 
-    // Create user with a temporary password (they'll set their own via magic link)
+    // Create user with the provided password
+    // Set email_confirm: true so user can log in immediately without email verification
     const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
-      email_confirm: true,
+      password,
+      email_confirm: true, // Email is already confirmed, user can log in immediately
       user_metadata: {
         full_name,
       },
@@ -113,24 +121,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("Role assigned successfully");
 
-    // Generate password reset link
-    const { data: resetData, error: resetError } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'recovery',
-      email: email,
-    });
-
-    if (resetError || !resetData) {
-      console.error("Error generating reset link:", resetError);
-      throw new Error("Failed to generate password setup link");
-    }
-
-    console.log("Password reset link generated");
-
-    // Get the origin from the request
-    const origin = req.headers.get("origin") || Deno.env.get("SITE_URL") || supabaseUrl;
+    // Use production URL - ALWAYS use production URL, never localhost
+    // Redirect to root URL which will take user to login page
+    const siteUrl = Deno.env.get("SITE_URL") || "https://crmportal.lovable.app";
+    // Ensure we never use localhost - always use production root URL
+    const verifyUrl = siteUrl.includes("localhost") ? "https://crmportal.lovable.app" : siteUrl;
     
-    // Create the setup password URL
-    const setupUrl = `${origin}/auth?type=recovery&access_token=${resetData.properties.action_link.split('access_token=')[1]}`;
+    console.log("Verify URL:", verifyUrl);
 
     // Send invitation email
     const roleLabels = {
@@ -143,7 +140,7 @@ const handler = async (req: Request): Promise<Response> => {
     const emailResponse = await resend.emails.send({
       from: "CRM Pro <userinvitation@awign.in>",
       to: [email],
-      subject: "Welcome to CRM Pro - Set Up Your Account",
+      subject: "Welcome to CRM Pro - Your Account is Ready",
       html: `
         <!DOCTYPE html>
         <html>
@@ -202,19 +199,19 @@ const handler = async (req: Request): Promise<Response> => {
               
               <p>You've been invited to join CRM Pro as a <strong>${roleLabels[role]}</strong>.</p>
               
-              <p>To get started, please click the button below to set up your password and access your account:</p>
+              <p>Your account has been created and is ready to use. Click the button below to verify your account and sign in:</p>
               
               <div style="text-align: center;">
-                <a href="${setupUrl}" class="button">Set Up Your Password</a>
+                <a href="${verifyUrl}" class="button">Verify Account</a>
               </div>
               
               <div class="info-box">
                 <strong>Your Account Details:</strong><br>
                 Email: ${email}<br>
-                Role: ${roleLabels[role]}
+                Role: ${roleLabels[role]}<br>
+                <br>
+                <strong>Note:</strong> Your password has been set. Simply sign in using your email and password to access your account.
               </div>
-              
-              <p>This link will expire in 24 hours for security reasons.</p>
               
               <p>If you have any questions, please contact your administrator.</p>
               
