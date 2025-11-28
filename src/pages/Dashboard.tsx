@@ -2321,30 +2321,55 @@ export default function Dashboard() {
     return Math.max(value, minValue);
   };
 
-  // Calculate actualVsTargetAnnual dynamically based on state - single row with overlapping bars
+  // Calculate actualVsTargetAnnual dynamically based on state - stacked bars
+  // Base = smaller value, Overlay = difference (bigger - smaller)
+  // This way: smaller bar starts from Y-axis, bigger bar overlays on top
+  const isAchievedGreater = annualAchieved > annualTarget;
+  const smallerValue = isAchievedGreater ? annualTarget : annualAchieved;
+  const biggerValue = isAchievedGreater ? annualAchieved : annualTarget;
+  const difference = biggerValue - smallerValue;
+  
   const actualVsTargetAnnual = [
     { 
       name: "", 
-      target: annualTarget, 
-      achieved: ensureMinimumBarLength(annualAchieved, annualTarget)
+      base: smallerValue, // Smaller value as base (starts from Y-axis)
+      overlay: difference, // Difference stacked on top (bigger - smaller)
+      achieved: annualAchieved, // Original achieved value for tooltip
+      target: annualTarget, // Original target value for tooltip
     },
   ];
 
-  // Calculate actualVsTargetQ2 dynamically based on state - single row with overlapping bars
+  // Calculate actualVsTargetQ2 dynamically based on state - stacked bars
+  // Base = smaller value, Overlay = difference (bigger - smaller)
+  const isQuarterAchievedGreater = quarterAchieved > quarterTarget;
+  const quarterSmallerValue = isQuarterAchievedGreater ? quarterTarget : quarterAchieved;
+  const quarterBiggerValue = isQuarterAchievedGreater ? quarterAchieved : quarterTarget;
+  const quarterDifference = quarterBiggerValue - quarterSmallerValue;
+  
   const actualVsTargetQ2 = [
     { 
       name: "", 
-      target: quarterTarget, 
-      achieved: ensureMinimumBarLength(quarterAchieved, quarterTarget)
+      base: quarterSmallerValue, // Smaller value as base (starts from Y-axis)
+      overlay: quarterDifference, // Difference stacked on top (bigger - smaller)
+      achieved: quarterAchieved, // Original achieved value for tooltip
+      target: quarterTarget, // Original target value for tooltip
     },
   ];
 
-  // Calculate actualVsTargetCurrent dynamically based on state - single row with overlapping bars
+  // Calculate actualVsTargetCurrent dynamically based on state - stacked bars
+  // Base = smaller value, Overlay = difference (bigger - smaller)
+  const isCurrentMonthAchievedGreater = currentMonthAchieved > currentMonthTarget;
+  const currentMonthSmallerValue = isCurrentMonthAchievedGreater ? currentMonthTarget : currentMonthAchieved;
+  const currentMonthBiggerValue = isCurrentMonthAchievedGreater ? currentMonthAchieved : currentMonthTarget;
+  const currentMonthDifference = currentMonthBiggerValue - currentMonthSmallerValue;
+  
   const actualVsTargetCurrent = [
     { 
       name: "", 
-      target: currentMonthTarget, 
-      achieved: ensureMinimumBarLength(currentMonthAchieved, currentMonthTarget)
+      base: currentMonthSmallerValue, // Smaller value as base (starts from Y-axis)
+      overlay: currentMonthDifference, // Difference stacked on top (bigger - smaller)
+      achieved: currentMonthAchieved, // Original achieved value for tooltip
+      target: currentMonthTarget, // Original target value for tooltip
     },
   ];
 
@@ -2693,32 +2718,75 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <ResponsiveContainer width="100%" height={100}>
-                  <BarChart data={actualVsTargetAnnual} layout="vertical" barCategoryGap="20%">
+                  <BarChart 
+                    data={actualVsTargetAnnual} 
+                    layout="vertical" 
+                    barCategoryGap="20%"
+                    barGap={0}
+                  >
                     <XAxis type="number" />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
-                      formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
+                      formatter={(value: any, name: string, props: any) => {
+                        // Show original values instead of base/overlay
+                        if (name === 'Target' || name === 'Achieved') {
+                          const payload = props.payload;
+                          if (name === 'Target') {
+                            return [formatTooltipValue(payload.target || 0), 'Target'];
+                          } else if (name === 'Achieved') {
+                            return [formatTooltipValue(payload.achieved || 0), 'Achieved'];
+                          }
+                        }
+                        return [formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0), name];
+                      }}
                       labelFormatter={() => ''}
                     />
                     <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
-                    {/* Target bar (grey) rendered first with larger size to appear behind */}
-                    <Bar 
-                      dataKey="target" 
-                      fill="#E0E0E0" 
-                      name="Target" 
-                      barSize={60}
-                      radius={[0, 4, 4, 0]}
-                      isAnimationActive={false}
-                    />
-                    {/* Achieved bar (blue) rendered on top with smaller size */}
-                    <Bar 
-                      dataKey="achieved" 
-                      fill="#4169E1" 
-                      name="Achieved" 
-                      barSize={48}
-                      radius={[0, 4, 4, 0]}
-                      isAnimationActive={false}
-                    />
+                    {isAchievedGreater ? (
+                      <>
+                        {/* Achieved > Target: Grey bar (target/smaller) as base, blue bar (achieved-target/difference) stacked on top */}
+                        <Bar 
+                          dataKey="base" 
+                          fill="#E0E0E0" 
+                          name="Target" 
+                          stackId="annual"
+                          barSize={60}
+                          radius={[0, 0, 0, 0]}
+                          isAnimationActive={false}
+                        />
+                        <Bar 
+                          dataKey="overlay" 
+                          fill="#4169E1" 
+                          name="Achieved" 
+                          stackId="annual"
+                          barSize={60}
+                          radius={[0, 4, 4, 0]}
+                          isAnimationActive={false}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {/* Target > Achieved: Blue bar (achieved/smaller) as base, grey bar (target-achieved/difference) stacked on top */}
+                        <Bar 
+                          dataKey="base" 
+                          fill="#4169E1" 
+                          name="Achieved" 
+                          stackId="annual"
+                          barSize={60}
+                          radius={[0, 0, 0, 0]}
+                          isAnimationActive={false}
+                        />
+                        <Bar 
+                          dataKey="overlay" 
+                          fill="#E0E0E0" 
+                          name="Target" 
+                          stackId="annual"
+                          barSize={60}
+                          radius={[0, 4, 4, 0]}
+                          isAnimationActive={false}
+                        />
+                      </>
+                    )}
                   </BarChart>
                 </ResponsiveContainer>
               </>
@@ -2746,32 +2814,70 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <ResponsiveContainer width="100%" height={100}>
-                  <BarChart data={actualVsTargetQ2} layout="vertical" barCategoryGap="20%">
+                  <BarChart data={actualVsTargetQ2} layout="vertical" barCategoryGap="20%" barGap={0}>
                     <XAxis type="number" />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
-                      formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
+                      formatter={(value: any, name: string, props: any) => {
+                        // Show original values instead of base/overlay
+                        if (name === 'Target' || name === 'Achieved') {
+                          const payload = props.payload;
+                          if (name === 'Target') {
+                            return [formatTooltipValue(payload.target || 0), 'Target'];
+                          } else if (name === 'Achieved') {
+                            return [formatTooltipValue(payload.achieved || 0), 'Achieved'];
+                          }
+                        }
+                        return [formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0), name];
+                      }}
                       labelFormatter={() => ''}
                     />
                     <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
-                    {/* Target bar (grey) rendered first with larger size to appear behind */}
-                    <Bar 
-                      dataKey="target" 
-                      fill="#E0E0E0" 
-                      name="Target" 
-                      barSize={60}
-                      radius={[0, 4, 4, 0]}
-                      isAnimationActive={false}
-                    />
-                    {/* Achieved bar (blue) rendered on top with smaller size */}
-                    <Bar 
-                      dataKey="achieved" 
-                      fill="#4169E1" 
-                      name="Achieved" 
-                      barSize={48}
-                      radius={[0, 4, 4, 0]}
-                      isAnimationActive={false}
-                    />
+                    {isQuarterAchievedGreater ? (
+                      <>
+                        {/* Achieved > Target: Grey bar (target/smaller) as base, blue bar (achieved-target/difference) stacked on top */}
+                        <Bar 
+                          dataKey="base" 
+                          fill="#E0E0E0" 
+                          name="Target" 
+                          stackId="quarter"
+                          barSize={60}
+                          radius={[0, 0, 0, 0]}
+                          isAnimationActive={false}
+                        />
+                        <Bar 
+                          dataKey="overlay" 
+                          fill="#4169E1" 
+                          name="Achieved" 
+                          stackId="quarter"
+                          barSize={60}
+                          radius={[0, 4, 4, 0]}
+                          isAnimationActive={false}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {/* Target > Achieved: Blue bar (achieved/smaller) as base, grey bar (target-achieved/difference) stacked on top */}
+                        <Bar 
+                          dataKey="base" 
+                          fill="#4169E1" 
+                          name="Achieved" 
+                          stackId="quarter"
+                          barSize={60}
+                          radius={[0, 0, 0, 0]}
+                          isAnimationActive={false}
+                        />
+                        <Bar 
+                          dataKey="overlay" 
+                          fill="#E0E0E0" 
+                          name="Target" 
+                          stackId="quarter"
+                          barSize={60}
+                          radius={[0, 4, 4, 0]}
+                          isAnimationActive={false}
+                        />
+                      </>
+                    )}
                   </BarChart>
                 </ResponsiveContainer>
               </>
@@ -2806,32 +2912,70 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <ResponsiveContainer width="100%" height={100}>
-                  <BarChart data={actualVsTargetCurrent} layout="vertical" barCategoryGap="20%">
+                  <BarChart data={actualVsTargetCurrent} layout="vertical" barCategoryGap="20%" barGap={0}>
                     <XAxis type="number" />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
-                      formatter={(value: any) => formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0)}
+                      formatter={(value: any, name: string, props: any) => {
+                        // Show original values instead of base/overlay
+                        if (name === 'Target' || name === 'Achieved') {
+                          const payload = props.payload;
+                          if (name === 'Target') {
+                            return [formatTooltipValue(payload.target || 0), 'Target'];
+                          } else if (name === 'Achieved') {
+                            return [formatTooltipValue(payload.achieved || 0), 'Achieved'];
+                          }
+                        }
+                        return [formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0), name];
+                      }}
                       labelFormatter={() => ''}
                     />
                     <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
-                    {/* Target bar (grey) rendered first with larger size to appear behind */}
-                    <Bar 
-                      dataKey="target" 
-                      fill="#E0E0E0" 
-                      name="Target" 
-                      barSize={60}
-                      radius={[0, 4, 4, 0]}
-                      isAnimationActive={false}
-                    />
-                    {/* Achieved bar (blue) rendered on top with smaller size */}
-                    <Bar 
-                      dataKey="achieved" 
-                      fill="#4169E1" 
-                      name="Achieved" 
-                      barSize={48}
-                      radius={[0, 4, 4, 0]}
-                      isAnimationActive={false}
-                    />
+                    {isCurrentMonthAchievedGreater ? (
+                      <>
+                        {/* Achieved > Target: Grey bar (target/smaller) as base, blue bar (achieved-target/difference) stacked on top */}
+                        <Bar 
+                          dataKey="base" 
+                          fill="#E0E0E0" 
+                          name="Target" 
+                          stackId="currentMonth"
+                          barSize={60}
+                          radius={[0, 0, 0, 0]}
+                          isAnimationActive={false}
+                        />
+                        <Bar 
+                          dataKey="overlay" 
+                          fill="#4169E1" 
+                          name="Achieved" 
+                          stackId="currentMonth"
+                          barSize={60}
+                          radius={[0, 4, 4, 0]}
+                          isAnimationActive={false}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {/* Target > Achieved: Blue bar (achieved/smaller) as base, grey bar (target-achieved/difference) stacked on top */}
+                        <Bar 
+                          dataKey="base" 
+                          fill="#4169E1" 
+                          name="Achieved" 
+                          stackId="currentMonth"
+                          barSize={60}
+                          radius={[0, 0, 0, 0]}
+                          isAnimationActive={false}
+                        />
+                        <Bar 
+                          dataKey="overlay" 
+                          fill="#E0E0E0" 
+                          name="Target" 
+                          stackId="currentMonth"
+                          barSize={60}
+                          radius={[0, 4, 4, 0]}
+                          isAnimationActive={false}
+                        />
+                      </>
+                    )}
                   </BarChart>
                 </ResponsiveContainer>
               </>
@@ -3132,9 +3276,25 @@ export default function Dashboard() {
           ) : (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart
-                data={kamSalesPerformance}
+                data={kamSalesPerformance.map((item) => {
+                  const isAchievedGreater = item.achievedMpv > item.targetMpv;
+                  const smallerValue = isAchievedGreater ? item.targetMpv : item.achievedMpv;
+                  const biggerValue = isAchievedGreater ? item.achievedMpv : item.targetMpv;
+                  const difference = biggerValue - smallerValue;
+                  
+                  return {
+                    ...item,
+                    base: smallerValue, // Smaller value as base (starts from X-axis)
+                    overlay: difference, // Difference stacked on top (bigger - smaller)
+                    baseColor: isAchievedGreater ? "#E0E0E0" : "#4169E1", // Grey if Achieved > Target, Blue if Target > Achieved
+                    overlayColor: isAchievedGreater ? "#4169E1" : "#E0E0E0", // Blue if Achieved > Target, Grey if Target > Achieved
+                    baseName: isAchievedGreater ? "Target" : "Achieved",
+                    overlayName: isAchievedGreater ? "Achieved" : "Target",
+                  };
+                })}
                 margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
                 barCategoryGap="20%"
+                barGap={0}
               >
                 <XAxis 
                   dataKey="kamName" 
@@ -3146,38 +3306,92 @@ export default function Dashboard() {
                 />
                 <YAxis hide />
                 <Tooltip 
-                  formatter={(value: number) => {
-                    if (value >= 10000000) {
-                      return `₹${(value / 10000000).toFixed(2)}Cr`;
-                    } else if (value >= 100000) {
-                      return `₹${(value / 100000).toFixed(1)}L`;
+                  formatter={(value: any, name: string, props: any) => {
+                    const payload = props.payload;
+                    // Convert Base/Overlay to Target/Achieved based on the data
+                    let displayName = name;
+                    let originalValue = 0;
+                    
+                    if (name === 'Base' || name === 'Overlay') {
+                      // Determine which field this represents based on the data
+                      const isAchievedGreater = payload.achievedMpv > payload.targetMpv;
+                      if (name === 'Base') {
+                        displayName = isAchievedGreater ? 'Target' : 'Achieved';
+                        originalValue = isAchievedGreater ? payload.targetMpv : payload.achievedMpv;
+                      } else { // Overlay
+                        displayName = isAchievedGreater ? 'Achieved' : 'Target';
+                        originalValue = isAchievedGreater ? payload.achievedMpv : payload.targetMpv;
+                      }
+                    } else if (name === 'Target' || name === 'Achieved') {
+                      originalValue = name === 'Target' ? payload.targetMpv : payload.achievedMpv;
                     } else {
-                      return `₹${value.toLocaleString("en-IN")}`;
+                      // Fallback
+                      originalValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+                    }
+                    
+                    // Format the value
+                    if (originalValue >= 10000000) {
+                      return [`₹${(originalValue / 10000000).toFixed(2)}Cr`, displayName];
+                    } else if (originalValue >= 100000) {
+                      return [`₹${(originalValue / 100000).toFixed(1)}L`, displayName];
+                    } else {
+                      return [`₹${originalValue.toLocaleString("en-IN")}`, displayName];
                     }
                   }}
                   cursor={false}
                 />
-                <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
-                {/* Target bar (grey) rendered first with larger size to appear behind */}
+                <Legend 
+                  align="right" 
+                  verticalAlign="top" 
+                  wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }}
+                  content={({ payload }) => {
+                    if (!payload || payload.length === 0) return null;
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', paddingBottom: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <div style={{ width: '12px', height: '12px', backgroundColor: '#4169E1', borderRadius: '2px' }}></div>
+                          <span style={{ fontSize: '11px' }}>Achieved</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <div style={{ width: '12px', height: '12px', backgroundColor: '#E0E0E0', borderRadius: '2px' }}></div>
+                          <span style={{ fontSize: '11px' }}>Target</span>
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+                {/* Base bar - smaller value, conditional color */}
                 <Bar 
-                  dataKey="targetMpv" 
-                  fill="#E0E0E0" 
-                  name="Target" 
+                  dataKey="base" 
+                  name="Base"
+                  stackId="kam"
                   barSize={30}
                   radius={[4, 4, 0, 0]}
                   activeBar={false}
                   isAnimationActive={false}
-                />
-                {/* Achieved bar (blue) rendered on top with smaller size */}
+                >
+                  {kamSalesPerformance.map((item, index) => {
+                    const isAchievedGreater = item.achievedMpv > item.targetMpv;
+                    const fillColor = isAchievedGreater ? "#E0E0E0" : "#4169E1";
+                    return <Cell key={`base-${index}`} fill={fillColor} />;
+                  })}
+                </Bar>
+                {/* Overlay bar - difference, conditional color */}
                 <Bar 
-                  dataKey="achievedMpv" 
-                  fill="#4169E1" 
-                  name="Achieved" 
-                  barSize={24}
+                  dataKey="overlay" 
+                  name="Overlay"
+                  stackId="kam"
+                  barSize={30}
                   radius={[4, 4, 0, 0]}
                   activeBar={false}
                   isAnimationActive={false}
-                />
+                >
+                  {kamSalesPerformance.map((item, index) => {
+                    const isAchievedGreater = item.achievedMpv > item.targetMpv;
+                    const fillColor = isAchievedGreater ? "#4169E1" : "#E0E0E0";
+                    return <Cell key={`overlay-${index}`} fill={fillColor} />;
+                  })}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
