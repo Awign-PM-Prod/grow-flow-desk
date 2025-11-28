@@ -383,21 +383,21 @@ export default function Dashboard() {
 
       // Fetch current deals to handle deals that might not have history yet (newly created with "Listed" status)
       // Filter by created_at within selected FY
-      // Also fetch expected_revenue to calculate revenue per status
+      // Also fetch mcv to calculate MCV per status
       const { data: currentDeals, error: dealsError } = await (supabase
         .from("pipeline_deals" as any)
-        .select("id, status, created_at, expected_revenue")
+        .select("id, status, created_at, mcv")
         .gte("created_at", perfFyDateRange.start.toISOString())
         .lte("created_at", perfFyDateRange.end.toISOString()) as any);
 
       if (dealsError) throw dealsError;
 
-      // Create a map of deal_id to expected_revenue for quick lookup
-      const dealRevenueMap: Record<string, number> = {};
+      // Create a map of deal_id to mcv for quick lookup
+      const dealMcvMap: Record<string, number> = {};
       if (currentDeals) {
         currentDeals.forEach((deal: any) => {
-          const revenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
-          dealRevenueMap[deal.id] = revenue;
+          const mcv = parseFloat(deal.mcv?.toString() || "0") || 0;
+          dealMcvMap[deal.id] = mcv;
         });
       }
 
@@ -405,26 +405,26 @@ export default function Dashboard() {
       // A deal is counted in a status if it appears in old_status or new_status in history
       const statusDealSets: Record<string, Set<string>> = {};
       
-      // Track expected revenue per status
-      const statusRevenue: Record<string, number> = {};
+      // Track MCV per status
+      const statusMcv: Record<string, number> = {};
       
-      // Initialize all statuses with empty Sets and zero revenue
+      // Initialize all statuses with empty Sets and zero MCV
       statusOrder.forEach((status) => {
         statusDealSets[status] = new Set<string>();
-        statusRevenue[status] = 0;
+        statusMcv[status] = 0;
       });
 
       // Process all status history records
       if (allStatusHistory) {
         allStatusHistory.forEach((history: any) => {
           const dealId = history.deal_id;
-          const dealRevenue = dealRevenueMap[dealId] || 0;
+          const dealMcv = dealMcvMap[dealId] || 0;
           
           // Count deal in new_status (the status it moved to)
           if (history.new_status && statusDealSets.hasOwnProperty(history.new_status)) {
             if (!statusDealSets[history.new_status].has(dealId)) {
               statusDealSets[history.new_status].add(dealId);
-              statusRevenue[history.new_status] += dealRevenue;
+              statusMcv[history.new_status] += dealMcv;
             }
           }
           
@@ -432,7 +432,7 @@ export default function Dashboard() {
           if (history.old_status && statusDealSets.hasOwnProperty(history.old_status)) {
             if (!statusDealSets[history.old_status].has(dealId)) {
               statusDealSets[history.old_status].add(dealId);
-              statusRevenue[history.old_status] += dealRevenue;
+              statusMcv[history.old_status] += dealMcv;
             }
           }
         });
@@ -443,13 +443,13 @@ export default function Dashboard() {
       if (currentDeals) {
         currentDeals.forEach((deal: any) => {
           const status = deal.status;
-          const dealRevenue = dealRevenueMap[deal.id] || 0;
+          const dealMcv = dealMcvMap[deal.id] || 0;
           // If deal is "Listed" and not in the Set yet, add it
           // This handles newly created deals that haven't had their status changed yet
           if (status === "Listed" && statusDealSets["Listed"]) {
             if (!statusDealSets["Listed"].has(deal.id)) {
               statusDealSets["Listed"].add(deal.id);
-              statusRevenue["Listed"] += dealRevenue;
+              statusMcv["Listed"] += dealMcv;
             }
           }
         });
@@ -508,18 +508,17 @@ export default function Dashboard() {
         const remaining = currentStatusCounts[status] || 0; // Current status count
         const dropped = droppedCounts[status] || 0;
         
-        // Calculate CVR: next status revenue / current status revenue
-        const currentRevenue = statusRevenue[status] || 0;
+        // Calculate CVR: next status records / current status records (based on Cumulative # of Records only)
         let cvr = "-";
         if (index < statusOrderWithoutDropped.length - 1) {
           const nextStatus = statusOrderWithoutDropped[index + 1];
-          const nextRevenue = statusRevenue[nextStatus] || 0;
+          const nextCount = statusCounts[nextStatus] || 0;
           
-          if (currentRevenue > 0) {
-            const cvrValue = (nextRevenue / currentRevenue) * 100;
+          if (count > 0) {
+            const cvrValue = (nextCount / count) * 100;
             cvr = `${cvrValue.toFixed(1)}%`;
-          } else if (nextRevenue > 0 && currentRevenue === 0) {
-            // If current status has 0 revenue but next has revenue, show as "N/A"
+          } else if (nextCount > 0 && count === 0) {
+            // If current status has 0 records but next has records, show as "N/A"
             cvr = "N/A";
           }
         }
@@ -527,7 +526,7 @@ export default function Dashboard() {
         return {
           status: `${index}. ${status}`,
           records: count,
-          expectedRevenue: statusRevenue[status] || 0,
+          mcv: statusMcv[status] || 0,
           cvr,
           remaining: remaining,
           dropped: dropped,
@@ -536,15 +535,11 @@ export default function Dashboard() {
 
       // Find max records for progress bar calculation
       const maxRecords = Math.max(...conversionData.map((d) => d.records), 1);
-      
-      // Find max expected revenue for progress bar calculation
-      const maxExpectedRevenue = Math.max(...conversionData.map((d) => d.expectedRevenue), 1);
 
       // Update conversion data with progress bar max
       const conversionDataWithMax = conversionData.map((d) => ({
         ...d,
         maxRecords,
-        maxExpectedRevenue,
       }));
 
       setConversionTableData(conversionDataWithMax);
@@ -692,8 +687,16 @@ export default function Dashboard() {
         .eq("retention_type", "B")
         .not("upsell_action_status", "is", null);
       
+      // Apply status filter
+      groupBMandatesQuery = applyStatusFilter(groupBMandatesQuery, filterUpsellStatus);
+      
       // Apply KAM filter
       groupBMandatesQuery = applyKamFilter(groupBMandatesQuery, filterKam);
+      
+      // Apply FY filter
+      groupBMandatesQuery = groupBMandatesQuery
+        .gte("created_at", fyDateRange.start.toISOString())
+        .lte("created_at", fyDateRange.end.toISOString());
       
       const { data: groupBMandates, error: groupBError } = await groupBMandatesQuery;
 
@@ -741,8 +744,16 @@ export default function Dashboard() {
         .eq("retention_type", "C")
         .not("upsell_action_status", "is", null);
       
+      // Apply status filter
+      groupCMandatesQuery = applyStatusFilter(groupCMandatesQuery, filterUpsellStatus);
+      
       // Apply KAM filter
       groupCMandatesQuery = applyKamFilter(groupCMandatesQuery, filterKam);
+      
+      // Apply FY filter
+      groupCMandatesQuery = groupCMandatesQuery
+        .gte("created_at", fyDateRange.start.toISOString())
+        .lte("created_at", fyDateRange.end.toISOString());
       
       const { data: groupCMandates, error: groupCError } = await groupCMandatesQuery;
 
@@ -789,8 +800,16 @@ export default function Dashboard() {
         .select("retention_type, revenue_mcv, account_id, created_at")
         .not("retention_type", "is", null);
       
+      // Apply status filter
+      allMandatesQuery = applyStatusFilter(allMandatesQuery, filterUpsellStatus);
+      
       // Apply KAM filter
       allMandatesQuery = applyKamFilter(allMandatesQuery, filterKam);
+      
+      // Apply FY filter
+      allMandatesQuery = allMandatesQuery
+        .gte("created_at", fyDateRange.start.toISOString())
+        .lte("created_at", fyDateRange.end.toISOString());
       
       const { data: allMandates, error: allMandatesError } = await allMandatesQuery;
 
@@ -4162,8 +4181,8 @@ export default function Dashboard() {
             <TableHeader>
               <TableRow>
                 <TableHead>Status</TableHead>
+                <TableHead className="w-[200px]">MCV</TableHead>
                 <TableHead className="w-[200px]">Cumulative # of Records</TableHead>
-                <TableHead className="w-[300px]">Expected Revenue</TableHead>
                 <TableHead>CVR to next status</TableHead>
                 <TableHead>Remaining</TableHead>
                 <TableHead>Dropped</TableHead>
@@ -4185,10 +4204,12 @@ export default function Dashboard() {
               ) : (
                 conversionTableData.map((row, idx) => {
                   const maxRecords = row.maxRecords || row.records || 1;
-                  const maxExpectedRevenue = row.maxExpectedRevenue || row.expectedRevenue || 1;
                   return (
                     <TableRow key={idx}>
                       <TableCell className="font-medium">{row.status}</TableCell>
+                      <TableCell className="w-[200px]">
+                        ₹{row.mcv.toLocaleString("en-IN")}
+                      </TableCell>
                       <TableCell className="w-[200px]">
                         <div className="flex items-center gap-2">
                           <span className="w-12">{row.records}</span>
@@ -4196,17 +4217,6 @@ export default function Dashboard() {
                             <div
                               className="bg-orange-500 h-full rounded"
                               style={{ width: `${(row.records / maxRecords) * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="w-[300px]">
-                        <div className="flex items-center gap-2">
-                          <span className="w-24">₹{row.expectedRevenue.toLocaleString("en-IN")}</span>
-                          <div className="flex-1 bg-blue-100 h-4 rounded relative">
-                            <div
-                              className="bg-blue-500 h-full rounded"
-                              style={{ width: `${(row.expectedRevenue / maxExpectedRevenue) * 100}%` }}
                             />
                           </div>
                         </div>

@@ -37,3 +37,4 @@ COMMENT ON COLUMN public.monthly_targets.mandate_id IS 'Reference to mandate for
 
 
 
+

@@ -440,9 +440,9 @@ export type Database = {
           kam_id: string | null
           lob: Database["public"]["Enums"]["lob"]
           max_monthly_volume: number
-          max_mpv: number
+          max_mcv: number
           monthly_volume: number
-          mpv: number
+          mcv: number
           prj_duration_months: number
           prj_frequency: Database["public"]["Enums"]["prj_type"]
           prj_start_date: string | null
@@ -476,9 +476,9 @@ export type Database = {
           kam_id?: string | null
           lob: Database["public"]["Enums"]["lob"]
           max_monthly_volume: number
-          max_mpv: number
+          max_mcv: number
           monthly_volume: number
-          mpv: number
+          mcv: number
           prj_duration_months: number
           prj_frequency: Database["public"]["Enums"]["prj_type"]
           prj_start_date?: string | null
@@ -512,9 +512,9 @@ export type Database = {
           kam_id?: string | null
           lob?: Database["public"]["Enums"]["lob"]
           max_monthly_volume?: number
-          max_mpv?: number
+          max_mcv?: number
           monthly_volume?: number
-          mpv?: number
+          mcv?: number
           prj_duration_months?: number
           prj_frequency?: Database["public"]["Enums"]["prj_type"]
           prj_start_date?: string | null

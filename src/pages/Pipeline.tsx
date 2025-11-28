@@ -53,8 +53,8 @@ interface DealFormData {
   maxMonthlyVolume: string;
   commercialPerHead: string;
   expectedRevenue: string;
-  mpv: string;
-  maxMpv: string;
+  mcv: string;
+  maxMcv: string;
   prjDurationMonths: string;
   gmThreshold: string;
   prjFrequency: string;
@@ -318,8 +318,8 @@ export default function Pipeline() {
     maxMonthlyVolume: "",
     commercialPerHead: "",
     expectedRevenue: "",
-    mpv: "",
-    maxMpv: "",
+    mcv: "",
+    maxMcv: "",
     prjDurationMonths: "",
     gmThreshold: "",
     prjFrequency: "",
@@ -390,7 +390,7 @@ export default function Pipeline() {
   }, []);
 
   const handleDownloadDealTemplate = () => {
-    // Exclude auto-calculated fields: sales_module_name (auto-generated), mpv, max_mpv (calculated from monthly_volume * commercial_per_head)
+    // Exclude auto-calculated fields: sales_module_name (auto-generated), mcv, max_mcv (calculated from monthly_volume * commercial_per_head)
     // Exclude status field (defaults to "Listed" for new deals)
     const templateHeaders = [
       { key: "kam_name", label: "KAM Name" },
@@ -740,12 +740,12 @@ export default function Pipeline() {
           salesModuleName += ` - ${useCase}`;
         }
 
-        // Calculate MPV values
+        // Calculate MCV values
         const monthlyVolume = parseFloat(row["Monthly Volume"]) || 0;
         const maxMonthlyVolume = parseFloat(row["Max Monthly Volume"]) || 0;
         const commercialPerHead = parseFloat(row["Commercial per head/task"]) || 0;
-        const mpv = monthlyVolume * commercialPerHead;
-        const maxMpv = maxMonthlyVolume * commercialPerHead;
+        const mcv = monthlyVolume * commercialPerHead;
+        const maxMcv = maxMonthlyVolume * commercialPerHead;
 
         // Parse PRJ Start Date (optional)
         const prjStartDateValue = row["PRJ Start Date"] && row["PRJ Start Date"].trim() !== "" 
@@ -770,8 +770,8 @@ export default function Pipeline() {
           max_monthly_volume: maxMonthlyVolume,
           commercial_per_head: commercialPerHead,
           expected_revenue: parseFloat(row["Expected Revenue"]) || 0,
-          mpv: mpv,
-          max_mpv: maxMpv,
+          mcv: mcv,
+          max_mcv: maxMcv,
           prj_duration_months: parseInt(row["PRJ duration in months"]) || 0,
           gm_threshold: parseFloat(row["GM Threshold"]) || 0,
           prj_frequency: row["PRJ Frequency"],
@@ -1056,8 +1056,8 @@ export default function Pipeline() {
         max_monthly_volume: deal.max_monthly_volume || 0,
         commercial_per_head: deal.commercial_per_head || 0,
         expected_revenue: deal.expected_revenue || 0,
-        mpv: deal.mpv || 0,
-        max_mpv: deal.max_mpv || 0,
+        mcv: deal.mcv || 0,
+        max_mcv: deal.max_mcv || 0,
         prj_duration_months: deal.prj_duration_months || "",
         gm_threshold: deal.gm_threshold || "",
         prj_frequency: deal.prj_frequency || "",
@@ -1221,25 +1221,25 @@ export default function Pipeline() {
     fetchContacts();
   }, [formData.accountId]);
 
-  // Auto-calculate MPV and Max MPV
+  // Auto-calculate MCV and Max MCV
   useEffect(() => {
     const monthlyVolume = parseFloat(formData.monthlyVolume) || 0;
     const commercialPerHead = parseFloat(formData.commercialPerHead) || 0;
     const maxMonthlyVolume = parseFloat(formData.maxMonthlyVolume) || 0;
 
     if (monthlyVolume > 0 && commercialPerHead > 0) {
-      const mpv = monthlyVolume * commercialPerHead;
+      const mcv = monthlyVolume * commercialPerHead;
       setFormData((prev) => ({
         ...prev,
-        mpv: mpv.toString(),
+        mcv: mcv.toString(),
       }));
     }
 
     if (maxMonthlyVolume > 0 && commercialPerHead > 0) {
-      const maxMpv = maxMonthlyVolume * commercialPerHead;
+      const maxMcv = maxMonthlyVolume * commercialPerHead;
       setFormData((prev) => ({
         ...prev,
-        maxMpv: maxMpv.toString(),
+        maxMcv: maxMcv.toString(),
       }));
     }
   }, [formData.monthlyVolume, formData.maxMonthlyVolume, formData.commercialPerHead]);
@@ -1419,8 +1419,8 @@ export default function Pipeline() {
         max_monthly_volume: parseFloat(formData.maxMonthlyVolume) || 0,
         commercial_per_head: parseFloat(formData.commercialPerHead) || 0,
         expected_revenue: parseFloat(formData.expectedRevenue) || 0,
-        mpv: parseFloat(formData.mpv) || 0,
-        max_mpv: parseFloat(formData.maxMpv) || 0,
+        mcv: parseFloat(formData.mcv) || 0,
+        max_mcv: parseFloat(formData.maxMcv) || 0,
         prj_duration_months: parseInt(formData.prjDurationMonths) || 0,
         gm_threshold: parseFloat(formData.gmThreshold) || 0,
         prj_frequency: ensureEnumValue(formData.prjFrequency, ['Recurring', 'One-time']) || formData.prjFrequency,
@@ -1499,8 +1499,8 @@ export default function Pipeline() {
         maxMonthlyVolume: "",
         commercialPerHead: "",
         expectedRevenue: "",
-        mpv: "",
-        maxMpv: "",
+        mcv: "",
+        maxMcv: "",
         prjDurationMonths: "",
         gmThreshold: "",
         prjFrequency: "",
@@ -1552,8 +1552,8 @@ export default function Pipeline() {
       maxMonthlyVolume: deal.max_monthly_volume?.toString() || "",
       commercialPerHead: deal.commercial_per_head?.toString() || "",
       expectedRevenue: deal.expected_revenue?.toString() || "",
-      mpv: deal.mpv?.toString() || "",
-      maxMpv: deal.max_mpv?.toString() || "",
+      mcv: deal.mcv?.toString() || "",
+      maxMcv: deal.max_mcv?.toString() || "",
       prjDurationMonths: deal.prj_duration_months?.toString() || "",
       gmThreshold: deal.gm_threshold?.toString() || "",
       prjFrequency: deal.prj_frequency || "",
@@ -1642,8 +1642,8 @@ export default function Pipeline() {
         max_monthly_volume: parseFloat(formData.maxMonthlyVolume) || 0,
         commercial_per_head: parseFloat(formData.commercialPerHead) || 0,
         expected_revenue: parseFloat(formData.expectedRevenue) || 0,
-        mpv: parseFloat(formData.mpv) || 0,
-        max_mpv: parseFloat(formData.maxMpv) || 0,
+        mcv: parseFloat(formData.mcv) || 0,
+        max_mcv: parseFloat(formData.maxMcv) || 0,
         prj_duration_months: parseInt(formData.prjDurationMonths) || 0,
         gm_threshold: parseFloat(formData.gmThreshold) || 0,
         prj_frequency: ensureEnumValue(formData.prjFrequency, ['Recurring', 'One-time']) || formData.prjFrequency,
@@ -2086,7 +2086,7 @@ export default function Pipeline() {
           deal.kam || "",
           deal.lob || "",
           deal.expectedRevenue ? `₹${parseFloat(deal.expectedRevenue).toLocaleString("en-IN")}` : "",
-          deal.mpv ? `₹${parseFloat(deal.mpv.toString()).toLocaleString("en-IN")}` : "",
+          deal.mcv ? `₹${parseFloat(deal.mcv.toString()).toLocaleString("en-IN")}` : "",
           deal.expected_contract_sign_date || "",
           deal.status || "",
           deal.useCase || "",
@@ -2236,8 +2236,8 @@ export default function Pipeline() {
             maxMonthlyVolume: "",
             commercialPerHead: "",
             expectedRevenue: "",
-            mpv: "",
-            maxMpv: "",
+            mcv: "",
+            maxMcv: "",
             prjDurationMonths: "",
             gmThreshold: "",
             prjFrequency: "",
@@ -2658,24 +2658,24 @@ export default function Pipeline() {
                 <h3 className="font-semibold text-lg mb-4 text-purple-900">Revenue Info</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="mpv">
-                      MPV <span className="text-destructive">*</span>
+                    <Label htmlFor="mcv">
+                      MCV <span className="text-destructive">*</span>
                     </Label>
                     <Input
-                      id="mpv"
-                      value={formData.mpv}
+                      id="mcv"
+                      value={formData.mcv}
                       placeholder="Auto"
                       readOnly
                       className="bg-muted"
                     />
                   </div>
                   <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="maxMpv">
-                      Max MPV <span className="text-destructive">*</span>
+                    <Label htmlFor="maxMcv">
+                      Max MCV <span className="text-destructive">*</span>
                     </Label>
                     <Input
-                      id="maxMpv"
-                      value={formData.maxMpv}
+                      id="maxMcv"
+                      value={formData.maxMcv}
                       placeholder="Auto"
                       readOnly
                       className="bg-muted"
@@ -3147,7 +3147,7 @@ export default function Pipeline() {
                     <TableHead>KAM</TableHead>
                     <TableHead>LoB</TableHead>
                     <TableHead>Expected Revenue</TableHead>
-                    <TableHead>MPV</TableHead>
+                    <TableHead>MCV</TableHead>
                     <TableHead>Expected Contract Sign Date</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Action</TableHead>
@@ -3189,8 +3189,8 @@ export default function Pipeline() {
                         <TableCell>
                           <HighlightedText
                             text={
-                              deal.mpv
-                                ? `₹${parseFloat(deal.mpv.toString()).toLocaleString("en-IN")}`
+                              deal.mcv
+                                ? `₹${parseFloat(deal.mcv.toString()).toLocaleString("en-IN")}`
                                 : "N/A"
                             }
                             searchTerm={searchTerm}
@@ -3335,12 +3335,12 @@ export default function Pipeline() {
                   <h3 className="font-semibold text-lg mb-4 text-purple-900">Revenue Info</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2 md:col-span-2">
-                      <Label className="font-medium text-muted-foreground">MPV:</Label>
-                      <p className="mt-1">{selectedDealForView.mpv ? selectedDealForView.mpv.toLocaleString("en-IN") : "N/A"}</p>
+                      <Label className="font-medium text-muted-foreground">MCV:</Label>
+                      <p className="mt-1">{selectedDealForView.mcv ? selectedDealForView.mcv.toLocaleString("en-IN") : "N/A"}</p>
                     </div>
                     <div className="space-y-2 md:col-span-2">
-                      <Label className="font-medium text-muted-foreground">Max MPV:</Label>
-                      <p className="mt-1">{selectedDealForView.max_mpv ? selectedDealForView.max_mpv.toLocaleString("en-IN") : "N/A"}</p>
+                      <Label className="font-medium text-muted-foreground">Max MCV:</Label>
+                      <p className="mt-1">{selectedDealForView.max_mcv ? selectedDealForView.max_mcv.toLocaleString("en-IN") : "N/A"}</p>
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <Label className="font-medium text-muted-foreground">Expected Revenue:</Label>

@@ -2050,8 +2050,8 @@ export default function Accounts() {
                             <TableHead>Use Case</TableHead>
                             <TableHead>Sub Use Case</TableHead>
                             <TableHead>Expected Revenue</TableHead>
-                            <TableHead>MPV</TableHead>
-                            <TableHead>Max MPV</TableHead>
+                            <TableHead>MCV</TableHead>
+                            <TableHead>Max MCV</TableHead>
                             <TableHead>Monthly Volume</TableHead>
                             <TableHead>Max Monthly Volume</TableHead>
                             <TableHead>Commercial / head-task</TableHead>
@@ -2079,11 +2079,11 @@ export default function Accounts() {
                                     : "0"}
                                 </TableCell>
                                 <TableCell>
-                                  {deal.mpv ? parseFloat(String(deal.mpv)).toLocaleString("en-IN") : "0"}
+                                  {deal.mcv ? parseFloat(String(deal.mcv)).toLocaleString("en-IN") : "0"}
                                 </TableCell>
                                 <TableCell>
-                                  {deal.max_mpv
-                                    ? parseFloat(String(deal.max_mpv)).toLocaleString("en-IN")
+                                  {deal.max_mcv
+                                    ? parseFloat(String(deal.max_mcv)).toLocaleString("en-IN")
                                     : "0"}
                                 </TableCell>
                                 <TableCell>
@@ -2113,7 +2113,7 @@ export default function Accounts() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    Totals above are auto-calculated: ACV = Σ(Expected Revenue), MCV = Σ(MPV).
+                    Totals above are auto-calculated: ACV = Σ(Expected Revenue), MCV = Σ(MCV).
                   </p>
                 </CardContent>
               </Card>
