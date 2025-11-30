@@ -1,4 +1,4 @@
-import { Building2, Users, FileText, TrendingUp, LayoutDashboard, UserCog, Target } from "lucide-react";
+import { Building2, Users, FileText, TrendingUp, LayoutDashboard, UserCog, Target, BarChart3 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
   Sidebar,
@@ -23,6 +23,12 @@ export function AppSidebar() {
       title: "Dashboard",
       url: "/dashboard",
       icon: LayoutDashboard,
+      roles: ["kam", "manager", "leadership", "superadmin"],
+    },
+    {
+      title: "Cross Sell Dashboard",
+      url: "/cross-sell-dashboard",
+      icon: BarChart3,
       roles: ["kam", "manager", "leadership", "superadmin"],
     },
     {

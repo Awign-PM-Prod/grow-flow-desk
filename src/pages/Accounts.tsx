@@ -319,7 +319,7 @@ export default function Accounts() {
                 // No mandates for this account, set values to 0
                 const totalACV = 0;
                 const totalMCV = 0;
-                const mcvTier = null;
+                const mcvTier = "Tier 2"; // Default to Tier 2
                 
                 // Calculate Company Size Tier based on revenue range
                 let companySizeTier = account.company_size_tier;
@@ -404,8 +404,8 @@ export default function Accounts() {
               });
 
               // Calculate MCV Tier based on Total MCV
-              // Tier 1: if achieved MCV is above 1 CR (10,000,000)
-              const mcvTier = totalMCV > 10000000 ? "Tier 1" : totalMCV > 0 ? "Tier 2" : null;
+              // Tier 1: if achieved MCV is above 1 CR (10,000,000), otherwise default to Tier 2
+              const mcvTier = totalMCV > 10000000 ? "Tier 1" : "Tier 2";
               
               // Calculate Company Size Tier based on revenue range
               // Tier 1: if revenue range is "100~500CR" or "500CR &above"
@@ -1701,7 +1701,7 @@ export default function Accounts() {
                           <TableCell>
                             <HighlightedText text={account.total_mcv ? account.total_mcv.toLocaleString("en-IN") : "0"} searchTerm={searchTerm} />
                           </TableCell>
-                          <TableCell><HighlightedText text={account.mcv_tier || "N/A"} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={account.mcv_tier || "Tier 2"} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={account.company_size_tier || "N/A"} searchTerm={searchTerm} /></TableCell>
                           <TableCell>
                             <div className="flex gap-2">
@@ -1978,7 +1978,7 @@ export default function Accounts() {
                     </div>
                     <div>
                       <Label className="font-medium text-muted-foreground">MCV Tier:</Label>
-                      <p className="mt-1">{selectedAccount.mcv_tier || "N/A"}</p>
+                      <p className="mt-1">{selectedAccount.mcv_tier || "Tier 2"}</p>
                     </div>
                     <div>
                       <Label className="font-medium text-muted-foreground">Company Size Tier:</Label>
