@@ -1477,154 +1477,152 @@ export default function Accounts() {
           <Card>
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-9 gap-3">
-                <Input
-                  placeholder="Search all fields..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-                <Select value={filterAccountName || undefined} onValueChange={(value) => setFilterAccountName(value === "all" ? "" : value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Account Names" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <div className="px-2 pb-2">
-                      <Input
-                        placeholder="Search account names..."
-                        value={accountNameSearch}
-                        onChange={(e) => setAccountNameSearch(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        className="h-8"
-                      />
-                    </div>
-                    <SelectItem value="all">All Account Names</SelectItem>
-                    {uniqueAccountNames
-                      .filter((name) => name.toLowerCase().includes(accountNameSearch.toLowerCase()))
-                      .map((name) => (
-                        <SelectItem key={name} value={name}>
-                          {name}
-                        </SelectItem>
-                      ))}
-                    {uniqueAccountNames.filter((name) => name.toLowerCase().includes(accountNameSearch.toLowerCase())).length === 0 && (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        No account names found
+              <div className="space-y-3">
+                <div className={`grid grid-cols-1 md:grid-cols-3 ${filterIndustry ? "lg:grid-cols-8" : "lg:grid-cols-7"} gap-3`}>
+                  <Input
+                    placeholder="Search all fields..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className={`text-left ${searchTerm ? "border-blue-500 bg-blue-50/50" : ""}`}
+                  />
+                  <Select value={filterAccountName || undefined} onValueChange={(value) => setFilterAccountName(value === "all" ? "" : value)}>
+                    <SelectTrigger className={`text-left ${filterAccountName ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Account Names" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <div className="px-2 pb-2">
+                        <Input
+                          placeholder="Search account names..."
+                          value={accountNameSearch}
+                          onChange={(e) => setAccountNameSearch(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="h-8 text-left"
+                        />
                       </div>
-                    )}
-                  </SelectContent>
-                </Select>
-                <Select value={filterCountry || undefined} onValueChange={(value) => setFilterCountry(value === "all" ? "" : value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Countries" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <div className="px-2 pb-2">
-                      <Input
-                        placeholder="Search countries..."
-                        value={countrySearch}
-                        onChange={(e) => setCountrySearch(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        className="h-8"
-                      />
-                    </div>
-                    <SelectItem value="all">All Countries</SelectItem>
-                    {uniqueCountries
-                      .filter((country) => country.toLowerCase().includes(countrySearch.toLowerCase()))
-                      .map((country) => (
-                        <SelectItem key={country} value={country}>
-                          {country}
-                        </SelectItem>
-                      ))}
-                    {uniqueCountries.filter((country) => country.toLowerCase().includes(countrySearch.toLowerCase())).length === 0 && (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        No countries found
-                      </div>
-                    )}
-                  </SelectContent>
-                </Select>
-                <Select value={filterIndustry || "all"} onValueChange={(value) => setFilterIndustry(value === "all" ? "" : value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Industries" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Industries</SelectItem>
-                    {industries.map((industry) => (
-                      <SelectItem key={industry} value={industry}>
-                        {industry}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select 
-                  value={filterSubCategory || undefined} 
-                  onValueChange={(value) => setFilterSubCategory(value === "all" ? "" : value)}
-                  disabled={!filterIndustry || filterIndustry === "Media & Entertainment" || filterIndustry === "E-Commerce"}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Sub Industry" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {!filterIndustry ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        Select industry first
-                      </div>
-                    ) : filterIndustry === "Media & Entertainment" || filterIndustry === "E-Commerce" ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        No sub category for {filterIndustry}
-                      </div>
-                    ) : industrySubCategories[filterIndustry] && industrySubCategories[filterIndustry].length > 0 ? (
-                      <>
-                        <SelectItem value="all">All Sub Categories</SelectItem>
-                        {industrySubCategories[filterIndustry].map((subCat) => (
-                          <SelectItem key={subCat} value={subCat}>
-                            {subCat}
+                      <SelectItem value="all">All Account Names</SelectItem>
+                      {uniqueAccountNames
+                        .filter((name) => name.toLowerCase().includes(accountNameSearch.toLowerCase()))
+                        .map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
                           </SelectItem>
                         ))}
-                      </>
-                    ) : (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        No sub categories available
+                      {uniqueAccountNames.filter((name) => name.toLowerCase().includes(accountNameSearch.toLowerCase())).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No account names found
+                          </div>
+                        )}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterCountry || undefined} onValueChange={(value) => setFilterCountry(value === "all" ? "" : value)}>
+                    <SelectTrigger className={`text-left ${filterCountry ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Countries" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <div className="px-2 pb-2">
+                        <Input
+                          placeholder="Search countries..."
+                          value={countrySearch}
+                          onChange={(e) => setCountrySearch(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="h-8 text-left"
+                        />
                       </div>
-                    )}
-                  </SelectContent>
-                </Select>
-                <Select value={filterRevenue || "all"} onValueChange={(value) => setFilterRevenue(value === "all" ? "" : value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Revenue Ranges" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Revenue Ranges</SelectItem>
-                    {revenueRanges.map((range) => (
-                      <SelectItem key={range} value={range}>
-                        {range}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterMCVTier || "all"} onValueChange={(value) => setFilterMCVTier(value === "all" ? "" : value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All MCV Tiers" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All MCV Tiers</SelectItem>
-                    <SelectItem value="Tier 1">Tier 1</SelectItem>
-                    <SelectItem value="Tier 2">Tier 2</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={filterCompanyTier || "all"} onValueChange={(value) => setFilterCompanyTier(value === "all" ? "" : value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Company Size Tiers" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Company Size Tiers</SelectItem>
-                    <SelectItem value="Tier 1">Tier 1</SelectItem>
-                    <SelectItem value="Tier 2">Tier 2</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" onClick={clearFilters}>
-                  Clear Filters
-                </Button>
+                      <SelectItem value="all">All Countries</SelectItem>
+                      {uniqueCountries
+                        .filter((country) => country.toLowerCase().includes(countrySearch.toLowerCase()))
+                        .map((country) => (
+                          <SelectItem key={country} value={country}>
+                            {country}
+                          </SelectItem>
+                        ))}
+                      {uniqueCountries.filter((country) => country.toLowerCase().includes(countrySearch.toLowerCase())).length === 0 && (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                          No countries found
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterIndustry || "all"} onValueChange={(value) => setFilterIndustry(value === "all" ? "" : value)}>
+                    <SelectTrigger className={`text-left ${filterIndustry ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Industries" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Industries</SelectItem>
+                      {industries.map((industry) => (
+                        <SelectItem key={industry} value={industry}>
+                          {industry}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {filterIndustry && filterIndustry !== "Media & Entertainment" && filterIndustry !== "E-Commerce" && (
+                    <Select 
+                      value={filterSubCategory || undefined} 
+                      onValueChange={(value) => setFilterSubCategory(value)}
+                    >
+                      <SelectTrigger className={`text-left ${filterSubCategory ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                        <SelectValue placeholder="Select Sub Industry" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {industrySubCategories[filterIndustry] && industrySubCategories[filterIndustry].length > 0 ? (
+                          industrySubCategories[filterIndustry].map((subCat) => (
+                            <SelectItem key={subCat} value={subCat}>
+                              {subCat}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No sub categories available
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Select value={filterRevenue || "all"} onValueChange={(value) => setFilterRevenue(value === "all" ? "" : value)}>
+                    <SelectTrigger className={`text-left ${filterRevenue ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Revenue Ranges" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Revenue Ranges</SelectItem>
+                      {revenueRanges.map((range) => (
+                        <SelectItem key={range} value={range}>
+                          {range}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterMCVTier || "all"} onValueChange={(value) => setFilterMCVTier(value === "all" ? "" : value)}>
+                    <SelectTrigger className={`text-left ${filterMCVTier ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All MCV Tiers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All MCV Tiers</SelectItem>
+                      <SelectItem value="Tier 1">Tier 1</SelectItem>
+                      <SelectItem value="Tier 2">Tier 2</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterCompanyTier || "all"} onValueChange={(value) => setFilterCompanyTier(value === "all" ? "" : value)}>
+                    <SelectTrigger className={`text-left ${filterCompanyTier ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Company Size Tiers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Company Size Tiers</SelectItem>
+                      <SelectItem value="Tier 1">Tier 1</SelectItem>
+                      <SelectItem value="Tier 2">Tier 2</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    className="bg-black text-white hover:bg-black/90"
+                    onClick={clearFilters}
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

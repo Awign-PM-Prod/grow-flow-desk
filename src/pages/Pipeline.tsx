@@ -2982,155 +2982,161 @@ export default function Pipeline() {
         <Card>
           <CardContent className="pt-6">
             <h3 className="font-semibold text-lg mb-4">Filters</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
-              <Input
-                placeholder="Search all fields..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              <Select value={filterAccount} onValueChange={setFilterAccount}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Accounts" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Accounts</SelectItem>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterKam} onValueChange={setFilterKam}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All KAMs" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All KAMs</SelectItem>
-                  {kams.map((kam) => (
-                    <SelectItem key={kam.id} value={kam.id}>
-                      {kam.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterLob} onValueChange={setFilterLob}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All LoB" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All LoB</SelectItem>
-                  {lobOptions.map((lob) => (
-                    <SelectItem key={lob} value={lob}>
-                      {lob}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger>
-                  {filterStatus === "all" ? (
-                    <SelectValue placeholder="All Status" />
-                  ) : (
-                    <div className="flex items-center">
-                      {(() => {
-                        const badgeStyle = getStatusBadgeStyle(filterStatus);
-                        return (
-                          <Badge
-                            variant={badgeStyle.variant}
-                            className={badgeStyle.className}
-                          >
-                            {filterStatus}
-                          </Badge>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  {statusOptions.map((status) => {
-                    const badgeStyle = getStatusBadgeStyle(status);
-                    return (
-                      <SelectItem key={status} value={status}>
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant={badgeStyle.variant}
-                            className={badgeStyle.className}
-                          >
-                            {formatStatusWithNumber(status)}
-                          </Badge>
-                        </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                <Input
+                  placeholder="Search all fields..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className={`text-left ${searchTerm ? "border-blue-500 bg-blue-50/50" : ""}`}
+                />
+                <Select value={filterAccount} onValueChange={setFilterAccount}>
+                  <SelectTrigger className={`text-left ${filterAccount !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectValue placeholder="All Accounts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Accounts</SelectItem>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
                       </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Label className="text-sm font-medium">Sort By:</Label>
-              <Select value={sortBy} onValueChange={(value: "newest" | "oldest" | "status") => setSortBy(value)}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="newest">Newest first</SelectItem>
-                  <SelectItem value="oldest">Oldest First</SelectItem>
-                  <SelectItem value="status">Status</SelectItem>
-                </SelectContent>
-              </Select>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="min-w-[300px] justify-start text-left font-normal"
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {filterExpectedContractSignDateRange?.from ? (
-                      filterExpectedContractSignDateRange.to ? (
-                        <>
-                          {format(filterExpectedContractSignDateRange.from, "LLL dd, y")} -{" "}
-                          {format(filterExpectedContractSignDateRange.to, "LLL dd, y")}
-                        </>
-                      ) : (
-                        <>
-                          Before {format(filterExpectedContractSignDateRange.from, "LLL dd, y")}
-                        </>
-                      )
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterKam} onValueChange={setFilterKam}>
+                  <SelectTrigger className={`text-left ${filterKam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectValue placeholder="All KAMs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All KAMs</SelectItem>
+                    {kams.map((kam) => (
+                      <SelectItem key={kam.id} value={kam.id}>
+                        {kam.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterLob} onValueChange={setFilterLob}>
+                  <SelectTrigger className={`text-left ${filterLob !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectValue placeholder="All LoB" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All LoB</SelectItem>
+                    {lobOptions.map((lob) => (
+                      <SelectItem key={lob} value={lob}>
+                        {lob}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className={`text-left ${filterStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    {filterStatus === "all" ? (
+                      <SelectValue placeholder="All Status" />
                     ) : (
-                      <span>Expected Contract Sign Date</span>
+                      <div className="flex items-center">
+                        {(() => {
+                          const badgeStyle = getStatusBadgeStyle(filterStatus);
+                          return (
+                            <Badge
+                              variant={badgeStyle.variant}
+                              className={badgeStyle.className}
+                            >
+                              {filterStatus}
+                            </Badge>
+                          );
+                        })()}
+                      </div>
                     )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <div className="p-3 border-b">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Select Date Range</span>
-                      {filterExpectedContractSignDateRange && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setFilterExpectedContractSignDateRange(undefined)}
-                          className="h-7 text-xs"
-                        >
-                          Clear
-                        </Button>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    {statusOptions.map((status) => {
+                      const badgeStyle = getStatusBadgeStyle(status);
+                      return (
+                        <SelectItem key={status} value={status}>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={badgeStyle.variant}
+                              className={badgeStyle.className}
+                            >
+                              {formatStatusWithNumber(status)}
+                            </Badge>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-sm font-medium">Sort By:</Label>
+                <Select value={sortBy} onValueChange={(value: "newest" | "oldest" | "status") => setSortBy(value)}>
+                  <SelectTrigger className="w-[180px] text-left">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest first</SelectItem>
+                    <SelectItem value="oldest">Oldest First</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={`min-w-[300px] justify-start text-left font-normal ${filterExpectedContractSignDateRange ? "border-blue-500 bg-blue-50/50" : ""}`}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filterExpectedContractSignDateRange?.from ? (
+                        filterExpectedContractSignDateRange.to ? (
+                          <>
+                            {format(filterExpectedContractSignDateRange.from, "LLL dd, y")} -{" "}
+                            {format(filterExpectedContractSignDateRange.to, "LLL dd, y")}
+                          </>
+                        ) : (
+                          <>
+                            Before {format(filterExpectedContractSignDateRange.from, "LLL dd, y")}
+                          </>
+                        )
+                      ) : (
+                        <span>Expected Contract Sign Date</span>
                       )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <div className="p-3 border-b">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Select Date Range</span>
+                        {filterExpectedContractSignDateRange && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setFilterExpectedContractSignDateRange(undefined)}
+                            className="h-7 text-xs"
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <Calendar
-                    mode="range"
-                    selected={filterExpectedContractSignDateRange}
-                    onSelect={setFilterExpectedContractSignDateRange}
-                    numberOfMonths={2}
-                  />
-                </PopoverContent>
-              </Popover>
-              {hasActiveFilters && (
-                <Button variant="outline" onClick={clearFilters}>
+                    <Calendar
+                      mode="range"
+                      selected={filterExpectedContractSignDateRange}
+                      onSelect={setFilterExpectedContractSignDateRange}
+                      numberOfMonths={2}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  className="bg-black text-white hover:bg-black/90"
+                  onClick={clearFilters}
+                >
                   Clear Filters
                 </Button>
-              )}
+              </div>
             </div>
           </CardContent>
         </Card>

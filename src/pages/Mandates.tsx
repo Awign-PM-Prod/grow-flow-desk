@@ -3224,90 +3224,98 @@ export default function Mandates() {
       <Card>
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
-              <Input
-                  placeholder="Search all fields..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-                <Select value={filterAccount} onValueChange={setFilterAccount}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Accounts" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Accounts</SelectItem>
-                    {accounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterKam} onValueChange={setFilterKam}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All KAMs" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All KAMs</SelectItem>
-                    {kams.map((kam) => (
-                      <SelectItem key={kam.id} value={kam.id}>
-                        {kam.full_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterLob} onValueChange={setFilterLob}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All LoB" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All LoB</SelectItem>
-                    {availableLobs.map((lob) => (
-                      <SelectItem key={lob} value={lob}>
-                        {lob}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterMandateHealth} onValueChange={setFilterMandateHealth}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Mandate Health" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Mandate Health</SelectItem>
-                    <SelectItem value="Exceeds Expectations">Exceeds Expectations</SelectItem>
-                    <SelectItem value="Meets Expectations">Meets Expectations</SelectItem>
-                    <SelectItem value="Need Improvement">Need Improvement</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={filterUpsellStatus} onValueChange={setFilterUpsellStatus}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Upsell Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Upsell Status</SelectItem>
-                    <SelectItem value="Not Started">Not Started</SelectItem>
-                    <SelectItem value="Ongoing">Ongoing</SelectItem>
-                    <SelectItem value="Done">Done</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={filterRetentionType} onValueChange={setFilterRetentionType}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Retention Types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Retention Types</SelectItem>
-                    {availableRetentionTypes.map((retentionType) => (
-                      <SelectItem key={retentionType} value={retentionType}>
-                        {retentionType}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" onClick={clearFilters}>
-                  Clear Filters
-                </Button>
-            </div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
+                  <Input
+                    placeholder="Search all fields..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className={`text-left ${searchTerm ? "border-blue-500 bg-blue-50/50" : ""}`}
+                  />
+                  <Select value={filterAccount} onValueChange={setFilterAccount}>
+                    <SelectTrigger className={`text-left ${filterAccount !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Accounts" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Accounts</SelectItem>
+                      {accounts.map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterKam} onValueChange={setFilterKam}>
+                    <SelectTrigger className={`text-left ${filterKam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All KAMs" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All KAMs</SelectItem>
+                      {kams.map((kam) => (
+                        <SelectItem key={kam.id} value={kam.id}>
+                          {kam.full_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterLob} onValueChange={setFilterLob}>
+                    <SelectTrigger className={`text-left ${filterLob !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All LoB" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All LoB</SelectItem>
+                      {availableLobs.map((lob) => (
+                        <SelectItem key={lob} value={lob}>
+                          {lob}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterMandateHealth} onValueChange={setFilterMandateHealth}>
+                    <SelectTrigger className={`text-left ${filterMandateHealth !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Mandate Health" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Mandate Health</SelectItem>
+                      <SelectItem value="Exceeds Expectations">Exceeds Expectations</SelectItem>
+                      <SelectItem value="Meets Expectations">Meets Expectations</SelectItem>
+                      <SelectItem value="Need Improvement">Need Improvement</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterUpsellStatus} onValueChange={setFilterUpsellStatus}>
+                    <SelectTrigger className={`text-left ${filterUpsellStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Upsell Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Upsell Status</SelectItem>
+                      <SelectItem value="Not Started">Not Started</SelectItem>
+                      <SelectItem value="Ongoing">Ongoing</SelectItem>
+                      <SelectItem value="Done">Done</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterRetentionType} onValueChange={setFilterRetentionType}>
+                    <SelectTrigger className={`text-left ${filterRetentionType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                      <SelectValue placeholder="All Retention Types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Retention Types</SelectItem>
+                      {availableRetentionTypes.map((retentionType) => (
+                        <SelectItem key={retentionType} value={retentionType}>
+                          {retentionType}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    className="bg-black text-white hover:bg-black/90"
+                    onClick={clearFilters}
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -3328,7 +3336,7 @@ export default function Mandates() {
                       <TableHead>Mandate Health</TableHead>
                       <TableHead>Upsell Status</TableHead>
                       <TableHead>Retention Type</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="text-center">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -3371,7 +3379,24 @@ export default function Mandates() {
                     </Badge>
                   </TableCell>
                           <TableCell>
-                            <Badge variant="outline"><HighlightedText text={mandate.upsellStatus} searchTerm={searchTerm} /></Badge>
+                            <Badge
+                              variant={
+                                mandate.upsellStatus === "Done"
+                                  ? "default"
+                                  : mandate.upsellStatus === "Ongoing"
+                                    ? "secondary"
+                                    : "destructive"
+                              }
+                              className={
+                                mandate.upsellStatus === "Done"
+                                  ? "bg-green-500 hover:bg-green-600 text-white"
+                                  : mandate.upsellStatus === "Ongoing"
+                                    ? "bg-yellow-500 hover:bg-yellow-600 text-white"
+                                    : ""
+                              }
+                            >
+                              <HighlightedText text={mandate.upsellStatus} searchTerm={searchTerm} />
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             <HighlightedText text={mandate.retentionType} searchTerm={searchTerm} />
@@ -3379,19 +3404,20 @@ export default function Mandates() {
                           <TableCell>
                             <div className="flex gap-2">
                               <Button 
-                                variant="ghost" 
+                                variant="outline" 
                                 size="sm"
                                 onClick={() => handleViewDetails(mandate)}
+                                className="border-black"
                               >
                                 View Details
                               </Button>
                               <Button 
-                                variant="ghost" 
                                 size="sm"
                                 onClick={() => {
                                   setMandateForUpdate(mandate);
                                   setUpdateOptionsDialogOpen(true);
                                 }}
+                                className="bg-blue-500 hover:bg-blue-600 text-white"
                               >
                                 Update
                               </Button>

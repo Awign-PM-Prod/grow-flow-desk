@@ -1363,87 +1363,92 @@ export default function Contacts() {
           <Card>
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                <Input
-                  placeholder="Search all fields..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-                <Select value={filterAccount} onValueChange={setFilterAccount}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Accounts" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Accounts</SelectItem>
-                    {accounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterDepartment} onValueChange={setFilterDepartment}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Departments" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Departments</SelectItem>
-                    {[...new Set(contacts.map((c) => c.department).filter(Boolean))].sort().map((dept) => (
-                      <SelectItem key={dept} value={dept}>
-                        {dept}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterTitle} onValueChange={setFilterTitle}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Titles" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Titles</SelectItem>
-                    {[...new Set(contacts.map((c) => c.title).filter(Boolean))].sort().map((title) => (
-                      <SelectItem key={title} value={title}>
-                        {title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterLevel} onValueChange={setFilterLevel}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Levels" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Levels</SelectItem>
-                    {[...new Set(contacts.map((c) => c.level).filter(Boolean))].sort().map((level) => (
-                      <SelectItem key={level} value={level}>
-                        {level}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterAwignChampion} onValueChange={setFilterAwignChampion}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Awign Champions" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Awign Champions</SelectItem>
-                    <SelectItem value="YES">YES</SelectItem>
-                    <SelectItem value="NO">NO</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSearchTerm("");
-                    setFilterAccount("all");
-                    setFilterDepartment("all");
-                    setFilterTitle("all");
-                    setFilterLevel("all");
-                    setFilterAwignChampion("all");
-                  }}
-                >
-                  Clear Filters
-                </Button>
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <Input
+                    placeholder="Search all fields..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className={searchTerm ? "border-blue-500 bg-blue-50/50" : ""}
+                  />
+                  <Select value={filterAccount} onValueChange={setFilterAccount}>
+                    <SelectTrigger className={filterAccount !== "all" ? "border-blue-500 bg-blue-50/50" : ""}>
+                      <SelectValue placeholder="All Accounts" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Accounts</SelectItem>
+                      {accounts.map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterDepartment} onValueChange={setFilterDepartment}>
+                    <SelectTrigger className={filterDepartment !== "all" ? "border-blue-500 bg-blue-50/50" : ""}>
+                      <SelectValue placeholder="All Departments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Departments</SelectItem>
+                      {[...new Set(contacts.map((c) => c.department).filter(Boolean))].sort().map((dept) => (
+                        <SelectItem key={dept} value={dept}>
+                          {dept}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterTitle} onValueChange={setFilterTitle}>
+                    <SelectTrigger className={filterTitle !== "all" ? "border-blue-500 bg-blue-50/50" : ""}>
+                      <SelectValue placeholder="All Titles" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Titles</SelectItem>
+                      {[...new Set(contacts.map((c) => c.title).filter(Boolean))].sort().map((title) => (
+                        <SelectItem key={title} value={title}>
+                          {title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterLevel} onValueChange={setFilterLevel}>
+                    <SelectTrigger className={filterLevel !== "all" ? "border-blue-500 bg-blue-50/50" : ""}>
+                      <SelectValue placeholder="All Levels" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Levels</SelectItem>
+                      {[...new Set(contacts.map((c) => c.level).filter(Boolean))].sort().map((level) => (
+                        <SelectItem key={level} value={level}>
+                          {level}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterAwignChampion} onValueChange={setFilterAwignChampion}>
+                    <SelectTrigger className={filterAwignChampion !== "all" ? "border-blue-500 bg-blue-50/50" : ""}>
+                      <SelectValue placeholder="All Awign Champions" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Awign Champions</SelectItem>
+                      <SelectItem value="YES">YES</SelectItem>
+                      <SelectItem value="NO">NO</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    className="bg-black text-white hover:bg-black/90"
+                    onClick={() => {
+                      setSearchTerm("");
+                      setFilterAccount("all");
+                      setFilterDepartment("all");
+                      setFilterTitle("all");
+                      setFilterLevel("all");
+                      setFilterAwignChampion("all");
+                    }}
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
