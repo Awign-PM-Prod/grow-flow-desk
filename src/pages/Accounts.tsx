@@ -377,27 +377,38 @@ export default function Accounts() {
                 return monthDate >= fyStartDate && monthDate <= prevMonthDate;
               };
 
+              // Helper function to extract achieved MCV from monthly_data
+              // Handles both old format (array: [plannedMcv, achievedMcv]) and new format (number: achievedMcv)
+              const getAchievedMcv = (monthRecord: any): number => {
+                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                  // Old format: [plannedMcv, achievedMcv]
+                  return parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                } else if (typeof monthRecord === 'number') {
+                  // New format: just achievedMcv
+                  return monthRecord;
+                }
+                return 0;
+              };
+
               mandates.forEach((mandate: any) => {
                 const monthlyData = mandate.monthly_data;
                 if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                   Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                      const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                      
-                      // Extract year and month from monthYear (format: "YYYY-MM")
-                      const [yearStr, monthStr] = monthYear.split('-');
-                      const year = parseInt(yearStr);
-                      const month = parseInt(monthStr);
-                      
-                      // Add to Total MCV if it's the previous month
-                      if (monthYear === prevMonthYear) {
-                        totalMCV += achievedMcv;
-                      }
-                      
-                      // Add to Total ACV if it's from FY start (April) to previous month
-                      if (isMonthInACVRange(year, month)) {
-                        totalACV += achievedMcv;
-                      }
+                    const achievedMcv = getAchievedMcv(monthRecord);
+                    
+                    // Extract year and month from monthYear (format: "YYYY-MM")
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    
+                    // Add to Total MCV if it's the previous month
+                    if (monthYear === prevMonthYear) {
+                      totalMCV += achievedMcv;
+                    }
+                    
+                    // Add to Total ACV if it's from FY start (April) to previous month
+                    if (isMonthInACVRange(year, month)) {
+                      totalACV += achievedMcv;
                     }
                   });
                 }

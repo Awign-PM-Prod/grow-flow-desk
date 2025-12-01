@@ -306,7 +306,6 @@ export default function Mandates() {
     month: "",
     year: "",
     financialYear: "",
-    plannedMcv: "",
     achievedMcv: "",
   });
   const [savingMonthlyRecord, setSavingMonthlyRecord] = useState(false);
@@ -674,21 +673,25 @@ export default function Mandates() {
         const monthlyData = mandateForUpdate.monthly_data;
         if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
           const existingRecord = monthlyData[monthYear];
-          if (existingRecord && Array.isArray(existingRecord) && existingRecord.length >= 2) {
-            // Record exists, populate the form fields
-            const plannedMcv = parseFloat(existingRecord[0]?.toString() || "0") || 0;
-            const achievedMcv = parseFloat(existingRecord[1]?.toString() || "0") || 0;
+          if (existingRecord !== undefined && existingRecord !== null) {
+            // Record exists - handle both old format (array) and new format (number)
+            let achievedMcv = 0;
+            if (Array.isArray(existingRecord) && existingRecord.length >= 2) {
+              // Old format: [plannedMcv, achievedMcv]
+              achievedMcv = parseFloat(existingRecord[1]?.toString() || "0") || 0;
+            } else if (typeof existingRecord === 'number') {
+              // New format: just achievedMcv
+              achievedMcv = existingRecord;
+            }
             
             setMonthlyRecordForm(prev => ({
               ...prev,
-              plannedMcv: plannedMcv > 0 ? plannedMcv.toString() : "",
               achievedMcv: achievedMcv > 0 ? achievedMcv.toString() : "",
             }));
           } else {
             // No record exists for this month/year, clear the fields
             setMonthlyRecordForm(prev => ({
               ...prev,
-              plannedMcv: "",
               achievedMcv: "",
             }));
           }
@@ -696,7 +699,6 @@ export default function Mandates() {
           // No monthly_data exists, clear fields
           setMonthlyRecordForm(prev => ({
             ...prev,
-            plannedMcv: "",
             achievedMcv: "",
           }));
         }
@@ -705,7 +707,6 @@ export default function Mandates() {
       // If month or year is cleared, clear the MCV fields
       setMonthlyRecordForm(prev => ({
         ...prev,
-        plannedMcv: "",
         achievedMcv: "",
       }));
     }
@@ -1737,7 +1738,6 @@ export default function Mandates() {
         const projectId = row["Project Code"]?.trim();
         const month = row["Month"]?.trim();
         const year = row["Year"]?.trim();
-        const plannedMcv = row["Planned MCV"]?.trim();
         const achievedMcv = row["Achieved MCV"]?.trim();
 
         // Validate Project Code
@@ -1764,16 +1764,6 @@ export default function Mandates() {
           const yearNum = parseInt(year);
           if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
             errors.push("Year must be a valid year (2000-2100)");
-          }
-        }
-
-        // Validate Planned MCV
-        if (!plannedMcv || plannedMcv === "") {
-          errors.push("Planned MCV is required");
-        } else {
-          const plannedMcvNum = parseFloat(plannedMcv);
-          if (isNaN(plannedMcvNum) || plannedMcvNum < 0) {
-            errors.push("Planned MCV must be a valid number >= 0");
           }
         }
 
@@ -1858,7 +1848,6 @@ export default function Mandates() {
 
         const month = parseInt(row.data["Month"]?.trim());
         const year = parseInt(row.data["Year"]?.trim());
-        const plannedMcv = parseFloat(row.data["Planned MCV"]?.trim());
         const achievedMcv = parseFloat(row.data["Achieved MCV"]?.trim());
 
         const monthYear = `${year}-${String(month).padStart(2, '0')}`;
@@ -1872,7 +1861,8 @@ export default function Mandates() {
         }
 
         // Add or update monthly_data for this mandate (merge with existing)
-        updatesByMandate[mandate.id].monthly_data[monthYear] = [plannedMcv, achievedMcv];
+        // Store only achieved MCV (not planned)
+        updatesByMandate[mandate.id].monthly_data[monthYear] = achievedMcv;
       });
 
       // Update mandates in batches
@@ -3225,97 +3215,97 @@ export default function Mandates() {
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
-                  <Input
-                    placeholder="Search all fields..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
+              <Input
+                  placeholder="Search all fields..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                     className={`text-left ${searchTerm ? "border-blue-500 bg-blue-50/50" : ""}`}
-                  />
-                  <Select value={filterAccount} onValueChange={setFilterAccount}>
+              />
+                <Select value={filterAccount} onValueChange={setFilterAccount}>
                     <SelectTrigger className={`text-left ${filterAccount !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                      <SelectValue placeholder="All Accounts" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Accounts</SelectItem>
-                      {accounts.map((account) => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {account.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={filterKam} onValueChange={setFilterKam}>
+                    <SelectValue placeholder="All Accounts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Accounts</SelectItem>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterKam} onValueChange={setFilterKam}>
                     <SelectTrigger className={`text-left ${filterKam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                      <SelectValue placeholder="All KAMs" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All KAMs</SelectItem>
-                      {kams.map((kam) => (
-                        <SelectItem key={kam.id} value={kam.id}>
-                          {kam.full_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={filterLob} onValueChange={setFilterLob}>
+                    <SelectValue placeholder="All KAMs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All KAMs</SelectItem>
+                    {kams.map((kam) => (
+                      <SelectItem key={kam.id} value={kam.id}>
+                        {kam.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterLob} onValueChange={setFilterLob}>
                     <SelectTrigger className={`text-left ${filterLob !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                      <SelectValue placeholder="All LoB" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All LoB</SelectItem>
-                      {availableLobs.map((lob) => (
-                        <SelectItem key={lob} value={lob}>
-                          {lob}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={filterMandateHealth} onValueChange={setFilterMandateHealth}>
+                    <SelectValue placeholder="All LoB" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All LoB</SelectItem>
+                    {availableLobs.map((lob) => (
+                      <SelectItem key={lob} value={lob}>
+                        {lob}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterMandateHealth} onValueChange={setFilterMandateHealth}>
                     <SelectTrigger className={`text-left ${filterMandateHealth !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                      <SelectValue placeholder="All Mandate Health" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Mandate Health</SelectItem>
-                      <SelectItem value="Exceeds Expectations">Exceeds Expectations</SelectItem>
-                      <SelectItem value="Meets Expectations">Meets Expectations</SelectItem>
-                      <SelectItem value="Need Improvement">Need Improvement</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={filterUpsellStatus} onValueChange={setFilterUpsellStatus}>
+                    <SelectValue placeholder="All Mandate Health" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Mandate Health</SelectItem>
+                    <SelectItem value="Exceeds Expectations">Exceeds Expectations</SelectItem>
+                    <SelectItem value="Meets Expectations">Meets Expectations</SelectItem>
+                    <SelectItem value="Need Improvement">Need Improvement</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={filterUpsellStatus} onValueChange={setFilterUpsellStatus}>
                     <SelectTrigger className={`text-left ${filterUpsellStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                      <SelectValue placeholder="All Upsell Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Upsell Status</SelectItem>
-                      <SelectItem value="Not Started">Not Started</SelectItem>
-                      <SelectItem value="Ongoing">Ongoing</SelectItem>
-                      <SelectItem value="Done">Done</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={filterRetentionType} onValueChange={setFilterRetentionType}>
+                    <SelectValue placeholder="All Upsell Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Upsell Status</SelectItem>
+                    <SelectItem value="Not Started">Not Started</SelectItem>
+                    <SelectItem value="Ongoing">Ongoing</SelectItem>
+                    <SelectItem value="Done">Done</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={filterRetentionType} onValueChange={setFilterRetentionType}>
                     <SelectTrigger className={`text-left ${filterRetentionType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                      <SelectValue placeholder="All Retention Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Retention Types</SelectItem>
-                      {availableRetentionTypes.map((retentionType) => (
-                        <SelectItem key={retentionType} value={retentionType}>
-                          {retentionType}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <SelectValue placeholder="All Retention Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Retention Types</SelectItem>
+                    {availableRetentionTypes.map((retentionType) => (
+                      <SelectItem key={retentionType} value={retentionType}>
+                        {retentionType}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 </div>
                 <div className="flex justify-end">
                   <Button
                     className="bg-black text-white hover:bg-black/90"
                     onClick={clearFilters}
                   >
-                    Clear Filters
-                  </Button>
+                  Clear Filters
+                </Button>
                 </div>
-              </div>
+            </div>
             </CardContent>
           </Card>
 
@@ -4274,15 +4264,20 @@ export default function Mandates() {
               {/* 5th Section: Monthly Records */}
               {selectedMandate?.monthly_data && Object.keys(selectedMandate.monthly_data).length > 0 && (() => {
                 // Group monthly records by financial year
-                const recordsByFinancialYear: Record<string, Array<{ monthYear: string; monthName: string; plannedMcv: number; achievedMcv: number; percentage: string }>> = {};
+                const recordsByFinancialYear: Record<string, Array<{ monthYear: string; monthName: string; achievedMcv: number }>> = {};
                 
                 Object.entries(selectedMandate.monthly_data)
                   .sort(([a], [b]) => a.localeCompare(b)) // Sort ascending by date (oldest first)
-                  .forEach(([monthYear, values]: [string, any]) => {
-                    const [plannedMcv, achievedMcv] = Array.isArray(values) ? values : [0, 0];
-                    const percentage = plannedMcv > 0 
-                      ? ((achievedMcv / plannedMcv) * 100).toFixed(2) 
-                      : "0.00";
+                  .forEach(([monthYear, value]: [string, any]) => {
+                    // Handle both old format (array) and new format (number)
+                    let achievedMcv = 0;
+                    if (Array.isArray(value) && value.length >= 2) {
+                      // Old format: [plannedMcv, achievedMcv]
+                      achievedMcv = parseFloat(value[1]?.toString() || "0") || 0;
+                    } else if (typeof value === 'number') {
+                      // New format: just achievedMcv
+                      achievedMcv = value;
+                    }
                     
                     // Parse month_year to display format
                     const [year, month] = monthYear.split('-');
@@ -4298,9 +4293,7 @@ export default function Mandates() {
                     recordsByFinancialYear[financialYear].push({
                       monthYear,
                       monthName,
-                      plannedMcv,
                       achievedMcv,
-                      percentage,
                     });
                   });
                 
@@ -4323,9 +4316,7 @@ export default function Mandates() {
                               <TableHeader>
                                 <TableRow>
                                   <TableHead>Month</TableHead>
-                                  <TableHead>Planned MCV</TableHead>
                                   <TableHead>Achieved MCV</TableHead>
-                                  <TableHead>Percentage Achieved</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -4335,15 +4326,7 @@ export default function Mandates() {
                                       {record.monthName}
                                     </TableCell>
                                     <TableCell>
-                                      {record.plannedMcv ? record.plannedMcv.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}
-                                    </TableCell>
-                                    <TableCell>
                                       {record.achievedMcv ? record.achievedMcv.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "0"}
-                                    </TableCell>
-                                    <TableCell>
-                                      <Badge variant={parseFloat(record.percentage) >= 100 ? "default" : parseFloat(record.percentage) >= 80 ? "secondary" : "destructive"}>
-                                        {record.percentage}%
-                                      </Badge>
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -4434,7 +4417,6 @@ export default function Mandates() {
                   month: "",
                   year: currentYear.toString(),
                   financialYear: "",
-                  plannedMcv: "",
                   achievedMcv: "",
                 });
                 setMonthlyRecordDialogOpen(true);
@@ -4457,7 +4439,6 @@ export default function Mandates() {
             month: "",
             year: "",
             financialYear: "",
-            plannedMcv: "",
             achievedMcv: "",
           });
         } else {
@@ -4499,10 +4480,9 @@ export default function Mandates() {
             try {
               const month = parseInt(monthlyRecordForm.month);
               const year = parseInt(monthlyRecordForm.year);
-              const plannedMcv = parseFloat(monthlyRecordForm.plannedMcv);
               const achievedMcv = parseFloat(monthlyRecordForm.achievedMcv);
 
-              if (!month || !year || isNaN(plannedMcv) || isNaN(achievedMcv)) {
+              if (!month || !year || isNaN(achievedMcv)) {
                 toast({
                   title: "Validation Error",
                   description: "Please fill in all fields with valid values.",
@@ -4524,10 +4504,11 @@ export default function Mandates() {
               if (fetchError) throw fetchError;
 
               // Update or create monthly_data
+              // Store only achieved MCV (not planned)
               const currentData = currentMandate?.monthly_data || {};
               const updatedData = {
                 ...currentData,
-                [monthYear]: [plannedMcv, achievedMcv],
+                [monthYear]: achievedMcv,
               };
 
               const { error: updateError } = await supabase
@@ -4620,19 +4601,6 @@ export default function Mandates() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="plannedMcv">Planned MCV <span className="text-destructive">*</span></Label>
-              <Input
-                id="plannedMcv"
-                type="number"
-                step="0.01"
-                min="0"
-                value={monthlyRecordForm.plannedMcv}
-                onChange={(e) => setMonthlyRecordForm({ ...monthlyRecordForm, plannedMcv: e.target.value })}
-                placeholder="Enter planned MCV"
-                required
-              />
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="achievedMcv">Achieved MCV <span className="text-destructive">*</span></Label>
               <Input
                 id="achievedMcv"
@@ -4684,7 +4652,6 @@ export default function Mandates() {
                   { key: "project_id", label: "Project Code" },
                   { key: "month", label: "Month" },
                   { key: "year", label: "Year" },
-                  { key: "planned_mcv", label: "Planned MCV" },
                   { key: "achieved_mcv", label: "Achieved MCV" },
                 ];
                 downloadCSVTemplate(templateHeaders, "bulk_mcv_update_template.csv");

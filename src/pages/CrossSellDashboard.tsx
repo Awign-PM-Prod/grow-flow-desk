@@ -2,10 +2,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
-import * as d3 from "d3";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 export default function CrossSellDashboard() {
   const [loading, setLoading] = useState(true);
@@ -33,10 +33,6 @@ export default function CrossSellDashboard() {
     dropped: number;
   }>({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
   const [totalDealsCount, setTotalDealsCount] = useState<number>(0);
-  
-  // Chart refs for D3
-  const countChartRef = useRef<HTMLDivElement>(null);
-  const revenueChartRef = useRef<HTMLDivElement>(null);
   
   // Meetings and Proposals Metrics
   const [meetingsDoneLastWeek, setMeetingsDoneLastWeek] = useState<number>(0);
@@ -528,11 +524,23 @@ export default function CrossSellDashboard() {
       const { data: filteredDeals, error: dealsError } = await dealsQuery as any;
       const filteredDealIds = filteredDeals ? filteredDeals.map((d: any) => d.id) : [];
 
+      // Determine the date range for status history
+      // If month filter is selected, filter by that month; otherwise use the full FY range
+      let statusHistoryStartDate = perfFyDateRange.start;
+      let statusHistoryEndDate = perfFyDateRange.end;
+      
+      if (filterExpectedContractSignMonth) {
+        const month = parseInt(filterExpectedContractSignMonth);
+        const year = getYearForMonthInFY(month, performanceDashboardFY);
+        statusHistoryStartDate = new Date(year, month - 1, 1);
+        statusHistoryEndDate = new Date(year, month, 0, 23, 59, 59, 999);
+      }
+
       let allStatusHistoryQuery = supabase
         .from("deal_status_history" as any)
         .select("deal_id, old_status, new_status, changed_at")
-        .gte("changed_at", perfFyDateRange.start.toISOString())
-        .lte("changed_at", perfFyDateRange.end.toISOString());
+        .gte("changed_at", statusHistoryStartDate.toISOString())
+        .lte("changed_at", statusHistoryEndDate.toISOString());
 
       // Filter by deal IDs (which already includes the expected_contract_sign_date filter if month is selected)
       if (filteredDealIds.length > 0) {
@@ -589,6 +597,7 @@ export default function CrossSellDashboard() {
         const bofuStatuses = ["Commercial Agreed"];
 
         // Track unique deals per funnel stage using Sets
+        // Count deals where new_status matches the stage statuses within the selected period
         const tofuDeals = new Set<string>();
         const mofuDeals = new Set<string>();
         const bofuDeals = new Set<string>();
@@ -596,50 +605,25 @@ export default function CrossSellDashboard() {
         const droppedDeals = new Set<string>();
 
         // Process all status history records
+        // Only count deals where new_status matches the stage statuses
         if (allStatusHistory) {
           allStatusHistory.forEach((history: any) => {
             const dealId = history.deal_id;
+            const newStatus = history.new_status;
             
-            // Track deal in new_status (the status it moved to)
-            if (history.new_status) {
-              if (tofuStatuses.includes(history.new_status)) {
+            // Only track deals based on new_status (the status they moved to)
+            if (newStatus) {
+              if (tofuStatuses.includes(newStatus)) {
                 tofuDeals.add(dealId);
-              } else if (mofuStatuses.includes(history.new_status)) {
+              } else if (mofuStatuses.includes(newStatus)) {
                 mofuDeals.add(dealId);
-              } else if (bofuStatuses.includes(history.new_status)) {
+              } else if (bofuStatuses.includes(newStatus)) {
                 bofuDeals.add(dealId);
-              } else if (history.new_status === "Closed Won") {
+              } else if (newStatus === "Closed Won") {
                 closedWonDeals.add(dealId);
-              } else if (history.new_status === "Dropped") {
+              } else if (newStatus === "Dropped") {
                 droppedDeals.add(dealId);
               }
-            }
-            
-            // Track deal in old_status (the status it moved from)
-            if (history.old_status) {
-              if (tofuStatuses.includes(history.old_status)) {
-                tofuDeals.add(dealId);
-              } else if (mofuStatuses.includes(history.old_status)) {
-                mofuDeals.add(dealId);
-              } else if (bofuStatuses.includes(history.old_status)) {
-                bofuDeals.add(dealId);
-              } else if (history.old_status === "Closed Won") {
-                closedWonDeals.add(dealId);
-              } else if (history.old_status === "Dropped") {
-                droppedDeals.add(dealId);
-              }
-            }
-          });
-        }
-
-        // Handle deals that are currently "Listed" but might not have history yet
-        // Only include them if no month filter is selected (otherwise only count from status history)
-        if (currentDeals && !filterExpectedContractSignMonth) {
-          currentDeals.forEach((deal: any) => {
-            const status = deal.status;
-            // If deal is "Listed" and not in the Set yet, add it
-            if (status === "Listed" && !tofuDeals.has(deal.id)) {
-              tofuDeals.add(deal.id);
             }
           });
         }
@@ -723,6 +707,7 @@ export default function CrossSellDashboard() {
         const bofuStatuses = ["Commercial Agreed"];
 
         // Track unique deals per funnel stage using Sets (for revenue calculation)
+        // Count deals where new_status matches the stage statuses within the selected period
         const tofuDealsForRevenue = new Set<string>();
         const mofuDealsForRevenue = new Set<string>();
         const bofuDealsForRevenue = new Set<string>();
@@ -730,49 +715,25 @@ export default function CrossSellDashboard() {
         const droppedDealsForRevenue = new Set<string>();
 
         // Process all status history records
+        // Only count deals where new_status matches the stage statuses
         if (allStatusHistory) {
           allStatusHistory.forEach((history: any) => {
             const dealId = history.deal_id;
+            const newStatus = history.new_status;
             
-            // Track deal in new_status (the status it moved to)
-            if (history.new_status) {
-              if (tofuStatuses.includes(history.new_status)) {
+            // Only track deals based on new_status (the status they moved to)
+            if (newStatus) {
+              if (tofuStatuses.includes(newStatus)) {
                 tofuDealsForRevenue.add(dealId);
-              } else if (mofuStatuses.includes(history.new_status)) {
+              } else if (mofuStatuses.includes(newStatus)) {
                 mofuDealsForRevenue.add(dealId);
-              } else if (bofuStatuses.includes(history.new_status)) {
+              } else if (bofuStatuses.includes(newStatus)) {
                 bofuDealsForRevenue.add(dealId);
-              } else if (history.new_status === "Closed Won") {
+              } else if (newStatus === "Closed Won") {
                 closedWonDealsForRevenue.add(dealId);
-              } else if (history.new_status === "Dropped") {
+              } else if (newStatus === "Dropped") {
                 droppedDealsForRevenue.add(dealId);
               }
-            }
-            
-            // Track deal in old_status (the status it moved from)
-            if (history.old_status) {
-              if (tofuStatuses.includes(history.old_status)) {
-                tofuDealsForRevenue.add(dealId);
-              } else if (mofuStatuses.includes(history.old_status)) {
-                mofuDealsForRevenue.add(dealId);
-              } else if (bofuStatuses.includes(history.old_status)) {
-                bofuDealsForRevenue.add(dealId);
-              } else if (history.old_status === "Closed Won") {
-                closedWonDealsForRevenue.add(dealId);
-              } else if (history.old_status === "Dropped") {
-                droppedDealsForRevenue.add(dealId);
-              }
-            }
-          });
-        }
-
-        // Handle deals that are currently "Listed" but might not have history yet
-        if (currentDeals) {
-          currentDeals.forEach((deal: any) => {
-            const status = deal.status;
-            // If deal is "Listed" and not in the Set yet, add it
-            if (status === "Listed" && !tofuDealsForRevenue.has(deal.id)) {
-              tofuDealsForRevenue.add(deal.id);
             }
           });
         }
@@ -912,466 +873,53 @@ export default function CrossSellDashboard() {
     fetchMeetingsAndProposalsData();
   }, [performanceDashboardFY, filterKam, filterExpectedContractSignMonth]);
 
-  // Render Count Chart with D3
-  useEffect(() => {
-    if (!countChartRef.current || loading) return;
-    
-    // Clear previous chart and tooltip
-    d3.select(countChartRef.current).selectAll("*").remove();
-    d3.select("body").selectAll(".tooltip").remove();
-    
-    // Prepare data
-    const categories = [
-      { name: "TOFU", value: funnelCounts.tofu, fill: "#3b82f6" },
-      { name: "MOFU", value: funnelCounts.mofu, fill: "#f97316" },
-      { name: "BOFU", value: funnelCounts.bofu, fill: "#eab308" },
-      { name: "Closed Won", value: funnelCounts.closedWon, fill: "#22c55e" },
-      { name: "Dropped", value: funnelCounts.dropped, fill: "#d1d5db" },
-    ];
+  // Prepare data for Stage Count Graph (stacked bar)
+  // Use the same values as Funnel Stage Count of Sales Module section
+  const stageCountDataRaw = {
+    name: "Total",
+    TOFU: funnelCounts.tofu,
+    MOFU: funnelCounts.mofu,
+    BOFU: funnelCounts.bofu,
+    "Closed Won": funnelCounts.closedWon,
+    Dropped: funnelCounts.dropped,
+  };
 
-    // Sort by value ASCENDING (smallest first)
-    const sorted = [...categories].sort((a, b) => a.value - b.value);
+  // Fixed order: TOFU, MOFU, BOFU, Closed Won, Dropped (same as funnel)
+  // Using same colors as funnel section
+  // Reversed order for inverted bars: Dropped at bottom, TOFU at top
+  const stageCountSegments = [
+    { key: "TOFU", value: stageCountDataRaw.TOFU, fill: "#3b82f6", name: "TOFU" },
+    { key: "MOFU", value: stageCountDataRaw.MOFU, fill: "#f97316", name: "MOFU" },
+    { key: "BOFU", value: stageCountDataRaw.BOFU, fill: "#eab308", name: "BOFU" },
+    { key: "Closed Won", value: stageCountDataRaw["Closed Won"], fill: "#22c55e", name: "Closed Won" },
+    { key: "Dropped", value: stageCountDataRaw.Dropped, fill: "#d1d5db", name: "Dropped" },
+  ].reverse(); // Reverse to invert: Dropped at bottom, TOFU at top
 
-    // Group consecutive equal values
-    const groups: Array<Array<typeof categories[0]>> = [];
-    let currentGroup = [sorted[0]];
-    
-    for (let i = 1; i < sorted.length; i++) {
-      if (Math.abs(sorted[i].value - sorted[i - 1].value) < 0.0001) {
-        currentGroup.push(sorted[i]);
-      } else {
-        groups.push(currentGroup);
-        currentGroup = [sorted[i]];
-      }
-    }
-    groups.push(currentGroup);
+  const stageCountData = [stageCountDataRaw];
 
-    // Calculate positions for stacking
-    // Each bar's height is the difference between its value and the previous bar's value
-    let previousValue = 0; // Track the previous bar's value
-    const segments: Array<{
-      items: typeof categories;
-      value: number;
-      startY: number;
-      endY: number;
-      isEqual: boolean;
-    }> = [];
+  // Prepare data for Stage Revenue Graph (stacked bar)
+  // Use the same values as Funnel Stage Count of Sales Module section (converted to lakhs)
+  const stageRevenueDataRaw = {
+    name: "Total",
+    TOFU: funnelRevenue.tofu / 100000,
+    MOFU: funnelRevenue.mofu / 100000,
+    BOFU: funnelRevenue.bofu / 100000,
+    "Closed Won": funnelRevenue.closedWon / 100000,
+    Dropped: funnelRevenue.dropped / 100000,
+  };
 
-    groups.forEach((group) => {
-      const value = group[0].value;
-      const barHeight = value - previousValue; // Height = difference from previous value
-      const startY = previousValue; // Start at previous bar's value
-      const endY = value; // End at current bar's value
-      segments.push({
-        items: group,
-        value,
-        startY: startY,
-        endY: endY,
-        isEqual: group.length > 1,
-      });
-      previousValue = value; // Next bar uses this value as previous
-    });
+  // Fixed order: TOFU, MOFU, BOFU, Closed Won, Dropped (same as funnel)
+  // Using same colors as funnel section
+  // Reversed order for inverted bars: Dropped at bottom, TOFU at top
+  const stageRevenueSegments = [
+    { key: "TOFU", value: stageRevenueDataRaw.TOFU, fill: "#3b82f6", name: "TOFU" },
+    { key: "MOFU", value: stageRevenueDataRaw.MOFU, fill: "#f97316", name: "MOFU" },
+    { key: "BOFU", value: stageRevenueDataRaw.BOFU, fill: "#eab308", name: "BOFU" },
+    { key: "Closed Won", value: stageRevenueDataRaw["Closed Won"], fill: "#22c55e", name: "Closed Won" },
+    { key: "Dropped", value: stageRevenueDataRaw.Dropped, fill: "#d1d5db", name: "Dropped" },
+  ].reverse(); // Reverse to invert: Dropped at bottom, TOFU at top
 
-    // Set up SVG
-    const margin = { top: 20, right: 30, bottom: 40, left: 40 };
-    const width = countChartRef.current.clientWidth - margin.left - margin.right;
-    const height = 300 - margin.top - margin.bottom;
-
-    const svg = d3.select(countChartRef.current)
-      .append("svg")
-      .attr("width", width + margin.left + margin.right)
-      .attr("height", height + margin.top + margin.bottom);
-
-    const g = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    // Scales
-    const xScale = d3.scaleBand()
-      .domain(["Total"])
-      .range([0, width])
-      .padding(0.3);
-
-    // Y scale domain goes from 0 to the maximum value
-    const maxValue = Math.max(...categories.map(c => c.value), 1);
-    const yScale = d3.scaleLinear()
-      .domain([0, maxValue])
-      .range([height, 0]);
-
-    // Draw grid lines
-    const yTicks = yScale.ticks(5);
-    g.selectAll(".grid-line")
-      .data(yTicks)
-      .enter()
-      .append("line")
-      .attr("class", "grid-line")
-      .attr("x1", 0)
-      .attr("x2", width)
-      .attr("y1", d => yScale(d))
-      .attr("y2", d => yScale(d))
-      .attr("stroke", "#e5e7eb")
-      .attr("stroke-dasharray", "3,3");
-
-    // Create tooltip div
-    const tooltip = d3.select("body")
-      .append("div")
-      .attr("class", "tooltip")
-      .style("opacity", 0)
-      .style("position", "absolute")
-      .style("background", "hsl(var(--popover))")
-      .style("border", "1px solid hsl(var(--border))")
-      .style("border-radius", "6px")
-      .style("padding", "8px 12px")
-      .style("font-size", "12px")
-      .style("pointer-events", "none")
-      .style("z-index", "1000")
-      .style("box-shadow", "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)");
-
-    // Draw bars
-    segments.forEach((segment) => {
-      const barStartY = yScale(segment.endY); // Bottom of bar (higher Y value in SVG)
-      const barEndY = yScale(segment.startY); // Top of bar (lower Y value in SVG)
-      const barHeight = barEndY - barStartY;
-
-      if (segment.isEqual) {
-        // Equal values - draw side-by-side, all starting and ending at same Y
-        const barWidth = xScale.bandwidth() * 0.4;
-        const individualWidth = barWidth / segment.items.length;
-        const startX = xScale("Total")! + (xScale.bandwidth() - barWidth) / 2;
-
-        segment.items.forEach((item, idx) => {
-          const x = startX + idx * individualWidth;
-          
-          const rect = g.append("rect")
-            .attr("x", x)
-            .attr("y", barStartY)
-            .attr("width", individualWidth)
-            .attr("height", barHeight)
-            .attr("fill", item.fill)
-            .attr("stroke", "#fff")
-            .attr("stroke-width", 1)
-            .style("cursor", "pointer")
-            .on("mouseover", function(event) {
-              d3.select(this)
-                .attr("opacity", 0.8)
-                .attr("stroke-width", 2);
-              
-              const [mouseX, mouseY] = d3.pointer(event, svg.node());
-              tooltip
-                .style("opacity", 1)
-                .html(`<div style="font-weight: 600; margin-bottom: 4px;">${item.name}</div><div style="color: hsl(var(--muted-foreground));">${item.value.toLocaleString("en-IN")}</div>`)
-                .style("left", (event.pageX + 10) + "px")
-                .style("top", (event.pageY - 10) + "px");
-            })
-            .on("mousemove", function(event) {
-              tooltip
-                .style("left", (event.pageX + 10) + "px")
-                .style("top", (event.pageY - 10) + "px");
-            })
-            .on("mouseout", function() {
-              d3.select(this)
-                .attr("opacity", 1)
-                .attr("stroke-width", 1);
-              
-              tooltip.style("opacity", 0);
-            });
-        });
-      } else {
-        // Single bar
-        const barWidth = xScale.bandwidth() * 0.4;
-        const x = xScale("Total")! + (xScale.bandwidth() - barWidth) / 2;
-        
-        const rect = g.append("rect")
-          .attr("x", x)
-          .attr("y", barStartY)
-          .attr("width", barWidth)
-          .attr("height", barHeight)
-          .attr("fill", segment.items[0].fill)
-          .attr("stroke", "#fff")
-          .attr("stroke-width", 1)
-          .style("cursor", "pointer")
-          .on("mouseover", function(event) {
-            d3.select(this)
-              .attr("opacity", 0.8)
-              .attr("stroke-width", 2);
-            
-            const [mouseX, mouseY] = d3.pointer(event, svg.node());
-            tooltip
-              .style("opacity", 1)
-              .html(`<div style="font-weight: 600; margin-bottom: 4px;">${segment.items[0].name}</div><div style="color: hsl(var(--muted-foreground));">${segment.items[0].value.toLocaleString("en-IN")}</div>`)
-              .style("left", (event.pageX + 10) + "px")
-              .style("top", (event.pageY - 10) + "px");
-          })
-          .on("mousemove", function(event) {
-            tooltip
-              .style("left", (event.pageX + 10) + "px")
-              .style("top", (event.pageY - 10) + "px");
-          })
-          .on("mouseout", function() {
-            d3.select(this)
-              .attr("opacity", 1)
-              .attr("stroke-width", 1);
-            
-            tooltip.style("opacity", 0);
-          });
-      }
-    });
-
-    // Y Axis
-    const yAxis = d3.axisLeft(yScale);
-    g.append("g")
-      .attr("class", "y-axis")
-      .call(yAxis);
-
-    // Legend
-    const legend = g.append("g")
-      .attr("transform", `translate(${width - 100}, 10)`);
-
-    categories.forEach((cat, idx) => {
-      const legendItem = legend.append("g")
-        .attr("transform", `translate(0, ${idx * 20})`);
-      
-      legendItem.append("rect")
-        .attr("width", 12)
-        .attr("height", 12)
-        .attr("fill", cat.fill);
-      
-      legendItem.append("text")
-        .attr("x", 16)
-        .attr("y", 9)
-        .attr("font-size", "11px")
-        .text(cat.name);
-    });
-  }, [funnelCounts, loading]);
-
-  // Render Revenue Chart with D3
-  useEffect(() => {
-    if (!revenueChartRef.current || loading) return;
-    
-    // Clear previous chart
-    d3.select(revenueChartRef.current).selectAll("*").remove();
-    
-    // Prepare data
-    const categories = [
-      { name: "TOFU", value: funnelRevenue.tofu / 100000, fill: "#3b82f6" },
-      { name: "MOFU", value: funnelRevenue.mofu / 100000, fill: "#f97316" },
-      { name: "BOFU", value: funnelRevenue.bofu / 100000, fill: "#eab308" },
-      { name: "Closed Won", value: funnelRevenue.closedWon / 100000, fill: "#22c55e" },
-      { name: "Dropped", value: funnelRevenue.dropped / 100000, fill: "#d1d5db" },
-    ];
-
-    // Sort by value ASCENDING (smallest first)
-    const sorted = [...categories].sort((a, b) => a.value - b.value);
-
-    // Group consecutive equal values
-    const groups: Array<Array<typeof categories[0]>> = [];
-    let currentGroup = [sorted[0]];
-    
-    for (let i = 1; i < sorted.length; i++) {
-      if (Math.abs(sorted[i].value - sorted[i - 1].value) < 0.0001) {
-        currentGroup.push(sorted[i]);
-      } else {
-        groups.push(currentGroup);
-        currentGroup = [sorted[i]];
-      }
-    }
-    groups.push(currentGroup);
-
-    // Calculate positions for stacking
-    // Each bar's height is the difference between its value and the previous bar's value
-    let previousValue = 0; // Track the previous bar's value
-    const segments: Array<{
-      items: typeof categories;
-      value: number;
-      startY: number;
-      endY: number;
-      isEqual: boolean;
-    }> = [];
-
-    groups.forEach((group) => {
-      const value = group[0].value;
-      const barHeight = value - previousValue; // Height = difference from previous value
-      const startY = previousValue; // Start at previous bar's value
-      const endY = value; // End at current bar's value
-      segments.push({
-        items: group,
-        value,
-        startY: startY,
-        endY: endY,
-        isEqual: group.length > 1,
-      });
-      previousValue = value; // Next bar uses this value as previous
-    });
-
-    // Set up SVG
-    const margin = { top: 20, right: 30, bottom: 40, left: 40 };
-    const width = revenueChartRef.current.clientWidth - margin.left - margin.right;
-    const height = 300 - margin.top - margin.bottom;
-
-    const svg = d3.select(revenueChartRef.current)
-      .append("svg")
-      .attr("width", width + margin.left + margin.right)
-      .attr("height", height + margin.top + margin.bottom);
-
-    const g = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    // Scales
-    const xScale = d3.scaleBand()
-      .domain(["Total"])
-      .range([0, width])
-      .padding(0.3);
-
-    // Y scale domain goes from 0 to the maximum value
-    const maxValue = Math.max(...categories.map(c => c.value), 1);
-    const yScale = d3.scaleLinear()
-      .domain([0, maxValue])
-      .range([height, 0]);
-
-    // Draw grid lines
-    const yTicks = yScale.ticks(5);
-    g.selectAll(".grid-line")
-      .data(yTicks)
-      .enter()
-      .append("line")
-      .attr("class", "grid-line")
-      .attr("x1", 0)
-      .attr("x2", width)
-      .attr("y1", d => yScale(d))
-      .attr("y2", d => yScale(d))
-      .attr("stroke", "#e5e7eb")
-      .attr("stroke-dasharray", "3,3");
-
-    // Create tooltip div
-    const tooltip = d3.select("body")
-      .append("div")
-      .attr("class", "tooltip")
-      .style("opacity", 0)
-      .style("position", "absolute")
-      .style("background", "hsl(var(--popover))")
-      .style("border", "1px solid hsl(var(--border))")
-      .style("border-radius", "6px")
-      .style("padding", "8px 12px")
-      .style("font-size", "12px")
-      .style("pointer-events", "none")
-      .style("z-index", "1000")
-      .style("box-shadow", "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)");
-
-    // Draw bars
-    segments.forEach((segment) => {
-      const barStartY = yScale(segment.endY); // Bottom of bar (higher Y value in SVG)
-      const barEndY = yScale(segment.startY); // Top of bar (lower Y value in SVG)
-      const barHeight = barEndY - barStartY;
-
-      if (segment.isEqual) {
-        // Equal values - draw side-by-side, all starting and ending at same Y
-        const barWidth = xScale.bandwidth() * 0.4;
-        const individualWidth = barWidth / segment.items.length;
-        const startX = xScale("Total")! + (xScale.bandwidth() - barWidth) / 2;
-
-        segment.items.forEach((item, idx) => {
-          const x = startX + idx * individualWidth;
-          
-          const rect = g.append("rect")
-            .attr("x", x)
-            .attr("y", barStartY)
-            .attr("width", individualWidth)
-            .attr("height", barHeight)
-            .attr("fill", item.fill)
-            .attr("stroke", "#fff")
-            .attr("stroke-width", 1)
-            .style("cursor", "pointer")
-            .on("mouseover", function(event) {
-              d3.select(this)
-                .attr("opacity", 0.8)
-                .attr("stroke-width", 2);
-              
-              const [mouseX, mouseY] = d3.pointer(event, svg.node());
-              tooltip
-                .style("opacity", 1)
-                .html(`<div style="font-weight: 600; margin-bottom: 4px;">${item.name}</div><div style="color: hsl(var(--muted-foreground));">₹${item.value.toFixed(1)}L</div>`)
-                .style("left", (event.pageX + 10) + "px")
-                .style("top", (event.pageY - 10) + "px");
-            })
-            .on("mousemove", function(event) {
-              tooltip
-                .style("left", (event.pageX + 10) + "px")
-                .style("top", (event.pageY - 10) + "px");
-            })
-            .on("mouseout", function() {
-              d3.select(this)
-                .attr("opacity", 1)
-                .attr("stroke-width", 1);
-              
-              tooltip.style("opacity", 0);
-            });
-        });
-      } else {
-        // Single bar
-        const barWidth = xScale.bandwidth() * 0.4;
-        const x = xScale("Total")! + (xScale.bandwidth() - barWidth) / 2;
-        
-        const rect = g.append("rect")
-          .attr("x", x)
-          .attr("y", barStartY)
-          .attr("width", barWidth)
-          .attr("height", barHeight)
-          .attr("fill", segment.items[0].fill)
-          .attr("stroke", "#fff")
-          .attr("stroke-width", 1)
-          .style("cursor", "pointer")
-          .on("mouseover", function(event) {
-            d3.select(this)
-              .attr("opacity", 0.8)
-              .attr("stroke-width", 2);
-            
-            const [mouseX, mouseY] = d3.pointer(event, svg.node());
-            tooltip
-              .style("opacity", 1)
-              .html(`<div style="font-weight: 600; margin-bottom: 4px;">${segment.items[0].name}</div><div style="color: hsl(var(--muted-foreground));">₹${segment.items[0].value.toFixed(1)}L</div>`)
-              .style("left", (event.pageX + 10) + "px")
-              .style("top", (event.pageY - 10) + "px");
-          })
-          .on("mousemove", function(event) {
-            tooltip
-              .style("left", (event.pageX + 10) + "px")
-              .style("top", (event.pageY - 10) + "px");
-          })
-          .on("mouseout", function() {
-            d3.select(this)
-              .attr("opacity", 1)
-              .attr("stroke-width", 1);
-            
-            tooltip.style("opacity", 0);
-          });
-      }
-    });
-
-    // Y Axis
-    const yAxis = d3.axisLeft(yScale);
-    g.append("g")
-      .attr("class", "y-axis")
-      .call(yAxis);
-
-    // Legend
-    const legend = g.append("g")
-      .attr("transform", `translate(${width - 100}, 10)`);
-
-    categories.forEach((cat, idx) => {
-      const legendItem = legend.append("g")
-        .attr("transform", `translate(0, ${idx * 20})`);
-      
-      legendItem.append("rect")
-        .attr("width", 12)
-        .attr("height", 12)
-        .attr("fill", cat.fill);
-      
-      legendItem.append("text")
-        .attr("x", 16)
-        .attr("y", 9)
-        .attr("font-size", "11px")
-        .text(cat.name);
-    });
-  }, [funnelRevenue, loading]);
+  const stageRevenueData = [stageRevenueDataRaw];
 
   // Generate month options (just month names)
   const monthOptions = [
@@ -1466,14 +1014,197 @@ export default function CrossSellDashboard() {
         </Select>
       </div>
 
-      {/* Funnel Stage and Activity Metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
+      {/* Line 1: Stage Count Graph | Stage Revenue Graph | 4 cards of meetings done and proposals made */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
+        {/* Stage Count Graph */}
+        <Card className="lg:col-span-4">
+          <CardHeader>
+            <CardTitle className="text-base">Stage Count Graph</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart 
+                  data={stageCountData} 
+                  barCategoryGap="20%"
+                  barGap={0}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="name" type="category" />
+                  <YAxis type="number" hide />
+                  <Tooltip 
+                    formatter={(value: any, name: string) => {
+                      return [typeof value === 'number' ? value.toLocaleString("en-IN") : value, name];
+                    }}
+                    labelFormatter={() => ''}
+                  />
+                  <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
+                  {stageCountSegments.map((segment, index) => (
+                    <Bar 
+                      key={segment.key}
+                      dataKey={segment.key} 
+                      stackId="count"
+                      fill={segment.fill} 
+                      name={segment.name}
+                      barSize={60}
+                      radius={index === 0 ? [0, 0, 4, 4] : [0, 0, 0, 0]}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Stage Revenue Graph */}
+        <Card className="lg:col-span-4">
+          <CardHeader>
+            <CardTitle className="text-base">Stage Revenue Graph</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart 
+                  data={stageRevenueData} 
+                  barCategoryGap="20%"
+                  barGap={0}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="name" type="category" />
+                  <YAxis type="number" hide />
+                  <Tooltip 
+                    formatter={(value: any, name: string) => {
+                      return [`₹${typeof value === 'number' ? value.toFixed(1) : parseFloat(value).toFixed(1)}L`, name];
+                    }}
+                    labelFormatter={() => ''}
+                  />
+                  <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
+                  {stageRevenueSegments.map((segment, index) => (
+                    <Bar 
+                      key={segment.key}
+                      dataKey={segment.key} 
+                      stackId="revenue"
+                      fill={segment.fill} 
+                      name={segment.name}
+                      barSize={60}
+                      radius={index === 0 ? [0, 0, 4, 4] : [0, 0, 0, 0]}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Meetings and Proposals Metrics */}
+        <div className="space-y-4 lg:col-span-2">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-bold text-center">{meetingsDoneLastWeek}</div>
+              <p className="text-sm text-muted-foreground text-center mt-1">Meetings Done Last Week</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-bold text-center">{meetingsDoneThisWeek}</div>
+              <p className="text-sm text-muted-foreground text-center mt-1">Meetings Done This Week</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-bold text-center">{proposalMadeLastWeek}</div>
+              <p className="text-sm text-muted-foreground text-center mt-1">Proposal Made Last Week</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-bold text-center">{proposalMadeThisWeek}</div>
+              <p className="text-sm text-muted-foreground text-center mt-1">Proposal Made This Week</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Line 2: Conversion Table by Status | Funnel Stage Count of Sales Module */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
+        {/* Conversion Table by Status */}
+        <Card className="lg:col-span-7">
+        <CardHeader>
+          <CardTitle>Conversion Table by Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-[200px]">MCV</TableHead>
+                <TableHead className="w-[200px]">Cumulative # of Records</TableHead>
+                <TableHead>CVR to next status</TableHead>
+                <TableHead>Remaining</TableHead>
+                <TableHead>Dropped</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
+                  </TableCell>
+                </TableRow>
+              ) : conversionTableData.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    No data available for {performanceDashboardFY}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                conversionTableData.map((row, idx) => {
+                  const maxRecords = row.maxRecords || row.records || 1;
+                  return (
+                    <TableRow key={idx}>
+                      <TableCell className="font-medium">{row.status}</TableCell>
+                      <TableCell className="w-[200px]">
+                        ₹{row.mcv.toLocaleString("en-IN")}
+                      </TableCell>
+                      <TableCell className="w-[200px]">
+                        <div className="flex items-center gap-2">
+                          <span className="w-12">{row.records}</span>
+                          <div className="flex-1 bg-orange-100 h-4 rounded relative">
+                            <div
+                              className="bg-orange-500 h-full rounded"
+                              style={{ width: `${(row.records / maxRecords) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{row.cvr}</TableCell>
+                      <TableCell>{row.remaining}</TableCell>
+                      <TableCell>{row.dropped}</TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
         {/* Funnel Stage_Count of Sales Module */}
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-3 overflow-hidden">
           <CardHeader>
             <CardTitle className="text-base">Funnel Stage Count of Sales Module</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 pb-0 !pb-0">
             {/* Total Box */}
             <div className="mb-4 flex justify-center">
               <div className="inline-flex items-center gap-2 rounded-lg border bg-muted px-4 py-2">
@@ -1483,7 +1214,7 @@ export default function CrossSellDashboard() {
                 </span>
               </div>
             </div>
-            <div className="flex gap-4">
+            <div className="flex gap-4" style={{ minHeight: 0, paddingBottom: '0' }}>
               {(() => {
                 const values = { 
                   tofu: funnelCounts.tofu,
@@ -1499,35 +1230,37 @@ export default function CrossSellDashboard() {
                   return (value / maxValue) * maxWidth;
                 };
                 
+                // Calculate dimensions first
+                const barHeight = 1;
+                const gapBetweenBars = 60;
+                const gapBetweenDuplicates = 8;
+                const squareSize = calculateWidth(values.closedWon); // Use closedWon size for visual, but show dropped value
+                
+                // Calculate Y positions for each bar (8 lines for 4 segments)
+                const y1Top = 0;
+                const y1Bottom = barHeight;
+                const y2Top = y1Bottom + gapBetweenBars;
+                const y2Bottom = y2Top + barHeight;
+                const y3Top = y2Bottom + gapBetweenDuplicates;
+                const y3Bottom = y3Top + barHeight;
+                const y4Top = y3Bottom + gapBetweenBars;
+                const y4Bottom = y4Top + barHeight;
+                const y5Top = y4Bottom + gapBetweenDuplicates;
+                const y5Bottom = y5Top + barHeight;
+                const y6Top = y5Bottom + gapBetweenBars;
+                const y6Bottom = y6Top + barHeight;
+                const y7Top = y6Bottom + gapBetweenDuplicates;
+                const y7Bottom = y7Top + barHeight;
+                const y8Top = y7Bottom + gapBetweenBars;
+                const y8Bottom = y8Top + barHeight;
+                const squareY = y8Bottom + 8;
+                const totalHeight = squareY + squareSize; // No extra padding at bottom
+                
                 return (
                   <>
                     {/* Left Section - Lines */}
-                    <div className="flex flex-col items-start relative">
+                    <div className="flex flex-col items-start relative" style={{ height: `${totalHeight}px` }}>
                       {(() => {
-                        const barHeight = 1;
-                        const gapBetweenBars = 60;
-                        const gapBetweenDuplicates = 8;
-                        const squareSize = calculateWidth(values.dropped);
-                        
-                        // Calculate Y positions for each bar (8 lines for 4 segments)
-                        const y1Top = 0;
-                        const y1Bottom = barHeight;
-                        const y2Top = y1Bottom + gapBetweenBars;
-                        const y2Bottom = y2Top + barHeight;
-                        const y3Top = y2Bottom + gapBetweenDuplicates;
-                        const y3Bottom = y3Top + barHeight;
-                        const y4Top = y3Bottom + gapBetweenBars;
-                        const y4Bottom = y4Top + barHeight;
-                        const y5Top = y4Bottom + gapBetweenDuplicates;
-                        const y5Bottom = y5Top + barHeight;
-                        const y6Top = y5Bottom + gapBetweenBars;
-                        const y6Bottom = y6Top + barHeight;
-                        const y7Top = y6Bottom + gapBetweenDuplicates;
-                        const y7Bottom = y7Top + barHeight;
-                        const y8Top = y7Bottom + gapBetweenBars;
-                        const y8Bottom = y8Top + barHeight;
-                        const squareY = y8Bottom + 8;
-                        const totalHeight = squareY + squareSize;
                         
                         return (
                           <svg className="absolute top-0 left-0" style={{ width: `${maxWidth}px`, height: `${totalHeight}px`, pointerEvents: 'none' }}>
@@ -1569,8 +1302,8 @@ export default function CrossSellDashboard() {
                               points={`
                                 ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y7Top}
                                 ${maxWidth / 2 + calculateWidth(values.closedWon) / 2},${y7Top}
-                                ${maxWidth / 2 + calculateWidth(values.dropped) / 2},${y8Bottom}
-                                ${maxWidth / 2 - calculateWidth(values.dropped) / 2},${y8Bottom}
+                                ${maxWidth / 2 + calculateWidth(values.closedWon) / 2},${y8Bottom}
+                                ${maxWidth / 2 - calculateWidth(values.closedWon) / 2},${y8Bottom}
                               `}
                               fill="#22c55e"
                             />
@@ -1640,9 +1373,9 @@ export default function CrossSellDashboard() {
                             
                             {/* Line 8: Dropped */}
                             <rect
-                              x={maxWidth / 2 - calculateWidth(values.dropped) / 2}
+                              x={maxWidth / 2 - calculateWidth(values.closedWon) / 2}
                               y={y8Top}
-                              width={calculateWidth(values.dropped)}
+                              width={calculateWidth(values.closedWon)}
                               height={barHeight}
                               fill="#d1d5db"
                             />
@@ -1662,30 +1395,6 @@ export default function CrossSellDashboard() {
                     
                     {/* Right Section - Labels */}
                     {(() => {
-                      const barHeight = 1;
-                      const gapBetweenBars = 60;
-                      const gapBetweenDuplicates = 8;
-                      const squareSize = calculateWidth(values.dropped);
-                      
-                      // Calculate Y positions for each bar
-                      const y1Top = 0;
-                      const y1Bottom = barHeight;
-                      const y2Top = y1Bottom + gapBetweenBars;
-                      const y2Bottom = y2Top + barHeight;
-                      const y3Top = y2Bottom + gapBetweenDuplicates;
-                      const y3Bottom = y3Top + barHeight;
-                      const y4Top = y3Bottom + gapBetweenBars;
-                      const y4Bottom = y4Top + barHeight;
-                      const y5Top = y4Bottom + gapBetweenDuplicates;
-                      const y5Bottom = y5Top + barHeight;
-                      const y6Top = y5Bottom + gapBetweenBars;
-                      const y6Bottom = y6Top + barHeight;
-                      const y7Top = y6Bottom + gapBetweenDuplicates;
-                      const y7Bottom = y7Top + barHeight;
-                      const y8Top = y7Bottom + gapBetweenBars;
-                      const y8Bottom = y8Top + barHeight;
-                      const squareY = y8Bottom + 8;
-                      
                       // Calculate vertical centers of each colored shape
                       const tofuCenter = (y1Top + y2Bottom) / 2;
                       const mofuCenter = (y3Top + y4Bottom) / 2;
@@ -1694,7 +1403,7 @@ export default function CrossSellDashboard() {
                       const droppedCenter = squareY + squareSize / 2;
                       
                       return (
-                        <div className="flex flex-col relative ml-auto" style={{ height: `${squareY + squareSize}px` }}>
+                        <div className="flex flex-col relative ml-auto" style={{ height: `${totalHeight}px` }}>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${tofuCenter}px`, transform: 'translateY(-50%)' }}
@@ -1734,133 +1443,7 @@ export default function CrossSellDashboard() {
             </div>
           </CardContent>
         </Card>
-
-
-        {/* Meetings and Proposals Metrics */}
-        <div className="space-y-4 lg:col-span-2">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">{meetingsDoneLastWeek}</div>
-              <p className="text-sm text-muted-foreground text-center mt-1">Meetings Done Last Week</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">{meetingsDoneThisWeek}</div>
-              <p className="text-sm text-muted-foreground text-center mt-1">Meetings Done This Week</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">{proposalMadeLastWeek}</div>
-              <p className="text-sm text-muted-foreground text-center mt-1">Proposal Made Last Week</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">{proposalMadeThisWeek}</div>
-              <p className="text-sm text-muted-foreground text-center mt-1">Proposal Made This Week</p>
-            </CardContent>
-          </Card>
-        </div>
       </div>
-
-      {/* Bar Graphs Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Stage Count Graph */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Stage Count Graph</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center h-[300px]">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <div ref={countChartRef} style={{ height: '300px', width: '100%' }} />
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Stage Revenue Graph */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Stage Revenue Graph</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center h-[300px]">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <div ref={revenueChartRef} style={{ height: '300px', width: '100%' }} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Conversion Table by Status */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Conversion Table by Status</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-[200px]">MCV</TableHead>
-                <TableHead className="w-[200px]">Cumulative # of Records</TableHead>
-                <TableHead>CVR to next status</TableHead>
-                <TableHead>Remaining</TableHead>
-                <TableHead>Dropped</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
-                  </TableCell>
-                </TableRow>
-              ) : conversionTableData.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    No data available for {performanceDashboardFY}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                conversionTableData.map((row, idx) => {
-                  const maxRecords = row.maxRecords || row.records || 1;
-                  return (
-                    <TableRow key={idx}>
-                      <TableCell className="font-medium">{row.status}</TableCell>
-                      <TableCell className="w-[200px]">
-                        ₹{row.mcv.toLocaleString("en-IN")}
-                      </TableCell>
-                      <TableCell className="w-[200px]">
-                        <div className="flex items-center gap-2">
-                          <span className="w-12">{row.records}</span>
-                          <div className="flex-1 bg-orange-100 h-4 rounded relative">
-                            <div
-                              className="bg-orange-500 h-full rounded"
-                              style={{ width: `${(row.records / maxRecords) * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{row.cvr}</TableCell>
-                      <TableCell>{row.remaining}</TableCell>
-                      <TableCell>{row.dropped}</TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
     </div>
   );
 }
