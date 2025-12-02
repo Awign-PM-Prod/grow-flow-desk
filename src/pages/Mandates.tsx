@@ -1128,6 +1128,18 @@ export default function Mandates() {
 
   // Fetch mandates from database
   const handleDownloadMandateTemplate = () => {
+    // Helper function to escape CSV values
+    const escapeCSVValue = (value: any): string => {
+      if (value === null || value === undefined) {
+        return "";
+      }
+      const stringValue = String(value);
+      if (stringValue.includes(",") || stringValue.includes("\n") || stringValue.includes('"')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+
     const templateHeaders = [
       { key: "project_id", label: "Project Code" },
       { key: "account_name", label: "Account Name" },
@@ -1153,11 +1165,129 @@ export default function Mandates() {
       { key: "client_budget_trend", label: "Client Budget Trend" },
       { key: "awign_share_percent", label: "Awign Share %" },
       { key: "upsell_action_status", label: "Upsell Action Status" },
+      { key: "gap1", label: "" },
+      { key: "gap2", label: "" },
+      { key: "reference_lob", label: "LoB" },
+      { key: "reference_use_case", label: "Use Case" },
+      { key: "reference_sub_use_case", label: "Sub Use Case" },
+      { key: "reference_type", label: "Type" },
+      { key: "reference_prj_type", label: "PRJ Type" },
+      { key: "reference_mandate_health", label: "Mandate Health" },
+      { key: "reference_client_budget_trend", label: "Client Budget Trend" },
+      { key: "reference_upsell_constraint", label: "Upsell Constraint" },
+      { key: "reference_upsell_constraint_type", label: "Upsell Constraint Type" },
+      { key: "reference_upsell_constraint_sub", label: "Upsell Constraint Sub" },
+      { key: "reference_upsell_constraint_sub2", label: "Upsell Constraint Sub2" },
+      { key: "reference_upsell_action_status", label: "Upsell Action Status" },
     ];
-    downloadCSVTemplate(templateHeaders, "mandates_upload_template.csv");
+    
+    // Create header row
+    const headerRow = templateHeaders.map((h) => escapeCSVValue(h.label)).join(",");
+    
+    // Create reference data rows
+    const referenceRows: string[] = [];
+    
+    // Add empty row for spacing
+    referenceRows.push(templateHeaders.map(() => "").join(","));
+    
+    // Generate all valid LoB → Use Case → Sub Use Case combinations
+    const lobCombinations: Array<{ lob: string; useCase: string; subUseCase: string }> = [];
+    Object.entries(lobUseCaseMapping).forEach(([lob, useCases]) => {
+      Object.entries(useCases).forEach(([useCase, subUseCases]) => {
+        subUseCases.forEach((subUseCase) => {
+          lobCombinations.push({
+            lob,
+            useCase: useCase === "-" ? "N/A" : useCase,
+            subUseCase: subUseCase === "-" ? "N/A" : subUseCase,
+          });
+        });
+      });
+    });
+    
+    // Generate all valid Upsell Constraint combinations
+    const upsellCombinations: Array<{ constraint: string; type: string; sub: string; sub2: string }> = [];
+    Object.entries(upsellConstraintMapping).forEach(([constraint, types]) => {
+      Object.entries(types).forEach(([type, subs]) => {
+        Object.entries(subs).forEach(([sub, sub2s]) => {
+          if (sub2s.length === 0) {
+            // Free text input
+            upsellCombinations.push({
+              constraint,
+              type: type === "-" ? "N/A" : type,
+              sub: sub === "-" ? "N/A" : sub,
+              sub2: "Free text",
+            });
+          } else {
+            sub2s.forEach((sub2) => {
+              if (sub2 !== "-") {
+                upsellCombinations.push({
+                  constraint,
+                  type: type === "-" ? "N/A" : type,
+                  sub: sub === "-" ? "N/A" : sub,
+                  sub2: sub2 === "-" ? "N/A" : sub2,
+                });
+              } else {
+                upsellCombinations.push({
+                  constraint,
+                  type: type === "-" ? "N/A" : type,
+                  sub: sub === "-" ? "N/A" : sub,
+                  sub2: "N/A",
+                });
+              }
+            });
+          }
+        });
+      });
+    });
+    
+    // Other standalone options
+    const typeOptions = ["New Acquisition", "New Cross Sell", "Existing"];
+    const prjTypeOptions = ["Recurring", "One-time"];
+    const mandateHealthOptions = ["Exceeds Expectations", "Meets Expectations", "Need Improvement"];
+    const clientBudgetTrendOptions = ["Increase", "Same", "Decrease"];
+    const upsellActionStatusOptions = ["Not Started", "Ongoing", "Done"];
+    
+    // Find maximum number of rows needed
+    const maxRows = Math.max(
+      lobCombinations.length,
+      typeOptions.length,
+      prjTypeOptions.length,
+      mandateHealthOptions.length,
+      clientBudgetTrendOptions.length,
+      upsellCombinations.length,
+      upsellActionStatusOptions.length
+    );
+    
+    // Create rows with all valid combinations starting from the same row
+    // Note: Options are shifted one column to the right compared to headings
+    for (let i = 0; i < maxRows; i++) {
+      const row = templateHeaders.map((h, idx) => {
+        if (idx < 23) return ""; // Data fields
+        if (idx === 23 || idx === 24) return ""; // Gap columns
+        if (idx === 25) return ""; // LoB heading column - empty
+        if (idx === 26) return i < lobCombinations.length ? lobCombinations[i].lob : ""; // LoB data (shifted right)
+        if (idx === 27) return i < lobCombinations.length ? lobCombinations[i].useCase : ""; // Use Case data (shifted right)
+        if (idx === 28) return i < lobCombinations.length ? lobCombinations[i].subUseCase : ""; // Sub Use Case data (shifted right)
+        if (idx === 29) return i < typeOptions.length ? typeOptions[i] : ""; // Type data (shifted right)
+        if (idx === 30) return i < prjTypeOptions.length ? prjTypeOptions[i] : ""; // PRJ Type data (shifted right)
+        if (idx === 31) return i < mandateHealthOptions.length ? mandateHealthOptions[i] : ""; // Mandate Health data (shifted right)
+        if (idx === 32) return i < clientBudgetTrendOptions.length ? clientBudgetTrendOptions[i] : ""; // Client Budget Trend data (shifted right)
+        if (idx === 33) return i < upsellCombinations.length ? upsellCombinations[i].constraint : ""; // Upsell Constraint data (shifted right)
+        if (idx === 34) return i < upsellCombinations.length ? upsellCombinations[i].type : ""; // Upsell Constraint Type data (shifted right)
+        if (idx === 35) return i < upsellCombinations.length ? upsellCombinations[i].sub : ""; // Upsell Constraint Sub data (shifted right)
+        if (idx === 36) return i < upsellCombinations.length ? upsellCombinations[i].sub2 : ""; // Upsell Constraint Sub2 data (shifted right)
+        if (idx === 37) return i < upsellActionStatusOptions.length ? upsellActionStatusOptions[i] : ""; // Upsell Action Status data (shifted right)
+        return "";
+      }).join(",");
+      referenceRows.push(row);
+    }
+    
+    const csvContent = [headerRow, ...referenceRows].join("\n");
+    downloadCSV(csvContent, "mandates_upload_template.csv");
+    
     toast({
       title: "Template Downloaded",
-      description: "CSV template downloaded. Fill in the data and upload it.",
+      description: "CSV template downloaded. Fill in the data and upload it. Reference data included on the right.",
     });
   };
 
@@ -2457,7 +2587,7 @@ export default function Mandates() {
             variant="outline"
             onClick={() => setBulkUploadCasesDialogOpen(true)}
           >
-            Bulk Upload Cases
+            Bulk Upload Mandates
           </Button>
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Mandate
@@ -4692,11 +4822,11 @@ export default function Mandates() {
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Upload Cases Dialog */}
+      {/* Bulk Upload Mandates Dialog */}
       <Dialog open={bulkUploadCasesDialogOpen} onOpenChange={setBulkUploadCasesDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Bulk Upload Cases</DialogTitle>
+            <DialogTitle>Bulk Upload Mandates</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 py-4">
             <Button

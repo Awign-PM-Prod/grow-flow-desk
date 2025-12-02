@@ -886,16 +886,16 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  // Check if this month falls within the selected financial year
-                  const [yearStr, monthStr] = monthYear.split('-');
-                  const year = parseInt(yearStr);
-                  const month = parseInt(monthStr);
-                  const monthDate = new Date(year, month - 1, 1);
-                  
-                  // Only include if within selected FY date range and current month
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    totalFfmAchieved += achievedMcv;
+                      totalFfmAchieved += achievedMcv;
                   }
                 });
               }
@@ -912,16 +912,16 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  // Check if this month falls within the selected financial year
-                  const [yearStr, monthStr] = monthYear.split('-');
-                  const year = parseInt(yearStr);
-                  const month = parseInt(monthStr);
-                  const monthDate = new Date(year, month - 1, 1);
-                  
-                  // Only include if within selected FY date range and current month
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    totalFfmAchieved += achievedMcv;
+                      totalFfmAchieved += achievedMcv;
                   }
                 });
               }
@@ -938,16 +938,16 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  // Check if this month falls within the selected financial year
-                  const [yearStr, monthStr] = monthYear.split('-');
-                  const year = parseInt(yearStr);
-                  const month = parseInt(monthStr);
-                  const monthDate = new Date(year, month - 1, 1);
-                  
-                  // Only include if within selected FY date range and current month
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    totalFfmAchieved += achievedMcv;
+                      totalFfmAchieved += achievedMcv;
                   }
                 });
               }
@@ -964,16 +964,16 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  // Check if this month falls within the selected financial year
-                  const [yearStr, monthStr] = monthYear.split('-');
-                  const year = parseInt(yearStr);
-                  const month = parseInt(monthStr);
-                  const monthDate = new Date(year, month - 1, 1);
-                  
-                  // Only include if within selected FY date range and current month
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    totalFfmAchieved += achievedMcv;
+                      totalFfmAchieved += achievedMcv;
                   }
                 });
               }
@@ -1048,16 +1048,16 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
                   const achievedMcv = getAchievedMcv(monthRecord);
-                  
-                  // Check if this month belongs to the current quarter and selected FY
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                      monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalMcvThisQuarter += achievedMcv;
+                    
+                    // Check if this month belongs to the current quarter and selected FY
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvThisQuarter += achievedMcv;
                   }
                 });
               }
@@ -1074,16 +1074,16 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
                   const achievedMcv = getAchievedMcv(monthRecord);
-                  
-                  // Check if this month belongs to the current quarter and selected FY
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                      monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalMcvThisQuarter += achievedMcv;
+                    
+                    // Check if this month belongs to the current quarter and selected FY
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvThisQuarter += achievedMcv;
                   }
                 });
               }
@@ -1100,16 +1100,16 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
                   const achievedMcv = getAchievedMcv(monthRecord);
-                  
-                  // Check if this month belongs to the current quarter and selected FY
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                      monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalMcvThisQuarter += achievedMcv;
+                    
+                    // Check if this month belongs to the current quarter and selected FY
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvThisQuarter += achievedMcv;
                   }
                 });
               }
@@ -1126,16 +1126,16 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
                   const achievedMcv = getAchievedMcv(monthRecord);
-                  
-                  // Check if this month belongs to the current quarter and selected FY
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                      monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalMcvThisQuarter += achievedMcv;
+                    
+                    // Check if this month belongs to the current quarter and selected FY
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvThisQuarter += achievedMcv;
                   }
                 });
               }
@@ -1238,15 +1238,15 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
-                  
-                  // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalAnnualAchieved += achievedMcv;
+                    
+                    // Only include if within selected FY date range
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalAnnualAchieved += achievedMcv;
                   }
                 });
               }
@@ -1263,15 +1263,15 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
-                  
-                  // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalAnnualAchieved += achievedMcv;
+                    
+                    // Only include if within selected FY date range
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalAnnualAchieved += achievedMcv;
                   }
                 });
               }
@@ -1288,15 +1288,15 @@ export default function Dashboard() {
               const monthlyData = mandate.monthly_data;
               if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
+                    const [year, month] = monthYear.split('-');
+                    const yearNum = parseInt(year);
+                    const monthNum = parseInt(month);
+                    const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
-                  
-                  // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalAnnualAchieved += achievedMcv;
+                    
+                    // Only include if within selected FY date range
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalAnnualAchieved += achievedMcv;
                   }
                 });
               }
@@ -1695,16 +1695,16 @@ export default function Dashboard() {
           if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
             // Sum all achieved MCV values across all months for this mandate
             Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-              // Check if this month falls within the selected financial year
-              const [yearStr, monthStr] = monthYear.split('-');
-              const year = parseInt(yearStr);
-              const month = parseInt(monthStr);
-              const monthDate = new Date(year, month - 1, 1);
-              
-              // Only include if within selected FY date range
-              if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                // Check if this month falls within the selected financial year
+                const [yearStr, monthStr] = monthYear.split('-');
+                const year = parseInt(yearStr);
+                const month = parseInt(monthStr);
+                const monthDate = new Date(year, month - 1, 1);
+                
+                // Only include if within selected FY date range
+                if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
                 const achievedMcv = getAchievedMcv(monthRecord);
-                accountTotalMcv[accountId] = (accountTotalMcv[accountId] || 0) + achievedMcv;
+                  accountTotalMcv[accountId] = (accountTotalMcv[accountId] || 0) + achievedMcv;
               }
             });
           }

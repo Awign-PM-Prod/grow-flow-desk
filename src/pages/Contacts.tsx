@@ -302,6 +302,18 @@ export default function Contacts() {
   };
 
   const handleDownloadContactTemplate = () => {
+    // Helper function to escape CSV values
+    const escapeCSVValue = (value: any): string => {
+      if (value === null || value === undefined) {
+        return "";
+      }
+      const stringValue = String(value);
+      if (stringValue.includes(",") || stringValue.includes("\n") || stringValue.includes('"')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+
     const templateHeaders = [
       { key: "account_name", label: "Account Name" },
       { key: "first_name", label: "First Name" },
@@ -317,11 +329,90 @@ export default function Contacts() {
       { key: "reports_to", label: "Reports To" },
       { key: "positioning", label: "Positioning" },
       { key: "awign_champion", label: "Awign Champion" },
+      { key: "gap1", label: "" },
+      { key: "gap2", label: "" },
+      { key: "reference_awign_champion", label: "Reference Awign Champion" },
+      { key: "reference_level", label: "Reference Level" },
     ];
-    downloadCSVTemplate(templateHeaders, "contacts_upload_template.csv");
+    
+    // Create header row
+    const headerRow = templateHeaders.map((h) => escapeCSVValue(h.label)).join(",");
+    
+    // Create reference data rows showing Awign Champion and Level options
+    const referenceRows: string[] = [];
+    
+    // Add empty row for spacing
+    referenceRows.push(templateHeaders.map(() => "").join(","));
+    
+    // Add header row for reference section
+    const referenceHeaderRow = [
+      ...Array(14).fill(""), // Empty columns for data fields (14 fields before gaps)
+      "", "", // 2 empty columns for gap
+      "=== REFERENCE: Awign Champion Options ===",
+      "=== REFERENCE: Level Options ===",
+    ].join(",");
+    referenceRows.push(referenceHeaderRow);
+    
+    // Add empty row after header
+    referenceRows.push(templateHeaders.map((h, i) => {
+      if (i < 14) return ""; // Data fields
+      if (i === 14 || i === 15) return ""; // Gap columns before references
+      if (i === 16) return "Awign Champion";
+      if (i === 17) return "Level";
+      return "";
+    }).join(","));
+    
+    // Add YES and NO options for Awign Champion
+    const yesRow = [
+      ...Array(14).fill(""), // Empty columns for data fields
+      "", "", // 2 empty columns for gap
+      "YES",
+      "" // Empty for Level
+    ].join(",");
+    referenceRows.push(yesRow);
+    
+    const noRow = [
+      ...Array(14).fill(""), // Empty columns for data fields
+      "", "", // 2 empty columns for gap
+      "NO",
+      "" // Empty for Level
+    ].join(",");
+    referenceRows.push(noRow);
+    
+    // Add empty row before Level reference section
+    referenceRows.push(templateHeaders.map(() => "").join(","));
+    
+    // Add Level options (Lv.1, Lv.2, Lv.3)
+    const level1Row = [
+      ...Array(14).fill(""), // Empty columns for data fields
+      "", "", // 2 empty columns for gap
+      "", // Empty for Awign Champion
+      "Lv.1"
+    ].join(",");
+    referenceRows.push(level1Row);
+    
+    const level2Row = [
+      ...Array(14).fill(""), // Empty columns for data fields
+      "", "", // 2 empty columns for gap
+      "", // Empty for Awign Champion
+      "Lv.2"
+    ].join(",");
+    referenceRows.push(level2Row);
+    
+    const level3Row = [
+      ...Array(14).fill(""), // Empty columns for data fields
+      "", "", // 2 empty columns for gap
+      "", // Empty for Awign Champion
+      "Lv.3"
+    ].join(",");
+    referenceRows.push(level3Row);
+    
+    const csvContent = [headerRow, ...referenceRows].join("\n");
+    downloadCSV(csvContent, "contacts_upload_template.csv");
+    
     toast({
       title: "Template Downloaded",
-      description: "CSV template downloaded. Fill in the data and upload it.",
+      description: "CSV template downloaded. Fill in the data and upload it. Reference data included on the right.",
     });
   };
 

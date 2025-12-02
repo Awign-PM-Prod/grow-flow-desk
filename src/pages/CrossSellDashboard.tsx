@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 
 export default function CrossSellDashboard() {
   const [loading, setLoading] = useState(true);
@@ -605,13 +605,15 @@ export default function CrossSellDashboard() {
         const droppedDeals = new Set<string>();
 
         // Process all status history records
-        // Only count deals where new_status matches the stage statuses
+        // Count deals where new_status matches the stage statuses
+        // Also include deals whose old_status was "Listed" in TOFU
         if (allStatusHistory) {
           allStatusHistory.forEach((history: any) => {
             const dealId = history.deal_id;
             const newStatus = history.new_status;
+            const oldStatus = history.old_status;
             
-            // Only track deals based on new_status (the status they moved to)
+            // Track deals based on new_status (the status they moved to)
             if (newStatus) {
               if (tofuStatuses.includes(newStatus)) {
                 tofuDeals.add(dealId);
@@ -624,6 +626,11 @@ export default function CrossSellDashboard() {
               } else if (newStatus === "Dropped") {
                 droppedDeals.add(dealId);
               }
+            }
+            
+            // Also include deals in TOFU if their old_status was "Listed"
+            if (oldStatus === "Listed") {
+              tofuDeals.add(dealId);
             }
           });
         }
@@ -715,13 +722,15 @@ export default function CrossSellDashboard() {
         const droppedDealsForRevenue = new Set<string>();
 
         // Process all status history records
-        // Only count deals where new_status matches the stage statuses
+        // Count deals where new_status matches the stage statuses
+        // Also include deals whose old_status was "Listed" in TOFU
         if (allStatusHistory) {
           allStatusHistory.forEach((history: any) => {
             const dealId = history.deal_id;
             const newStatus = history.new_status;
+            const oldStatus = history.old_status;
             
-            // Only track deals based on new_status (the status they moved to)
+            // Track deals based on new_status (the status they moved to)
             if (newStatus) {
               if (tofuStatuses.includes(newStatus)) {
                 tofuDealsForRevenue.add(dealId);
@@ -734,6 +743,11 @@ export default function CrossSellDashboard() {
               } else if (newStatus === "Dropped") {
                 droppedDealsForRevenue.add(dealId);
               }
+            }
+            
+            // Also include deals in TOFU if their old_status was "Listed"
+            if (oldStatus === "Listed") {
+              tofuDealsForRevenue.add(dealId);
             }
           });
         }
@@ -873,53 +887,29 @@ export default function CrossSellDashboard() {
     fetchMeetingsAndProposalsData();
   }, [performanceDashboardFY, filterKam, filterExpectedContractSignMonth]);
 
-  // Prepare data for Stage Count Graph (stacked bar)
+  // Prepare data for Stage Count Graph (normal bar graph with separate bars)
   // Use the same values as Funnel Stage Count of Sales Module section
-  const stageCountDataRaw = {
-    name: "Total",
-    TOFU: funnelCounts.tofu,
-    MOFU: funnelCounts.mofu,
-    BOFU: funnelCounts.bofu,
-    "Closed Won": funnelCounts.closedWon,
-    Dropped: funnelCounts.dropped,
-  };
-
-  // Fixed order: TOFU, MOFU, BOFU, Closed Won, Dropped (same as funnel)
+  // Order: TOFU, MOFU, BOFU, Closed Won, Dropped (same as funnel)
   // Using same colors as funnel section
-  // Reversed order for inverted bars: Dropped at bottom, TOFU at top
-  const stageCountSegments = [
-    { key: "TOFU", value: stageCountDataRaw.TOFU, fill: "#3b82f6", name: "TOFU" },
-    { key: "MOFU", value: stageCountDataRaw.MOFU, fill: "#f97316", name: "MOFU" },
-    { key: "BOFU", value: stageCountDataRaw.BOFU, fill: "#eab308", name: "BOFU" },
-    { key: "Closed Won", value: stageCountDataRaw["Closed Won"], fill: "#22c55e", name: "Closed Won" },
-    { key: "Dropped", value: stageCountDataRaw.Dropped, fill: "#d1d5db", name: "Dropped" },
-  ].reverse(); // Reverse to invert: Dropped at bottom, TOFU at top
+  const stageCountData = [
+    { name: "TOFU", value: funnelCounts.tofu, fill: "#3b82f6" },
+    { name: "MOFU", value: funnelCounts.mofu, fill: "#f97316" },
+    { name: "BOFU", value: funnelCounts.bofu, fill: "#eab308" },
+    { name: "Closed Won", value: funnelCounts.closedWon, fill: "#22c55e" },
+    { name: "Dropped", value: funnelCounts.dropped, fill: "#d1d5db" },
+  ];
 
-  const stageCountData = [stageCountDataRaw];
-
-  // Prepare data for Stage Revenue Graph (stacked bar)
+  // Prepare data for Stage Revenue Graph (normal bar graph with separate bars)
   // Use the same values as Funnel Stage Count of Sales Module section (converted to lakhs)
-  const stageRevenueDataRaw = {
-    name: "Total",
-    TOFU: funnelRevenue.tofu / 100000,
-    MOFU: funnelRevenue.mofu / 100000,
-    BOFU: funnelRevenue.bofu / 100000,
-    "Closed Won": funnelRevenue.closedWon / 100000,
-    Dropped: funnelRevenue.dropped / 100000,
-  };
-
-  // Fixed order: TOFU, MOFU, BOFU, Closed Won, Dropped (same as funnel)
+  // Order: TOFU, MOFU, BOFU, Closed Won, Dropped (same as funnel)
   // Using same colors as funnel section
-  // Reversed order for inverted bars: Dropped at bottom, TOFU at top
-  const stageRevenueSegments = [
-    { key: "TOFU", value: stageRevenueDataRaw.TOFU, fill: "#3b82f6", name: "TOFU" },
-    { key: "MOFU", value: stageRevenueDataRaw.MOFU, fill: "#f97316", name: "MOFU" },
-    { key: "BOFU", value: stageRevenueDataRaw.BOFU, fill: "#eab308", name: "BOFU" },
-    { key: "Closed Won", value: stageRevenueDataRaw["Closed Won"], fill: "#22c55e", name: "Closed Won" },
-    { key: "Dropped", value: stageRevenueDataRaw.Dropped, fill: "#d1d5db", name: "Dropped" },
-  ].reverse(); // Reverse to invert: Dropped at bottom, TOFU at top
-
-  const stageRevenueData = [stageRevenueDataRaw];
+  const stageRevenueData = [
+    { name: "TOFU", value: funnelRevenue.tofu / 100000, fill: "#3b82f6" },
+    { name: "MOFU", value: funnelRevenue.mofu / 100000, fill: "#f97316" },
+    { name: "BOFU", value: funnelRevenue.bofu / 100000, fill: "#eab308" },
+    { name: "Closed Won", value: funnelRevenue.closedWon / 100000, fill: "#22c55e" },
+    { name: "Dropped", value: funnelRevenue.dropped / 100000, fill: "#d1d5db" },
+  ];
 
   // Generate month options (just month names)
   const monthOptions = [
@@ -1031,30 +1021,20 @@ export default function CrossSellDashboard() {
                 <BarChart 
                   data={stageCountData} 
                   barCategoryGap="20%"
-                  barGap={0}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="name" type="category" />
-                  <YAxis type="number" hide />
+                  <YAxis type="number" />
                   <Tooltip 
-                    formatter={(value: any, name: string) => {
-                      return [typeof value === 'number' ? value.toLocaleString("en-IN") : value, name];
+                    formatter={(value: any) => {
+                      return typeof value === 'number' ? value.toLocaleString("en-IN") : value;
                     }}
-                    labelFormatter={() => ''}
                   />
-                  <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
-                  {stageCountSegments.map((segment, index) => (
-                    <Bar 
-                      key={segment.key}
-                      dataKey={segment.key} 
-                      stackId="count"
-                      fill={segment.fill} 
-                      name={segment.name}
-                      barSize={60}
-                      radius={index === 0 ? [0, 0, 4, 4] : [0, 0, 0, 0]}
-                      isAnimationActive={false}
-                    />
-                  ))}
+                  <Bar dataKey="value" barSize={60} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                    {stageCountData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -1076,30 +1056,20 @@ export default function CrossSellDashboard() {
                 <BarChart 
                   data={stageRevenueData} 
                   barCategoryGap="20%"
-                  barGap={0}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="name" type="category" />
-                  <YAxis type="number" hide />
+                  <YAxis type="number" />
                   <Tooltip 
-                    formatter={(value: any, name: string) => {
-                      return [`₹${typeof value === 'number' ? value.toFixed(1) : parseFloat(value).toFixed(1)}L`, name];
+                    formatter={(value: any) => {
+                      return `₹${typeof value === 'number' ? value.toFixed(1) : parseFloat(value).toFixed(1)}L`;
                     }}
-                    labelFormatter={() => ''}
                   />
-                  <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
-                  {stageRevenueSegments.map((segment, index) => (
-                    <Bar 
-                      key={segment.key}
-                      dataKey={segment.key} 
-                      stackId="revenue"
-                      fill={segment.fill} 
-                      name={segment.name}
-                      barSize={60}
-                      radius={index === 0 ? [0, 0, 4, 4] : [0, 0, 0, 0]}
-                      isAnimationActive={false}
-                    />
-                  ))}
+                  <Bar dataKey="value" barSize={60} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                    {stageRevenueData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}

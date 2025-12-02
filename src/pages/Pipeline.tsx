@@ -390,6 +390,18 @@ export default function Pipeline() {
   }, []);
 
   const handleDownloadDealTemplate = () => {
+    // Helper function to escape CSV values
+    const escapeCSVValue = (value: any): string => {
+      if (value === null || value === undefined) {
+        return "";
+      }
+      const stringValue = String(value);
+      if (stringValue.includes(",") || stringValue.includes("\n") || stringValue.includes('"')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+
     // Exclude auto-calculated fields: sales_module_name (auto-generated), mcv, max_mcv (calculated from monthly_volume * commercial_per_head)
     // Exclude status field (defaults to "Listed" for new deals)
     const templateHeaders = [
@@ -410,11 +422,73 @@ export default function Pipeline() {
       { key: "prj_frequency", label: "PRJ Frequency" },
       { key: "prj_start_date", label: "PRJ Start Date" },
       { key: "probability", label: "Probability" },
+      { key: "gap1", label: "" },
+      { key: "gap2", label: "" },
+      { key: "reference_lob", label: "LoB" },
+      { key: "reference_use_case", label: "Use Case" },
+      { key: "reference_sub_use_case", label: "Sub Use Case" },
+      { key: "reference_prj_frequency", label: "PRJ Frequency" },
+      { key: "reference_prj_duration", label: "PRJ Duration" },
     ];
-    downloadCSVTemplate(templateHeaders, "pipeline_deals_upload_template.csv");
+    
+    // Create header row
+    const headerRow = templateHeaders.map((h) => escapeCSVValue(h.label)).join(",");
+    
+    // Create reference data rows
+    const referenceRows: string[] = [];
+    
+    // Add empty row for spacing
+    referenceRows.push(templateHeaders.map(() => "").join(","));
+    
+    // Generate all valid LoB → Use Case → Sub Use Case combinations
+    const lobCombinations: Array<{ lob: string; useCase: string; subUseCase: string }> = [];
+    Object.entries(lobUseCaseMapping).forEach(([lob, useCases]) => {
+      Object.entries(useCases).forEach(([useCase, subUseCases]) => {
+        subUseCases.forEach((subUseCase) => {
+          lobCombinations.push({
+            lob,
+            useCase: useCase === "-" ? "N/A" : useCase,
+            subUseCase: subUseCase === "-" ? "N/A" : subUseCase,
+          });
+        });
+      });
+    });
+    
+    // PRJ Frequency options
+    const prjFrequencyOptions = ["One-time", "Recurring"];
+    
+    // PRJ Duration options
+    const prjDurationOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+    
+    // Find maximum number of rows needed
+    const maxRows = Math.max(
+      lobCombinations.length,
+      prjFrequencyOptions.length,
+      prjDurationOptions.length
+    );
+    
+    // Create rows with all valid combinations starting from the same row
+    // Options are aligned with their headings (not shifted)
+    for (let i = 0; i < maxRows; i++) {
+      const row = templateHeaders.map((h, idx) => {
+        if (idx < 17) return ""; // Data fields (17 fields before gaps)
+        if (idx === 17 || idx === 18) return ""; // Gap columns
+        if (idx === 19) return i < lobCombinations.length ? lobCombinations[i].lob : ""; // LoB data (aligned with heading)
+        if (idx === 20) return i < lobCombinations.length ? lobCombinations[i].useCase : ""; // Use Case data (aligned with heading)
+        if (idx === 21) return i < lobCombinations.length ? lobCombinations[i].subUseCase : ""; // Sub Use Case data (aligned with heading)
+        if (idx === 22) return i < prjFrequencyOptions.length ? prjFrequencyOptions[i] : ""; // PRJ Frequency data (aligned with heading)
+        if (idx === 23) return i < prjDurationOptions.length ? prjDurationOptions[i] : ""; // PRJ Duration data (aligned with heading)
+        return "";
+      }).join(",");
+      referenceRows.push(row);
+    }
+    
+    const csvContent = [headerRow, ...referenceRows].join("\n");
+    downloadCSV(csvContent, "pipeline_deals_upload_template.csv");
+    
     toast({
       title: "Template Downloaded",
-      description: "CSV template downloaded. Note: If LoB has '-' for Use Case/Sub Use Case, leave those fields blank. Status defaults to 'Listed'.",
+      description: "CSV template downloaded. Fill in the data and upload it. Reference data included on the right.",
     });
   };
 
