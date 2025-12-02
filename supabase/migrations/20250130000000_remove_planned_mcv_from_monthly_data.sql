@@ -49,3 +49,5 @@ END $$;
 -- Add comment to document the change
 COMMENT ON COLUMN public.mandates.monthly_data IS 'JSONB object storing monthly achieved MCV. Format: {"YYYY-MM": achievedMcv_number}. Old format [plannedMcv, achievedMcv] has been migrated to store only achievedMcv.';
 
+
+
