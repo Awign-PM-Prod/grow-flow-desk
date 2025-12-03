@@ -2246,7 +2246,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <p className="text-base font-bold mb-2">FFM Achieved</p>
+                <p className="text-base font-bold mb-2">MCV Achieved</p>
                 <div className="text-3xl font-bold">{formatCurrency(ffmAchieved)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
                   {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
@@ -2276,7 +2276,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <p className="text-base font-bold mb-2">MCV This Quarter</p>
+                <p className="text-base font-bold mb-2">MCV Achieved This Quarter</p>
                 <div className="text-3xl font-bold">{formatCurrency(mcvThisQuarter)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
                   {(() => {
@@ -2856,7 +2856,7 @@ export default function Dashboard() {
         {/* LoB Existing Sales Performance Comparison */}
         <Card>
           <CardHeader>
-            <CardTitle>LoB Existing Sales Performance Comparison</CardTitle>
+            <CardTitle>LoB Existing Sales Performance</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -3152,7 +3152,7 @@ export default function Dashboard() {
       </div>
 
       {/* Upsell Tables - Group B and Group C */}
-      <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
             <CardTitle>Upsell - For Status Checking (Group B)</CardTitle>

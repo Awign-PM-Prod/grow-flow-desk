@@ -554,7 +554,7 @@ export default function CrossSellDashboard() {
         let totalDeals = filteredDeals.length;
 
         // Define status groups
-        const tofuStatuses = ["Listed", "Discovery Meeting Done", "Requirement Gathering Done"];
+        const tofuStatuses = ["Listed", "Pre-Appointment Prep Done", "Discovery Meeting Done", "Requirement Gathering Done"];
         const mofuStatuses = ["Solution Proposal Made", "SOW Handshake Done", "Final Proposal Done"];
         const bofuStatuses = ["Commercial Agreed"];
 
@@ -605,12 +605,12 @@ export default function CrossSellDashboard() {
       }
 
       // Calculate Waterfall Funnel Counts for "Funnel Stage Count of Sales Module" section
-      // When month filter is applied: fetch deals by expected_contract_sign_date, then fetch their status history
-      // When no month filter: fetch deals by created_at for FY, then fetch their status history
+      // Using current status from deals table (not history table)
+      // Calculation: TOFU = Total deals, BOFU = TOFU - deals in TOFU, MOFU = BOFU - deals in BOFU
       try {
         let waterfallDealsQuery = supabase
           .from("pipeline_deals" as any)
-          .select("id, kam_id, expected_contract_sign_date, created_at");
+          .select("id, status, kam_id, expected_contract_sign_date, created_at");
 
         // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
         // Otherwise, filter by created_at for the FY
@@ -636,105 +636,60 @@ export default function CrossSellDashboard() {
 
         const { data: waterfallDeals, error: waterfallDealsError } = await waterfallDealsQuery as any;
 
-        if (!waterfallDealsError && waterfallDeals && waterfallDeals.length > 0) {
+        if (!waterfallDealsError && waterfallDeals) {
           // Set total deals count for waterfall section
-          setTotalDealsCount(waterfallDeals.length);
-          
-          const waterfallDealIds = waterfallDeals.map((d: any) => d.id);
+          const totalDeals = waterfallDeals.length;
+          setTotalDealsCount(totalDeals);
 
-          // Determine the date range for status history
-          // If month filter is selected, use the full FY range for history (to get all status changes)
-          // Otherwise, use the FY range
-          let statusHistoryStartDate = perfFyDateRange.start;
-          let statusHistoryEndDate = perfFyDateRange.end;
-          
-          if (filterExpectedContractSignMonth) {
-            // When month filter is selected, still use FY range for history to get all status changes
-            // But we've already filtered deals by expected_contract_sign_date in that month
-            statusHistoryStartDate = perfFyDateRange.start;
-            statusHistoryEndDate = perfFyDateRange.end;
-          }
+          // Define status groups
+          const tofuStatuses = ["Listed", "Pre-Appointment Prep Done", "Discovery Meeting Done", "Requirement Gathering Done"];
+          const mofuStatuses = ["Solution Proposal Made", "SOW Handshake Done", "Final Proposal Done"];
+          const bofuStatuses = ["Commercial Agreed"];
 
-          // Fetch all status history records for the filtered deals
-          let allStatusHistoryQuery = supabase
-            .from("deal_status_history" as any)
-            .select("deal_id, old_status, new_status, changed_at")
-            .gte("changed_at", statusHistoryStartDate.toISOString())
-            .lte("changed_at", statusHistoryEndDate.toISOString())
-            .in("deal_id", waterfallDealIds);
+          // Count deals currently in each status category
+          let dealsInTofu = 0;
+          let dealsInMofu = 0;
+          let dealsInBofu = 0;
+          let dealsInClosedWon = 0;
+          let dealsInDropped = 0;
 
-          const { data: allStatusHistory, error: historyError } = await allStatusHistoryQuery as any;
+          waterfallDeals.forEach((deal: any) => {
+            const status = deal.status;
+            
+            if (tofuStatuses.includes(status)) {
+              dealsInTofu++;
+            } else if (mofuStatuses.includes(status)) {
+              dealsInMofu++;
+            } else if (bofuStatuses.includes(status)) {
+              dealsInBofu++;
+            } else if (status === "Closed Won") {
+              dealsInClosedWon++;
+            } else if (status === "Dropped") {
+              dealsInDropped++;
+            }
+          });
 
-          if (!historyError && allStatusHistory) {
-            // Define status groups
-            const tofuStatuses = ["Listed", "Discovery Meeting Done", "Requirement Gathering Done"];
-            const mofuStatuses = ["Solution Proposal Made", "SOW Handshake Done", "Final Proposal Done"];
-            const bofuStatuses = ["Commercial Agreed"];
+          // Calculate waterfall counts based on the new formula:
+          // TOFU = Total number of deals
+          // MOFU = TOFU - Number of deals currently in TOFU Category
+          // BOFU = MOFU - Number of deals currently in MOFU Category
+          // Closed Won = Number of deals currently in Closed Won status
+          // Dropped = Number of deals currently in dropped status
+          const waterfallTofu = totalDeals;
+          const waterfallMofu = waterfallTofu - dealsInTofu;
+          const waterfallBofu = waterfallMofu - dealsInMofu;
+          const waterfallClosedWon = dealsInClosedWon;
+          const waterfallDropped = dealsInDropped;
 
-            // Track unique deals per funnel stage using Sets (waterfall - cumulative)
-            const tofuDeals = new Set<string>();
-            const mofuDeals = new Set<string>();
-            const bofuDeals = new Set<string>();
-            const closedWonDeals = new Set<string>();
-            const droppedDeals = new Set<string>();
-
-            // Process all status history records
-            // Count deals where new_status matches the stage statuses
-            // Also include deals whose old_status was "Listed" in TOFU
-            allStatusHistory.forEach((history: any) => {
-              const dealId = history.deal_id;
-              const newStatus = history.new_status;
-              const oldStatus = history.old_status;
-              
-              // Track deals based on new_status (the status they moved to)
-              if (newStatus) {
-                if (tofuStatuses.includes(newStatus)) {
-                  tofuDeals.add(dealId);
-                } else if (mofuStatuses.includes(newStatus)) {
-                  mofuDeals.add(dealId);
-                } else if (bofuStatuses.includes(newStatus)) {
-                  bofuDeals.add(dealId);
-                } else if (newStatus === "Closed Won") {
-                  closedWonDeals.add(dealId);
-                } else if (newStatus === "Dropped") {
-                  droppedDeals.add(dealId);
-                }
-              }
-              
-              // Also include deals in TOFU if their old_status was "Listed"
-              if (oldStatus === "Listed") {
-                tofuDeals.add(dealId);
-              }
-            });
-
-            // Also handle deals that are currently "Listed" but might not have history yet
-            waterfallDeals.forEach((deal: any) => {
-              if (deal.status === "Listed") {
-                tofuDeals.add(deal.id);
-              }
-            });
-
-            // Count unique deals per stage (waterfall - cumulative)
-            const waterfallTofu = tofuDeals.size;
-            const waterfallMofu = mofuDeals.size;
-            const waterfallBofu = bofuDeals.size;
-            const waterfallClosedWon = closedWonDeals.size;
-            const waterfallDropped = droppedDeals.size;
-
-            setWaterfallFunnelCounts({ 
-              tofu: waterfallTofu, 
-              mofu: waterfallMofu, 
-              bofu: waterfallBofu, 
-              closedWon: waterfallClosedWon, 
-              dropped: waterfallDropped 
-            });
-          } else {
-            // If there's an error or no history, reset waterfall counts
-            setWaterfallFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
-            // Keep totalDealsCount as set above (waterfallDeals.length)
-          }
+          setWaterfallFunnelCounts({ 
+            tofu: waterfallTofu, 
+            mofu: waterfallMofu, 
+            bofu: waterfallBofu, 
+            closedWon: waterfallClosedWon, 
+            dropped: waterfallDropped 
+          });
         } else {
-          // If no deals match the filter, reset waterfall counts and total
+          // If there's an error or no deals, reset waterfall counts and total
           setWaterfallFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
           setTotalDealsCount(0);
         }
@@ -885,6 +840,31 @@ export default function CrossSellDashboard() {
     { value: "11", label: "November" },
     { value: "12", label: "December" },
   ];
+
+  // Helper function to get color for a status based on its category
+  const getStatusColor = (statusString: string): { bg: string; fill: string } => {
+    // Extract status name from format like "0. Listed" or "1. Pre-Appointment Prep Done"
+    const status = statusString.replace(/^\d+\.\s*/, "");
+    
+    // TOFU statuses (blue)
+    const tofuStatuses = ["Listed", "Pre-Appointment Prep Done", "Discovery Meeting Done", "Requirement Gathering Done"];
+    // MOFU statuses (orange)
+    const mofuStatuses = ["Solution Proposal Made", "SOW Handshake Done", "Final Proposal Done"];
+    // BOFU statuses (yellow)
+    const bofuStatuses = ["Commercial Agreed"];
+    
+    if (tofuStatuses.includes(status)) {
+      return { bg: "#dbeafe", fill: "#3b82f6" }; // blue-100, blue-500
+    } else if (mofuStatuses.includes(status)) {
+      return { bg: "#ffedd5", fill: "#f97316" }; // orange-100, orange-500
+    } else if (bofuStatuses.includes(status)) {
+      return { bg: "#fef9c3", fill: "#eab308" }; // yellow-100, yellow-500
+    } else if (status === "Closed Won") {
+      return { bg: "#dcfce7", fill: "#22c55e" }; // green-100, green-500
+    } else {
+      return { bg: "#f3f4f6", fill: "#d1d5db" }; // gray-100, gray-300 (for Dropped or unknown)
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1115,6 +1095,7 @@ export default function CrossSellDashboard() {
               ) : (
                 conversionTableData.map((row, idx) => {
                   const maxRecords = row.maxRecords || row.records || 1;
+                  const statusColors = getStatusColor(row.status);
                   return (
                     <TableRow key={idx}>
                       <TableCell className="font-medium">{row.status}</TableCell>
@@ -1124,10 +1105,16 @@ export default function CrossSellDashboard() {
                       <TableCell className="w-[200px]">
                         <div className="flex items-center gap-2">
                           <span className="w-12">{row.records}</span>
-                          <div className="flex-1 bg-orange-100 h-4 rounded relative">
+                          <div 
+                            className="flex-1 h-4 rounded relative"
+                            style={{ backgroundColor: statusColors.bg }}
+                          >
                             <div
-                              className="bg-orange-500 h-full rounded"
-                              style={{ width: `${(row.records / maxRecords) * 100}%` }}
+                              className="h-full rounded"
+                              style={{ 
+                                width: `${(row.records / maxRecords) * 100}%`,
+                                backgroundColor: statusColors.fill
+                              }}
                             />
                           </div>
                         </div>
