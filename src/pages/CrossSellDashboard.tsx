@@ -25,6 +25,14 @@ export default function CrossSellDashboard() {
     closedWon: number;
     dropped: number;
   }>({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+  // Waterfall funnel counts for "Funnel Stage Count of Sales Module" section
+  const [waterfallFunnelCounts, setWaterfallFunnelCounts] = useState<{
+    tofu: number;
+    mofu: number;
+    bofu: number;
+    closedWon: number;
+    dropped: number;
+  }>({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
   const [funnelRevenue, setFunnelRevenue] = useState<{
     tofu: number;
     mofu: number;
@@ -113,14 +121,10 @@ export default function CrossSellDashboard() {
       // Get filtered deal IDs first
       let dealsQuery = supabase
         .from("pipeline_deals" as any)
-        .select("id, kam_id, expected_contract_sign_date")
-        .gte("created_at", perfFyDateRange.start.toISOString())
-        .lte("created_at", perfFyDateRange.end.toISOString());
+        .select("id, kam_id, expected_contract_sign_date");
 
-      if (filterKam) {
-        dealsQuery = dealsQuery.eq("kam_id", filterKam);
-      }
-
+      // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
+      // Otherwise, filter by created_at for the FY
       if (filterExpectedContractSignMonth) {
         const month = parseInt(filterExpectedContractSignMonth);
         const year = getYearForMonthInFY(month, performanceDashboardFY);
@@ -129,6 +133,15 @@ export default function CrossSellDashboard() {
         dealsQuery = dealsQuery
           .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
           .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
+      } else {
+        // When no month filter, filter by created_at for the FY
+        dealsQuery = dealsQuery
+          .gte("created_at", perfFyDateRange.start.toISOString())
+          .lte("created_at", perfFyDateRange.end.toISOString());
+      }
+
+      if (filterKam) {
+        dealsQuery = dealsQuery.eq("kam_id", filterKam);
       }
 
       const { data: filteredDeals } = await dealsQuery as any;
@@ -277,16 +290,10 @@ export default function CrossSellDashboard() {
       // Build base query for pipeline_deals with filters
       let dealsQuery = supabase
         .from("pipeline_deals" as any)
-        .select("id, status, created_at, mcv, kam_id, expected_contract_sign_date")
-        .gte("created_at", perfFyDateRange.start.toISOString())
-        .lte("created_at", perfFyDateRange.end.toISOString());
+        .select("id, status, created_at, mcv, kam_id, expected_contract_sign_date");
 
-      // Apply KAM filter
-      if (filterKam) {
-        dealsQuery = dealsQuery.eq("kam_id", filterKam);
-      }
-
-      // Apply Expected Contract Signing month filter
+      // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
+      // Otherwise, filter by created_at for the FY
       if (filterExpectedContractSignMonth) {
         const month = parseInt(filterExpectedContractSignMonth);
         const year = getYearForMonthInFY(month, performanceDashboardFY);
@@ -295,6 +302,16 @@ export default function CrossSellDashboard() {
         dealsQuery = dealsQuery
           .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
           .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
+      } else {
+        // When no month filter, filter by created_at for the FY
+        dealsQuery = dealsQuery
+          .gte("created_at", perfFyDateRange.start.toISOString())
+          .lte("created_at", perfFyDateRange.end.toISOString());
+      }
+
+      // Apply KAM filter
+      if (filterKam) {
+        dealsQuery = dealsQuery.eq("kam_id", filterKam);
       }
 
       // Fetch current deals to handle deals that might not have history yet (newly created with "Listed" status)
@@ -489,25 +506,20 @@ export default function CrossSellDashboard() {
       
       // Reset counts to zero at the start to clear previous data
       setFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+      setWaterfallFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
       setFunnelRevenue({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
       setTotalDealsCount(0);
       
       // Get financial year date range from Performance Dashboard FY filter
       const perfFyDateRange = getFinancialYearDateRange(performanceDashboardFY);
       
-      // Build base query for pipeline_deals with filters
+      // Build base query for pipeline_deals with filters (including expected_revenue for both counts and revenue)
       let dealsQuery = supabase
         .from("pipeline_deals" as any)
-        .select("id, status, created_at, kam_id, expected_contract_sign_date")
-        .gte("created_at", perfFyDateRange.start.toISOString())
-        .lte("created_at", perfFyDateRange.end.toISOString());
+        .select("id, status, created_at, kam_id, expected_contract_sign_date, expected_revenue");
 
-      // Apply KAM filter
-      if (filterKam) {
-        dealsQuery = dealsQuery.eq("kam_id", filterKam);
-      }
-
-      // Apply Expected Contract Signing month filter
+      // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
+      // Otherwise, filter by created_at for the FY
       if (filterExpectedContractSignMonth) {
         const month = parseInt(filterExpectedContractSignMonth);
         const year = getYearForMonthInFY(month, performanceDashboardFY);
@@ -516,263 +528,73 @@ export default function CrossSellDashboard() {
         dealsQuery = dealsQuery
           .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
           .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
-      }
-
-      // Fetch Funnel Counts for "Funnel Stage_Count of Sales Module" (Waterfall style - cumulative)
-      // Get all status history records within the date range to track all deals that have been in each stage
-      // First, get the deal IDs that match our filters
-      const { data: filteredDeals, error: dealsError } = await dealsQuery as any;
-      const filteredDealIds = filteredDeals ? filteredDeals.map((d: any) => d.id) : [];
-
-      // Determine the date range for status history
-      // If month filter is selected, filter by that month; otherwise use the full FY range
-      let statusHistoryStartDate = perfFyDateRange.start;
-      let statusHistoryEndDate = perfFyDateRange.end;
-      
-      if (filterExpectedContractSignMonth) {
-        const month = parseInt(filterExpectedContractSignMonth);
-        const year = getYearForMonthInFY(month, performanceDashboardFY);
-        statusHistoryStartDate = new Date(year, month - 1, 1);
-        statusHistoryEndDate = new Date(year, month, 0, 23, 59, 59, 999);
-      }
-
-      let allStatusHistoryQuery = supabase
-        .from("deal_status_history" as any)
-        .select("deal_id, old_status, new_status, changed_at")
-        .gte("changed_at", statusHistoryStartDate.toISOString())
-        .lte("changed_at", statusHistoryEndDate.toISOString());
-
-      // Filter by deal IDs (which already includes the expected_contract_sign_date filter if month is selected)
-      if (filteredDealIds.length > 0) {
-        allStatusHistoryQuery = allStatusHistoryQuery.in("deal_id", filteredDealIds);
       } else {
-        // If no deals match filters, return empty result
-        allStatusHistoryQuery = allStatusHistoryQuery.eq("deal_id", "no-match");
-      }
-
-      const { data: allStatusHistory, error: historyError } = await allStatusHistoryQuery as any;
-
-      // Also get current deals to handle deals that might not have history yet (newly created with "Listed" status)
-      const currentDeals = filteredDeals;
-
-      // If no deals match the filter, reset counts and return early
-      if (filteredDealIds.length === 0) {
-        setFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
-        setTotalDealsCount(0);
-        // Continue to revenue section to reset that too
-      }
-
-      // Get total count of deals
-      // If month filter is selected, count unique deals that were in any stage during that month
-      // Otherwise, count deals created within the date range with filters
-      let totalDeals = 0;
-      let totalDealsError = null;
-
-      if (filterExpectedContractSignMonth) {
-        // When month filter is selected, count deals with expected_contract_sign_date in that month
-        totalDeals = filteredDealIds.length;
-      } else {
-        // When no month filter, count deals created within the date range with filters
-        let totalDealsQuery = supabase
-          .from("pipeline_deals" as any)
-          .select("*", { count: "exact", head: true })
+        // When no month filter, filter by created_at for the FY
+        dealsQuery = dealsQuery
           .gte("created_at", perfFyDateRange.start.toISOString())
           .lte("created_at", perfFyDateRange.end.toISOString());
-
-        if (filterKam) {
-          totalDealsQuery = totalDealsQuery.eq("kam_id", filterKam);
-        }
-
-        const { count, error } = await totalDealsQuery as any;
-        totalDeals = count || 0;
-        totalDealsError = error;
       }
 
-      if (!dealsError && !historyError && (totalDealsError === null || !totalDealsError)) {
-        // Set total deals count
-        setTotalDealsCount(totalDeals || 0);
+      // Apply KAM filter
+      if (filterKam) {
+        dealsQuery = dealsQuery.eq("kam_id", filterKam);
+      }
+
+      // Fetch deals for both Stage Count Graph and Stage Revenue Graph (Current status only - not waterfall)
+      // Get deals that match our filters and calculate counts and revenue by their current status
+      const { data: filteredDeals, error: dealsError } = await dealsQuery as any;
+
+      // If no deals match the filter, reset counts and revenue
+      if (!filteredDeals || filteredDeals.length === 0 || dealsError) {
+        setFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+        setFunnelRevenue({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+        setTotalDealsCount(0);
+      } else {
+        // Get total count of deals
+        let totalDeals = filteredDeals.length;
+
         // Define status groups
         const tofuStatuses = ["Listed", "Discovery Meeting Done", "Requirement Gathering Done"];
         const mofuStatuses = ["Solution Proposal Made", "SOW Handshake Done", "Final Proposal Done"];
         const bofuStatuses = ["Commercial Agreed"];
 
-        // Track unique deals per funnel stage using Sets
-        // Count deals where new_status matches the stage statuses within the selected period
-        const tofuDeals = new Set<string>();
-        const mofuDeals = new Set<string>();
-        const bofuDeals = new Set<string>();
-        const closedWonDeals = new Set<string>();
-        const droppedDeals = new Set<string>();
+        // Initialize counters for counts and revenue
+        let tofu = 0;
+        let mofu = 0;
+        let bofu = 0;
+        let closedWon = 0;
+        let dropped = 0;
+        
+        let tofuRevenue = 0;
+        let mofuRevenue = 0;
+        let bofuRevenue = 0;
+        let closedWonRevenue = 0;
+        let droppedRevenue = 0;
 
-        // Process all status history records
-        // Count deals where new_status matches the stage statuses
-        // Also include deals whose old_status was "Listed" in TOFU
-        if (allStatusHistory) {
-          allStatusHistory.forEach((history: any) => {
-            const dealId = history.deal_id;
-            const newStatus = history.new_status;
-            const oldStatus = history.old_status;
-            
-            // Track deals based on new_status (the status they moved to)
-            if (newStatus) {
-              if (tofuStatuses.includes(newStatus)) {
-                tofuDeals.add(dealId);
-              } else if (mofuStatuses.includes(newStatus)) {
-                mofuDeals.add(dealId);
-              } else if (bofuStatuses.includes(newStatus)) {
-                bofuDeals.add(dealId);
-              } else if (newStatus === "Closed Won") {
-                closedWonDeals.add(dealId);
-              } else if (newStatus === "Dropped") {
-                droppedDeals.add(dealId);
-              }
-            }
-            
-            // Also include deals in TOFU if their old_status was "Listed"
-            if (oldStatus === "Listed") {
-              tofuDeals.add(dealId);
-            }
-          });
-        }
-
-        // Count unique deals per stage
-        const tofu = tofuDeals.size;
-        const mofu = mofuDeals.size;
-        const bofu = bofuDeals.size;
-        const closedWon = closedWonDeals.size;
-        const dropped = droppedDeals.size;
-
-        setFunnelCounts({ tofu, mofu, bofu, closedWon, dropped });
-      } else {
-        // If there's an error or no data, ensure counts are reset to zero
-        setFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
-        setTotalDealsCount(0);
-      }
-
-      // Fetch Funnel Revenue for "Funnel Stage_Expected Revenue" (Waterfall style - cumulative)
-      // Get all deals with revenue to map deal_id to expected_revenue
-      let dealsRevenueQuery = supabase
-        .from("pipeline_deals" as any)
-        .select("id, expected_revenue, status, created_at, kam_id, expected_contract_sign_date")
-        .gte("created_at", perfFyDateRange.start.toISOString())
-        .lte("created_at", perfFyDateRange.end.toISOString());
-
-      // Apply KAM filter
-      if (filterKam) {
-        dealsRevenueQuery = dealsRevenueQuery.eq("kam_id", filterKam);
-      }
-
-      // Apply Expected Contract Signing month filter
-      if (filterExpectedContractSignMonth) {
-        const month = parseInt(filterExpectedContractSignMonth);
-        const year = getYearForMonthInFY(month, performanceDashboardFY);
-        const startDate = new Date(year, month - 1, 1);
-        const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-        dealsRevenueQuery = dealsRevenueQuery
-          .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
-          .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
-      }
-
-      const { data: allDealsWithRevenue, error: dealsRevenueError } = await dealsRevenueQuery as any;
-
-      // If no deals match the filter, reset revenue
-      if (!allDealsWithRevenue || allDealsWithRevenue.length === 0) {
-        setFunnelRevenue({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
-      }
-
-      // Calculate current pipeline revenue (deals currently in TOFU, MOFU, or BOFU)
-      if (!dealsRevenueError && allDealsWithRevenue) {
-        const tofuStatuses = ["Listed", "Discovery Meeting Done", "Requirement Gathering Done"];
-        const mofuStatuses = ["Solution Proposal Made", "SOW Handshake Done", "Final Proposal Done"];
-        const bofuStatuses = ["Commercial Agreed"];
-
-        const pipelineRevenue = allDealsWithRevenue.reduce((sum: number, deal: any) => {
+        // Process each deal to calculate counts and revenue by current status
+        filteredDeals.forEach((deal: any) => {
           const status = deal.status;
           const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
           
-          // Check if deal is currently in TOFU, MOFU, or BOFU
-          if (tofuStatuses.includes(status) || mofuStatuses.includes(status) || bofuStatuses.includes(status)) {
-            return sum + expectedRevenue;
+          if (tofuStatuses.includes(status)) {
+            tofu++;
+            tofuRevenue += expectedRevenue;
+          } else if (mofuStatuses.includes(status)) {
+            mofu++;
+            mofuRevenue += expectedRevenue;
+          } else if (bofuStatuses.includes(status)) {
+            bofu++;
+            bofuRevenue += expectedRevenue;
+          } else if (status === "Closed Won") {
+            closedWon++;
+            closedWonRevenue += expectedRevenue;
+          } else if (status === "Dropped") {
+            dropped++;
+            droppedRevenue += expectedRevenue;
           }
-          return sum;
-        }, 0);
-
-      }
-
-      if (!dealsRevenueError && allDealsWithRevenue) {
-        // Create a map of deal_id to expected_revenue
-        const dealRevenueMap: Record<string, number> = {};
-        allDealsWithRevenue.forEach((deal: any) => {
-          const expectedRevenue = parseFloat(deal.expected_revenue?.toString() || "0") || 0;
-          dealRevenueMap[deal.id] = expectedRevenue;
         });
 
-        // Reuse the status history from above (or fetch again if needed)
-        // We'll use the same Sets we created for counts, but sum revenue instead
-        const tofuStatuses = ["Listed", "Discovery Meeting Done", "Requirement Gathering Done"];
-        const mofuStatuses = ["Solution Proposal Made", "SOW Handshake Done", "Final Proposal Done"];
-        const bofuStatuses = ["Commercial Agreed"];
-
-        // Track unique deals per funnel stage using Sets (for revenue calculation)
-        // Count deals where new_status matches the stage statuses within the selected period
-        const tofuDealsForRevenue = new Set<string>();
-        const mofuDealsForRevenue = new Set<string>();
-        const bofuDealsForRevenue = new Set<string>();
-        const closedWonDealsForRevenue = new Set<string>();
-        const droppedDealsForRevenue = new Set<string>();
-
-        // Process all status history records
-        // Count deals where new_status matches the stage statuses
-        // Also include deals whose old_status was "Listed" in TOFU
-        if (allStatusHistory) {
-          allStatusHistory.forEach((history: any) => {
-            const dealId = history.deal_id;
-            const newStatus = history.new_status;
-            const oldStatus = history.old_status;
-            
-            // Track deals based on new_status (the status they moved to)
-            if (newStatus) {
-              if (tofuStatuses.includes(newStatus)) {
-                tofuDealsForRevenue.add(dealId);
-              } else if (mofuStatuses.includes(newStatus)) {
-                mofuDealsForRevenue.add(dealId);
-              } else if (bofuStatuses.includes(newStatus)) {
-                bofuDealsForRevenue.add(dealId);
-              } else if (newStatus === "Closed Won") {
-                closedWonDealsForRevenue.add(dealId);
-              } else if (newStatus === "Dropped") {
-                droppedDealsForRevenue.add(dealId);
-              }
-            }
-            
-            // Also include deals in TOFU if their old_status was "Listed"
-            if (oldStatus === "Listed") {
-              tofuDealsForRevenue.add(dealId);
-            }
-          });
-        }
-
-        // Sum expected_revenue for all deals that have been in each stage
-        const tofuRevenue = Array.from(tofuDealsForRevenue).reduce((sum, dealId) => {
-          return sum + (dealRevenueMap[dealId] || 0);
-        }, 0);
-
-        const mofuRevenue = Array.from(mofuDealsForRevenue).reduce((sum, dealId) => {
-          return sum + (dealRevenueMap[dealId] || 0);
-        }, 0);
-
-        const bofuRevenue = Array.from(bofuDealsForRevenue).reduce((sum, dealId) => {
-          return sum + (dealRevenueMap[dealId] || 0);
-        }, 0);
-
-        const closedWonRevenue = Array.from(closedWonDealsForRevenue).reduce((sum, dealId) => {
-          return sum + (dealRevenueMap[dealId] || 0);
-        }, 0);
-
-        const droppedRevenue = Array.from(droppedDealsForRevenue).reduce((sum, dealId) => {
-          return sum + (dealRevenueMap[dealId] || 0);
-        }, 0);
-
+        setFunnelCounts({ tofu, mofu, bofu, closedWon, dropped });
         setFunnelRevenue({ 
           tofu: tofuRevenue, 
           mofu: mofuRevenue,
@@ -780,9 +602,146 @@ export default function CrossSellDashboard() {
           closedWon: closedWonRevenue, 
           dropped: droppedRevenue 
         });
-      } else {
-        // If there's an error or no data, ensure revenue is reset to zero
-        setFunnelRevenue({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+      }
+
+      // Calculate Waterfall Funnel Counts for "Funnel Stage Count of Sales Module" section
+      // When month filter is applied: fetch deals by expected_contract_sign_date, then fetch their status history
+      // When no month filter: fetch deals by created_at for FY, then fetch their status history
+      try {
+        let waterfallDealsQuery = supabase
+          .from("pipeline_deals" as any)
+          .select("id, kam_id, expected_contract_sign_date, created_at");
+
+        // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
+        // Otherwise, filter by created_at for the FY
+        if (filterExpectedContractSignMonth) {
+          const month = parseInt(filterExpectedContractSignMonth);
+          const year = getYearForMonthInFY(month, performanceDashboardFY);
+          const startDate = new Date(year, month - 1, 1);
+          const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+          waterfallDealsQuery = waterfallDealsQuery
+            .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
+            .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
+        } else {
+          // When no month filter, filter by created_at for the FY
+          waterfallDealsQuery = waterfallDealsQuery
+            .gte("created_at", perfFyDateRange.start.toISOString())
+            .lte("created_at", perfFyDateRange.end.toISOString());
+        }
+
+        // Apply KAM filter
+        if (filterKam) {
+          waterfallDealsQuery = waterfallDealsQuery.eq("kam_id", filterKam);
+        }
+
+        const { data: waterfallDeals, error: waterfallDealsError } = await waterfallDealsQuery as any;
+
+        if (!waterfallDealsError && waterfallDeals && waterfallDeals.length > 0) {
+          // Set total deals count for waterfall section
+          setTotalDealsCount(waterfallDeals.length);
+          
+          const waterfallDealIds = waterfallDeals.map((d: any) => d.id);
+
+          // Determine the date range for status history
+          // If month filter is selected, use the full FY range for history (to get all status changes)
+          // Otherwise, use the FY range
+          let statusHistoryStartDate = perfFyDateRange.start;
+          let statusHistoryEndDate = perfFyDateRange.end;
+          
+          if (filterExpectedContractSignMonth) {
+            // When month filter is selected, still use FY range for history to get all status changes
+            // But we've already filtered deals by expected_contract_sign_date in that month
+            statusHistoryStartDate = perfFyDateRange.start;
+            statusHistoryEndDate = perfFyDateRange.end;
+          }
+
+          // Fetch all status history records for the filtered deals
+          let allStatusHistoryQuery = supabase
+            .from("deal_status_history" as any)
+            .select("deal_id, old_status, new_status, changed_at")
+            .gte("changed_at", statusHistoryStartDate.toISOString())
+            .lte("changed_at", statusHistoryEndDate.toISOString())
+            .in("deal_id", waterfallDealIds);
+
+          const { data: allStatusHistory, error: historyError } = await allStatusHistoryQuery as any;
+
+          if (!historyError && allStatusHistory) {
+            // Define status groups
+            const tofuStatuses = ["Listed", "Discovery Meeting Done", "Requirement Gathering Done"];
+            const mofuStatuses = ["Solution Proposal Made", "SOW Handshake Done", "Final Proposal Done"];
+            const bofuStatuses = ["Commercial Agreed"];
+
+            // Track unique deals per funnel stage using Sets (waterfall - cumulative)
+            const tofuDeals = new Set<string>();
+            const mofuDeals = new Set<string>();
+            const bofuDeals = new Set<string>();
+            const closedWonDeals = new Set<string>();
+            const droppedDeals = new Set<string>();
+
+            // Process all status history records
+            // Count deals where new_status matches the stage statuses
+            // Also include deals whose old_status was "Listed" in TOFU
+            allStatusHistory.forEach((history: any) => {
+              const dealId = history.deal_id;
+              const newStatus = history.new_status;
+              const oldStatus = history.old_status;
+              
+              // Track deals based on new_status (the status they moved to)
+              if (newStatus) {
+                if (tofuStatuses.includes(newStatus)) {
+                  tofuDeals.add(dealId);
+                } else if (mofuStatuses.includes(newStatus)) {
+                  mofuDeals.add(dealId);
+                } else if (bofuStatuses.includes(newStatus)) {
+                  bofuDeals.add(dealId);
+                } else if (newStatus === "Closed Won") {
+                  closedWonDeals.add(dealId);
+                } else if (newStatus === "Dropped") {
+                  droppedDeals.add(dealId);
+                }
+              }
+              
+              // Also include deals in TOFU if their old_status was "Listed"
+              if (oldStatus === "Listed") {
+                tofuDeals.add(dealId);
+              }
+            });
+
+            // Also handle deals that are currently "Listed" but might not have history yet
+            waterfallDeals.forEach((deal: any) => {
+              if (deal.status === "Listed") {
+                tofuDeals.add(deal.id);
+              }
+            });
+
+            // Count unique deals per stage (waterfall - cumulative)
+            const waterfallTofu = tofuDeals.size;
+            const waterfallMofu = mofuDeals.size;
+            const waterfallBofu = bofuDeals.size;
+            const waterfallClosedWon = closedWonDeals.size;
+            const waterfallDropped = droppedDeals.size;
+
+            setWaterfallFunnelCounts({ 
+              tofu: waterfallTofu, 
+              mofu: waterfallMofu, 
+              bofu: waterfallBofu, 
+              closedWon: waterfallClosedWon, 
+              dropped: waterfallDropped 
+            });
+          } else {
+            // If there's an error or no history, reset waterfall counts
+            setWaterfallFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+            // Keep totalDealsCount as set above (waterfallDeals.length)
+          }
+        } else {
+          // If no deals match the filter, reset waterfall counts and total
+          setWaterfallFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+          setTotalDealsCount(0);
+        }
+      } catch (error) {
+        console.error("Error fetching waterfall funnel data:", error);
+        setWaterfallFunnelCounts({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
+        setTotalDealsCount(0);
       }
 
       // Fetch Cross Sell Target Sum for selected Financial Year
@@ -1021,9 +980,17 @@ export default function CrossSellDashboard() {
                 <BarChart 
                   data={stageCountData} 
                   barCategoryGap="20%"
+                  margin={{ top: 5, right: 5, left: 5, bottom: 20 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" type="category" />
+                  <XAxis 
+                    dataKey="name" 
+                    type="category" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                    interval={0}
+                  />
                   <YAxis type="number" />
                   <Tooltip 
                     formatter={(value: any) => {
@@ -1056,9 +1023,17 @@ export default function CrossSellDashboard() {
                 <BarChart 
                   data={stageRevenueData} 
                   barCategoryGap="20%"
+                  margin={{ top: 5, right: 5, left: 5, bottom: 20 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" type="category" />
+                  <XAxis 
+                    dataKey="name" 
+                    type="category" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                    interval={0}
+                  />
                   <YAxis type="number" />
                   <Tooltip 
                     formatter={(value: any) => {
@@ -1187,11 +1162,11 @@ export default function CrossSellDashboard() {
             <div className="flex gap-4" style={{ minHeight: 0, paddingBottom: '0' }}>
               {(() => {
                 const values = { 
-                  tofu: funnelCounts.tofu,
-                  mofu: funnelCounts.mofu,
-                  bofu: funnelCounts.bofu, 
-                  closedWon: funnelCounts.closedWon, 
-                  dropped: funnelCounts.dropped 
+                  tofu: waterfallFunnelCounts.tofu,
+                  mofu: waterfallFunnelCounts.mofu,
+                  bofu: waterfallFunnelCounts.bofu, 
+                  closedWon: waterfallFunnelCounts.closedWon, 
+                  dropped: waterfallFunnelCounts.dropped 
                 };
                 const maxValue = Math.max(...Object.values(values), 1); // Use 1 as minimum to avoid division by zero
                 const maxWidth = 200; // Maximum line width in pixels
