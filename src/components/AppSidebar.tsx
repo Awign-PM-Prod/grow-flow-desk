@@ -26,7 +26,7 @@ export function AppSidebar() {
       roles: ["kam", "manager", "leadership", "superadmin"],
     },
     {
-      title: "Cross Sell Dashboard",
+      title: "Cross Sell Pipeline Dashboard",
       url: "/cross-sell-dashboard",
       icon: BarChart3,
       roles: ["kam", "manager", "leadership", "superadmin"],

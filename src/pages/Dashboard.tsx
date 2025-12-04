@@ -3,7 +3,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
 
@@ -70,6 +70,12 @@ export default function Dashboard() {
   const [mcvTierFilter, setMcvTierFilter] = useState<string>("all");
   const [companySizeTierFilter, setCompanySizeTierFilter] = useState<string>("all");
   const [upsellMcvTierFilter, setUpsellMcvTierFilter] = useState<string>("All MCV Tiers");
+  // Raw data for upsell sections (before MCV tier filtering)
+  const [rawGroupBMandates, setRawGroupBMandates] = useState<any[]>([]);
+  const [rawGroupCMandates, setRawGroupCMandates] = useState<any[]>([]);
+  const [rawAllMandates, setRawAllMandates] = useState<any[]>([]);
+  const [accountMcvTierMapState, setAccountMcvTierMapState] = useState<Record<string, string | null>>({});
+  // Formatted data (after MCV tier filtering)
   const [upsellGroupB, setUpsellGroupB] = useState<Array<{ status: string; count: number; revenue: string; accounts: number }>>([]);
   const [upsellGroupC, setUpsellGroupC] = useState<Array<{ status: string; count: number; revenue: string; accounts: number }>>([]);
   const [upsellPerformance, setUpsellPerformance] = useState<Array<{ 
@@ -120,7 +126,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchDashboardData();
     fetchKams();
-  }, [filterFinancialYear, filterUpsellStatus, filterKam, upsellMcvTierFilter]);
+  }, [filterFinancialYear, filterUpsellStatus, filterKam]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -217,6 +223,211 @@ export default function Dashboard() {
 
     return filtered;
   };
+
+  // Process Group B upsell data with MCV tier filter applied client-side
+  const processedUpsellGroupB = useMemo(() => {
+    const filteredGroupBMandates = filterMandatesByMcvTier(rawGroupBMandates, accountMcvTierMapState);
+    
+    const groupBData: Record<string, { count: number; revenue: number; accountIds: Set<string> }> = {};
+    
+    if (filteredGroupBMandates && filteredGroupBMandates.length > 0) {
+      filteredGroupBMandates.forEach((mandate) => {
+        const status = mandate.upsell_action_status || "Not Set";
+        if (!groupBData[status]) {
+          groupBData[status] = { count: 0, revenue: 0, accountIds: new Set() };
+        }
+        groupBData[status].count++;
+        if (mandate.revenue_mcv) {
+          groupBData[status].revenue += parseFloat(mandate.revenue_mcv.toString()) || 0;
+        }
+        if (mandate.account_id) {
+          groupBData[status].accountIds.add(mandate.account_id);
+        }
+      });
+    }
+
+    return ["Not Started", "Ongoing", "Done", "Not Set"].map((status) => {
+      const data = groupBData[status] || { count: 0, revenue: 0, accountIds: new Set() };
+      const revenueInLakhs = data.revenue / 100000;
+      const revenueDisplay = revenueInLakhs >= 1 
+        ? `₹${revenueInLakhs.toFixed(1)}L` 
+        : `₹${Math.round(data.revenue).toLocaleString("en-IN")}`;
+      
+      return {
+        status,
+        count: data.count,
+        revenue: revenueDisplay,
+        accounts: data.accountIds.size,
+      };
+    });
+  }, [rawGroupBMandates, accountMcvTierMapState, upsellMcvTierFilter]);
+
+  // Process Group C upsell data with MCV tier filter applied client-side
+  const processedUpsellGroupC = useMemo(() => {
+    const filteredGroupCMandates = filterMandatesByMcvTier(rawGroupCMandates, accountMcvTierMapState);
+    
+    const groupCData: Record<string, { count: number; revenue: number; accountIds: Set<string> }> = {};
+    
+    if (filteredGroupCMandates && filteredGroupCMandates.length > 0) {
+      filteredGroupCMandates.forEach((mandate) => {
+        const status = mandate.upsell_action_status || "Not Set";
+        if (!groupCData[status]) {
+          groupCData[status] = { count: 0, revenue: 0, accountIds: new Set() };
+        }
+        groupCData[status].count++;
+        if (mandate.revenue_mcv) {
+          groupCData[status].revenue += parseFloat(mandate.revenue_mcv.toString()) || 0;
+        }
+        if (mandate.account_id) {
+          groupCData[status].accountIds.add(mandate.account_id);
+        }
+      });
+    }
+
+    return ["Not Started", "Ongoing", "Done", "Not Set"].map((status) => {
+      const data = groupCData[status] || { count: 0, revenue: 0, accountIds: new Set() };
+      const revenueInLakhs = data.revenue / 100000;
+      const revenueDisplay = revenueInLakhs >= 1 
+        ? `₹${revenueInLakhs.toFixed(1)}L` 
+        : `₹${Math.round(data.revenue).toLocaleString("en-IN")}`;
+      
+      return {
+        status,
+        count: data.count,
+        revenue: revenueDisplay,
+        accounts: data.accountIds.size,
+      };
+    });
+  }, [rawGroupCMandates, accountMcvTierMapState, upsellMcvTierFilter]);
+
+  // Process upsell performance data with MCV tier filter applied client-side
+  const processedUpsellPerformance = useMemo(() => {
+    const filteredAllMandates = filterMandatesByMcvTier(rawAllMandates, accountMcvTierMapState);
+    
+    // Get current month and previous month dates
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+    // Get unique retention types (include null as "Not Set")
+    const retentionTypes = [...new Set((filteredAllMandates || []).map((m: any) => m.retention_type || "Not Set"))].sort();
+
+    // Process upsell performance data for each retention type
+    const performanceData: Array<{
+      group: string;
+      prevCount: number;
+      currCount: number;
+      prevRev: number;
+      currRev: number;
+      prevAcc: Set<string>;
+      currAcc: Set<string>;
+    }> = [];
+
+    retentionTypes.forEach((retentionType) => {
+      // Previous month data
+      const prevMonthMandates = (filteredAllMandates || []).filter((m: any) => {
+        const createdDate = new Date(m.created_at);
+        const mandateRetentionType = m.retention_type || "Not Set";
+        return mandateRetentionType === retentionType &&
+               createdDate >= prevMonthStart &&
+               createdDate <= prevMonthEnd;
+      });
+
+      // Current month data
+      const currMonthMandates = (filteredAllMandates || []).filter((m: any) => {
+        const createdDate = new Date(m.created_at);
+        const mandateRetentionType = m.retention_type || "Not Set";
+        return mandateRetentionType === retentionType &&
+               createdDate >= startOfMonth &&
+               createdDate <= endOfMonth;
+      });
+
+      // Calculate previous month metrics
+      const prevRev = prevMonthMandates.reduce((sum: number, m: any) => {
+        return sum + (parseFloat(m.revenue_mcv?.toString() || "0") || 0);
+      }, 0);
+      const prevAccSet = new Set(prevMonthMandates.map((m: any) => m.account_id).filter(Boolean));
+
+      // Calculate current month metrics
+      const currRev = currMonthMandates.reduce((sum: number, m: any) => {
+        return sum + (parseFloat(m.revenue_mcv?.toString() || "0") || 0);
+      }, 0);
+      const currAccSet = new Set(currMonthMandates.map((m: any) => m.account_id).filter(Boolean));
+
+      performanceData.push({
+        group: retentionType,
+        prevCount: prevMonthMandates.length,
+        currCount: currMonthMandates.length,
+        prevRev,
+        currRev,
+        prevAcc: prevAccSet,
+        currAcc: currAccSet,
+      });
+    });
+
+    // Calculate Total row
+    const totalPrevCount = performanceData.reduce((sum, d) => sum + d.prevCount, 0);
+    const totalCurrCount = performanceData.reduce((sum, d) => sum + d.currCount, 0);
+    const totalPrevRev = performanceData.reduce((sum, d) => sum + d.prevRev, 0);
+    const totalCurrRev = performanceData.reduce((sum, d) => sum + d.currRev, 0);
+    const totalPrevAccSet = new Set<string>();
+    const totalCurrAccSet = new Set<string>();
+    performanceData.forEach((d) => {
+      d.prevAcc.forEach((id) => totalPrevAccSet.add(id));
+      d.currAcc.forEach((id) => totalCurrAccSet.add(id));
+    });
+
+    // Format performance data for display
+    const formatRevenue = (value: number): string => {
+      if (value === 0) return "₹0";
+      const inLakhs = value / 100000;
+      if (inLakhs >= 1) {
+        return `₹${inLakhs.toFixed(1)}L`;
+      }
+      return `₹${Math.round(value).toLocaleString("en-IN")}`;
+    };
+
+    const formatDiff = (curr: number, prev: number): string => {
+      const diff = curr - prev;
+      return diff >= 0 ? `+${diff}` : `${diff}`;
+    };
+
+    return [
+      ...performanceData.map((d) => ({
+        group: d.group,
+        prevCount: d.prevCount,
+        currCount: d.currCount,
+        countDiff: formatDiff(d.currCount, d.prevCount),
+        prevRev: formatRevenue(d.prevRev),
+        currRev: formatRevenue(d.currRev),
+        revDiff: formatDiff(d.currRev, d.prevRev),
+        prevAcc: d.prevAcc.size,
+        currAcc: d.currAcc.size,
+        accDiff: formatDiff(d.currAcc.size, d.prevAcc.size),
+      })),
+      {
+        group: "Total",
+        prevCount: totalPrevCount,
+        currCount: totalCurrCount,
+        countDiff: formatDiff(totalCurrCount, totalPrevCount),
+        prevRev: formatRevenue(totalPrevRev),
+        currRev: formatRevenue(totalCurrRev),
+        revDiff: formatDiff(totalCurrRev, totalPrevRev),
+        prevAcc: totalPrevAccSet.size,
+        currAcc: totalCurrAccSet.size,
+        accDiff: formatDiff(totalCurrAccSet.size, totalPrevAccSet.size),
+      },
+    ];
+  }, [rawAllMandates, accountMcvTierMapState, upsellMcvTierFilter]);
+
+  // Update state when processed data changes
+  useEffect(() => {
+    setUpsellGroupB(processedUpsellGroupB);
+    setUpsellGroupC(processedUpsellGroupC);
+    setUpsellPerformance(processedUpsellPerformance);
+  }, [processedUpsellGroupB, processedUpsellGroupC, processedUpsellPerformance]);
 
   // Helper function to get current financial year quarter
   const getCurrentFinancialYearQuarter = (): string => {
@@ -430,45 +641,8 @@ export default function Dashboard() {
 
       if (groupBError) throw groupBError;
 
-      // Filter by MCV Tier if needed
-      const filteredGroupBMandates = filterMandatesByMcvTier(groupBMandates || [], accountMcvTierMap || {});
-
-      // Process Group B data
-      const groupBData: Record<string, { count: number; revenue: number; accountIds: Set<string> }> = {};
-      
-      if (filteredGroupBMandates && filteredGroupBMandates.length > 0) {
-        filteredGroupBMandates.forEach((mandate) => {
-          // Include mandates with null upsell_action_status as "Not Set"
-          const status = mandate.upsell_action_status || "Not Set";
-          if (!groupBData[status]) {
-            groupBData[status] = { count: 0, revenue: 0, accountIds: new Set() };
-          }
-          groupBData[status].count++;
-          if (mandate.revenue_mcv) {
-            groupBData[status].revenue += parseFloat(mandate.revenue_mcv.toString()) || 0;
-          }
-          if (mandate.account_id) {
-            groupBData[status].accountIds.add(mandate.account_id);
-          }
-        });
-      }
-
-      // Format Group B data for display
-      // Include "Not Set" for mandates without upsell_action_status
-      const formattedGroupB = ["Not Started", "Ongoing", "Done", "Not Set"].map((status) => {
-        const data = groupBData[status] || { count: 0, revenue: 0, accountIds: new Set() };
-        const revenueInLakhs = data.revenue / 100000;
-        const revenueDisplay = revenueInLakhs >= 1 
-          ? `₹${revenueInLakhs.toFixed(1)}L` 
-          : `₹${Math.round(data.revenue).toLocaleString("en-IN")}`;
-        
-        return {
-          status,
-          count: data.count,
-          revenue: revenueDisplay,
-          accounts: data.accountIds.size,
-        };
-      });
+      // Store raw data for client-side filtering
+      setRawGroupBMandates(groupBMandates || []);
 
       // Fetch mandates with retention_type = "C" for Group C upsell data
       let groupCMandatesQuery = supabase
@@ -491,45 +665,8 @@ export default function Dashboard() {
 
       if (groupCError) throw groupCError;
 
-      // Filter by MCV Tier if needed
-      const filteredGroupCMandates = filterMandatesByMcvTier(groupCMandates || [], accountMcvTierMap || {});
-
-      // Process Group C data
-      const groupCData: Record<string, { count: number; revenue: number; accountIds: Set<string> }> = {};
-      
-      if (filteredGroupCMandates && filteredGroupCMandates.length > 0) {
-        filteredGroupCMandates.forEach((mandate) => {
-          // Include mandates with null upsell_action_status as "Not Set" or "Unknown"
-          const status = mandate.upsell_action_status || "Not Set";
-          if (!groupCData[status]) {
-            groupCData[status] = { count: 0, revenue: 0, accountIds: new Set() };
-          }
-          groupCData[status].count++;
-          if (mandate.revenue_mcv) {
-            groupCData[status].revenue += parseFloat(mandate.revenue_mcv.toString()) || 0;
-          }
-          if (mandate.account_id) {
-            groupCData[status].accountIds.add(mandate.account_id);
-          }
-        });
-      }
-
-      // Format Group C data for display
-      // Include "Not Set" for mandates without upsell_action_status
-      const formattedGroupC = ["Not Started", "Ongoing", "Done", "Not Set"].map((status) => {
-        const data = groupCData[status] || { count: 0, revenue: 0, accountIds: new Set() };
-        const revenueInLakhs = data.revenue / 100000;
-        const revenueDisplay = revenueInLakhs >= 1 
-          ? `₹${revenueInLakhs.toFixed(1)}L` 
-          : `₹${Math.round(data.revenue).toLocaleString("en-IN")}`;
-        
-        return {
-          status,
-          count: data.count,
-          revenue: revenueDisplay,
-          accounts: data.accountIds.size,
-        };
-      });
+      // Store raw data for client-side filtering
+      setRawGroupCMandates(groupCMandates || []);
 
       // Fetch all unique retention types for upsell performance
       // Include all mandates, even those with null retention_type
@@ -552,121 +689,9 @@ export default function Dashboard() {
 
       if (allMandatesError) throw allMandatesError;
 
-      // Filter by MCV Tier if needed
-      const filteredAllMandates = filterMandatesByMcvTier(allMandates || [], accountMcvTierMap || {});
-
-      // Get unique retention types (include null as "Not Set")
-      const retentionTypes = [...new Set((filteredAllMandates || []).map((m: any) => m.retention_type || "Not Set"))].sort();
-
-      // Process upsell performance data for each retention type
-      const performanceData: Array<{
-        group: string;
-        prevCount: number;
-        currCount: number;
-        prevRev: number;
-        currRev: number;
-        prevAcc: Set<string>;
-        currAcc: Set<string>;
-      }> = [];
-
-      retentionTypes.forEach((retentionType) => {
-        // Previous month data (mandates created in previous month)
-        // Handle "Not Set" for null retention_type
-        const prevMonthMandates = (filteredAllMandates || []).filter((m: any) => {
-          const createdDate = new Date(m.created_at);
-          const mandateRetentionType = m.retention_type || "Not Set";
-          return mandateRetentionType === retentionType &&
-                 createdDate >= prevMonthStart &&
-                 createdDate <= prevMonthEnd;
-        });
-
-        // Current month data (mandates created in current month)
-        // Handle "Not Set" for null retention_type
-        const currMonthMandates = (filteredAllMandates || []).filter((m: any) => {
-          const createdDate = new Date(m.created_at);
-          const mandateRetentionType = m.retention_type || "Not Set";
-          return mandateRetentionType === retentionType &&
-                 createdDate >= startOfMonth &&
-                 createdDate <= endOfMonth;
-        });
-
-
-        // Calculate previous month metrics
-        const prevRev = prevMonthMandates.reduce((sum: number, m: any) => {
-          return sum + (parseFloat(m.revenue_mcv?.toString() || "0") || 0);
-        }, 0);
-        const prevAccSet = new Set(prevMonthMandates.map((m: any) => m.account_id).filter(Boolean));
-
-        // Calculate current month metrics
-        const currRev = currMonthMandates.reduce((sum: number, m: any) => {
-          return sum + (parseFloat(m.revenue_mcv?.toString() || "0") || 0);
-        }, 0);
-        const currAccSet = new Set(currMonthMandates.map((m: any) => m.account_id).filter(Boolean));
-
-        performanceData.push({
-          group: retentionType,
-          prevCount: prevMonthMandates.length,
-          currCount: currMonthMandates.length,
-          prevRev,
-          currRev,
-          prevAcc: prevAccSet,
-          currAcc: currAccSet,
-        });
-      });
-
-      // Calculate Total row
-      const totalPrevCount = performanceData.reduce((sum, d) => sum + d.prevCount, 0);
-      const totalCurrCount = performanceData.reduce((sum, d) => sum + d.currCount, 0);
-      const totalPrevRev = performanceData.reduce((sum, d) => sum + d.prevRev, 0);
-      const totalCurrRev = performanceData.reduce((sum, d) => sum + d.currRev, 0);
-      const totalPrevAccSet = new Set<string>();
-      const totalCurrAccSet = new Set<string>();
-      performanceData.forEach((d) => {
-        d.prevAcc.forEach((id) => totalPrevAccSet.add(id));
-        d.currAcc.forEach((id) => totalCurrAccSet.add(id));
-      });
-
-      // Format performance data for display
-      const formatRevenue = (value: number): string => {
-        if (value === 0) return "₹0";
-        const inLakhs = value / 100000;
-        if (inLakhs >= 1) {
-          return `₹${inLakhs.toFixed(1)}L`;
-        }
-        return `₹${Math.round(value).toLocaleString("en-IN")}`;
-      };
-
-      const formatDiff = (curr: number, prev: number): string => {
-        const diff = curr - prev;
-        return diff >= 0 ? `+${diff}` : `${diff}`;
-      };
-
-      const formattedPerformance = [
-        ...performanceData.map((d) => ({
-          group: d.group,
-          prevCount: d.prevCount,
-          currCount: d.currCount,
-          countDiff: formatDiff(d.currCount, d.prevCount),
-          prevRev: formatRevenue(d.prevRev),
-          currRev: formatRevenue(d.currRev),
-          revDiff: formatDiff(d.currRev, d.prevRev),
-          prevAcc: d.prevAcc.size,
-          currAcc: d.currAcc.size,
-          accDiff: formatDiff(d.currAcc.size, d.prevAcc.size),
-        })),
-        {
-          group: "Total",
-          prevCount: totalPrevCount,
-          currCount: totalCurrCount,
-          countDiff: formatDiff(totalCurrCount, totalPrevCount),
-          prevRev: formatRevenue(totalPrevRev),
-          currRev: formatRevenue(totalCurrRev),
-          revDiff: formatDiff(totalCurrRev, totalPrevRev),
-          prevAcc: totalPrevAccSet.size,
-          currAcc: totalCurrAccSet.size,
-          accDiff: formatDiff(totalCurrAccSet.size, totalPrevAccSet.size),
-        },
-      ];
+      // Store raw data for client-side filtering
+      setRawAllMandates(allMandates || []);
+      setAccountMcvTierMapState(accountMcvTierMap || {});
 
       // Fetch LoB Sales Performance data from mandates monthly records
       // Apply status filter to only consider mandates with the selected status
@@ -1972,9 +1997,7 @@ export default function Dashboard() {
       setTotalAccounts(accountsCount || 0);
       setAvgAwignShare(average);
       setOverlapFactor(overlap);
-      setUpsellGroupB(formattedGroupB);
-      setUpsellGroupC(formattedGroupC);
-      setUpsellPerformance(formattedPerformance);
+      // Upsell data will be computed via useMemo based on raw data and filter
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
@@ -2121,6 +2144,9 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 p-6">
+      {/* Main Dashboard Section */}
+      <Card className="bg-blue-100/60">
+        <CardContent className="p-6 space-y-6">
       {/* Filters */}
       <div className="flex items-center justify-end gap-4">
         {/* Financial Year Filter */}
@@ -3135,7 +3161,12 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+        </CardContent>
+      </Card>
 
+      {/* Upsell Section */}
+      <Card className="bg-green-100/60">
+        <CardContent className="p-6 space-y-6">
       {/* MCV Tier Filter for Upsell Sections */}
       <div className="flex items-center gap-4 mb-4">
         <label className="text-sm font-medium">Filter by MCV Tier:</label>
@@ -3299,6 +3330,8 @@ export default function Dashboard() {
               )}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
         </CardContent>
       </Card>
 
