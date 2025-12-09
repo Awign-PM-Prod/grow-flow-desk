@@ -4858,7 +4858,7 @@ export default function Mandates() {
               >
                 <span>
                   <Upload className="mr-2 h-4 w-4" />
-                  Update Cases
+                  Upload Mandates
                 </span>
               </Button>
             </label>
