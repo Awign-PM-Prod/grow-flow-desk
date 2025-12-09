@@ -56,3 +56,9 @@ COMMENT ON COLUMN public.mandates.monthly_data IS 'JSONB object storing monthly 
 
 
 
+
+
+
+
+
+

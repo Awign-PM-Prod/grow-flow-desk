@@ -48,49 +48,52 @@ export function CSVPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0">
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Summary */}
-          <div className="flex items-center gap-4">
-            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-              <CheckCircle2 className="mr-1 h-3 w-3" />
-              Valid: {validCount}
-            </Badge>
-            {updateCount > 0 && (
-              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                Updates: {updateCount}
-              </Badge>
-            )}
-            {newCount > 0 && (
-              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                New: {newCount}
-              </Badge>
-            )}
-            {invalidCount > 0 && (
-              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                <AlertCircle className="mr-1 h-3 w-3" />
-                Invalid: {invalidCount}
-              </Badge>
-            )}
-            <Badge variant="outline">
-              Total: {rows.length}
-            </Badge>
-          </div>
+        <div className="flex-1 overflow-y-auto px-6">
+          <div className="space-y-4">
+            {/* Summary - Sticky */}
+            <div className="sticky top-0 z-10 bg-background pb-2 pt-2 -mt-4 border-b mb-4">
+              <div className="flex items-center gap-4">
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                  <CheckCircle2 className="mr-1 h-3 w-3" />
+                  Valid: {validCount}
+                </Badge>
+                {updateCount > 0 && (
+                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                    Updates: {updateCount}
+                  </Badge>
+                )}
+                {newCount > 0 && (
+                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                    New: {newCount}
+                  </Badge>
+                )}
+                {invalidCount > 0 && (
+                  <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                    <AlertCircle className="mr-1 h-3 w-3" />
+                    Invalid: {invalidCount}
+                  </Badge>
+                )}
+                <Badge variant="outline">
+                  Total: {rows.length}
+                </Badge>
+              </div>
 
-          {/* Error Alert */}
-          {invalidCount > 0 && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                {invalidCount} row(s) have validation errors. Please review and fix them before proceeding.
-                Invalid rows will be highlighted in red.
-              </AlertDescription>
-            </Alert>
-          )}
+              {/* Error Alert */}
+              {invalidCount > 0 && (
+                <Alert variant="destructive" className="mt-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    {invalidCount} row(s) have validation errors. Please review and fix them before proceeding.
+                    Invalid rows will be highlighted in red.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
 
           {/* Preview Table */}
           <div className="border rounded-lg overflow-hidden">
@@ -151,24 +154,25 @@ export function CSVPreviewDialog({
             </div>
           </div>
 
-          {/* Error Details */}
-          {invalidCount > 0 && (
-            <div className="space-y-2">
-              <h4 className="font-semibold text-sm">Error Details:</h4>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {rows
-                  .filter((r) => !r.isValid)
-                  .map((row) => (
-                    <div key={row.rowNumber} className="text-sm text-red-700 bg-red-50 p-2 rounded">
-                      <strong>Row {row.rowNumber}:</strong> {row.errors.join("; ")}
-                    </div>
-                  ))}
+            {/* Error Details */}
+            {invalidCount > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm">Error Details:</h4>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {rows
+                    .filter((r) => !r.isValid)
+                    .map((row) => (
+                      <div key={row.rowNumber} className="text-sm text-red-700 bg-red-50 p-2 rounded">
+                        <strong>Row {row.rowNumber}:</strong> {row.errors.join("; ")}
+                      </div>
+                    ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="px-6 pb-6 pt-4 flex-shrink-0 border-t">
           <Button variant="outline" onClick={onCancel} disabled={loading}>
             Cancel
           </Button>
