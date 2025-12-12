@@ -16,11 +16,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Download, Upload, FileText, Calendar as CalendarIcon } from "lucide-react";
+import { Loader2, Download, Upload, FileText, Calendar as CalendarIcon, BookOpen } from "lucide-react";
 import { format } from "date-fns";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
+import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
   Dialog,
   DialogContent,
@@ -287,6 +288,7 @@ export default function Pipeline() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [dealToDelete, setDealToDelete] = useState<any | null>(null);
   const [deletingDeal, setDeletingDeal] = useState(false);
+  const [guideDialogOpen, setGuideDialogOpen] = useState(false);
   
   // Filters for view mode
   const [searchTerm, setSearchTerm] = useState("");
@@ -2243,7 +2245,16 @@ export default function Pipeline() {
             Manage your cross-sell opportunities and track deal progress.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            className="h-8 w-8"
+            onClick={() => setGuideDialogOpen(true)}
+          >
+            <BookOpen className="h-4 w-4" />
+          </Button>
+          <div className="flex gap-2">
           <Button
             variant="outline"
             onClick={handleExportDeals}
@@ -2286,6 +2297,7 @@ export default function Pipeline() {
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Deal
           </Button>
+          </div>
         </div>
       </div>
 
@@ -4036,6 +4048,14 @@ export default function Pipeline() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* PDF Guide Dialog */}
+      <PDFGuideDialog
+        open={guideDialogOpen}
+        onOpenChange={setGuideDialogOpen}
+        pdfPath="/Guide.pdf"
+        startPage={34}
+      />
     </div>
   );
 }

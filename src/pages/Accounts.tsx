@@ -14,10 +14,11 @@ import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Download, Upload, FileText, Globe } from "lucide-react";
+import { Loader2, Download, Upload, FileText, Globe, BookOpen } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
+import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
   Dialog,
   DialogContent,
@@ -93,6 +94,7 @@ export default function Accounts() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<any | null>(null);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [guideDialogOpen, setGuideDialogOpen] = useState(false);
   
   const [formData, setFormData] = useState<AccountFormData>({
     name: "",
@@ -1189,7 +1191,16 @@ export default function Accounts() {
             Manage your customer accounts and relationships.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            className="h-8 w-8"
+            onClick={() => setGuideDialogOpen(true)}
+          >
+            <BookOpen className="h-4 w-4" />
+          </Button>
+          <div className="flex gap-2">
           <Button
             variant="outline"
             onClick={handleExportAccounts}
@@ -1233,6 +1244,7 @@ export default function Accounts() {
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Account
           </Button>
+          </div>
         </div>
       </div>
 
@@ -2170,6 +2182,14 @@ export default function Accounts() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* PDF Guide Dialog */}
+      <PDFGuideDialog
+        open={guideDialogOpen}
+        onOpenChange={setGuideDialogOpen}
+        pdfPath="/Guide.pdf"
+        startPage={6}
+      />
     </div>
   );
 }

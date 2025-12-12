@@ -13,10 +13,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Download, Upload, FileText } from "lucide-react";
+import { Loader2, Download, Upload, FileText, BookOpen } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
+import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
   Dialog,
   DialogContent,
@@ -75,6 +76,7 @@ export default function Contacts() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [contactToDelete, setContactToDelete] = useState<any | null>(null);
   const [deletingContact, setDeletingContact] = useState(false);
+  const [guideDialogOpen, setGuideDialogOpen] = useState(false);
 
   // Filters for view mode
   const [searchTerm, setSearchTerm] = useState("");
@@ -1031,7 +1033,16 @@ export default function Contacts() {
             Manage your business contacts and relationships.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            className="h-8 w-8"
+            onClick={() => setGuideDialogOpen(true)}
+          >
+            <BookOpen className="h-4 w-4" />
+          </Button>
+          <div className="flex gap-2">
           <Button
             variant="outline"
             onClick={handleExportContacts}
@@ -1074,6 +1085,7 @@ export default function Contacts() {
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Contact
           </Button>
+          </div>
         </div>
       </div>
 
@@ -2038,6 +2050,14 @@ export default function Contacts() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* PDF Guide Dialog */}
+      <PDFGuideDialog
+        open={guideDialogOpen}
+        onOpenChange={setGuideDialogOpen}
+        pdfPath="/Guide.pdf"
+        startPage={14}
+      />
     </div>
   );
 }

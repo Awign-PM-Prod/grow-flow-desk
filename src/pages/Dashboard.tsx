@@ -2,10 +2,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2 } from "lucide-react";
+import { Loader2, BookOpen } from "lucide-react";
+import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 
 // All LoB options
 const lobOptions = [
@@ -122,6 +124,7 @@ export default function Dashboard() {
   const [filterKam, setFilterKam] = useState<string>("");
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
+  const [guideDialogOpen, setGuideDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -2148,7 +2151,18 @@ export default function Dashboard() {
       <Card className="bg-blue-100/60">
         <CardContent className="p-6 space-y-6">
       {/* Filters */}
-      <div className="flex items-center justify-end gap-4">
+      <div className="flex items-center justify-between gap-4">
+        {/* Guide Button */}
+        <Button 
+          variant="outline" 
+          size="icon" 
+          className="h-8 w-8"
+          onClick={() => setGuideDialogOpen(true)}
+        >
+          <BookOpen className="h-4 w-4" />
+        </Button>
+        
+        <div className="flex items-center gap-4">
         {/* Financial Year Filter */}
         <Select value={filterFinancialYear} onValueChange={setFilterFinancialYear}>
           <SelectTrigger className="w-[150px]">
@@ -2207,6 +2221,7 @@ export default function Dashboard() {
             )}
           </SelectContent>
         </Select>
+        </div>
       </div>
 
       {/* Key Metrics Cards - 8 cards in 2 rows */}
@@ -3335,6 +3350,13 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
+      {/* PDF Guide Dialog */}
+      <PDFGuideDialog
+        open={guideDialogOpen}
+        onOpenChange={setGuideDialogOpen}
+        pdfPath="/Guide.pdf"
+        startPage={3}
+      />
         </div>
   );
 }

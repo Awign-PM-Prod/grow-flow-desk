@@ -14,10 +14,11 @@ import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Download, Upload, FileText } from "lucide-react";
+import { Loader2, Download, Upload, FileText, BookOpen } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
+import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
   Dialog,
   DialogContent,
@@ -312,6 +313,7 @@ export default function Mandates() {
   const [bulkUpdateMcvDialogOpen, setBulkUpdateMcvDialogOpen] = useState(false);
   const [bulkUploadCasesDialogOpen, setBulkUploadCasesDialogOpen] = useState(false);
   const [mcvCsvPreviewOpen, setMcvCsvPreviewOpen] = useState(false);
+  const [guideDialogOpen, setGuideDialogOpen] = useState(false);
   const [mcvCsvPreviewRows, setMcvCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
   const [mcvCsvFileToUpload, setMcvCsvFileToUpload] = useState<File | null>(null);
 
@@ -2568,7 +2570,16 @@ export default function Mandates() {
             Track and manage client orders and project mandates.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            className="h-8 w-8"
+            onClick={() => setGuideDialogOpen(true)}
+          >
+            <BookOpen className="h-4 w-4" />
+          </Button>
+          <div className="flex gap-2">
           <Button
             variant="outline"
             onClick={handleExportMandates}
@@ -2592,6 +2603,7 @@ export default function Mandates() {
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Mandate
           </Button>
+          </div>
         </div>
       </div>
 
@@ -4909,6 +4921,14 @@ export default function Mandates() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* PDF Guide Dialog */}
+      <PDFGuideDialog
+        open={guideDialogOpen}
+        onOpenChange={setGuideDialogOpen}
+        pdfPath="/Guide.pdf"
+        startPage={22}
+      />
     </div>
   );
 }

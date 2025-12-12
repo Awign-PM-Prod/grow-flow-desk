@@ -1,4 +1,4 @@
-import { Building2, Users, FileText, TrendingUp, LayoutDashboard, UserCog, Target, BarChart3 } from "lucide-react";
+import { Building2, Users, FileText, TrendingUp, LayoutDashboard, UserCog, Target, BarChart3, BookOpen } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
   Sidebar,
@@ -14,9 +14,12 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 
 export function AppSidebar() {
   const { isKAM, isManager, isLeadership, isSuperAdmin, signOut, user } = useAuth();
+  const [guideDialogOpen, setGuideDialogOpen] = useState(false);
 
   const mainMenuItems = [
     {
@@ -96,6 +99,20 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupLabel>Help</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => setGuideDialogOpen(true)}>
+                  <BookOpen className="h-4 w-4" />
+                  <span>Guide</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
           <SidebarGroupLabel>Main Menu</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -159,6 +176,14 @@ export function AppSidebar() {
           </Button>
         </div>
       </SidebarFooter>
+
+      {/* PDF Guide Dialog */}
+      <PDFGuideDialog
+        open={guideDialogOpen}
+        onOpenChange={setGuideDialogOpen}
+        pdfPath="/Guide.pdf"
+        pages={[]}
+      />
     </Sidebar>
   );
 }
