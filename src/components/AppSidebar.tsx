@@ -62,7 +62,7 @@ export function AppSidebar() {
       title: "Targets",
       url: "/targets",
       icon: Target,
-      roles: ["manager", "leadership", "superadmin"],
+      roles: ["leadership", "superadmin"],
     },
   ];
 

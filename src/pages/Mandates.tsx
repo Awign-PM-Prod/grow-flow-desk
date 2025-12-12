@@ -58,6 +58,7 @@ interface MandateFormData {
   prjDurationMonths: string;
   handoverAcv: string;
   handoverPrjType: string;
+  handoverDate: string;
 
   // Revenue Info
   revenueMonthlyVolume: string;
@@ -252,6 +253,7 @@ export default function Mandates() {
     prjDurationMonths: "",
     handoverAcv: "",
     handoverPrjType: "",
+    handoverDate: "",
     revenueMonthlyVolume: "",
     revenueCommercialPerHead: "",
     revenueMcv: "",
@@ -946,6 +948,7 @@ export default function Mandates() {
         updated.prjDurationMonths = "";
         updated.handoverAcv = "";
         updated.handoverPrjType = "";
+        updated.handoverDate = "";
       }
       
       return updated;
@@ -1033,6 +1036,7 @@ export default function Mandates() {
         prj_duration_months: formData.type === "New Cross Sell" ? null : (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null),
         handover_acv: formData.type === "New Cross Sell" ? null : (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null),
         handover_prj_type: formData.type === "New Cross Sell" ? null : ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
+        handover_date: formData.type === "New Cross Sell" ? null : (formData.handoverDate || null),
         
         // Revenue Info
         revenue_monthly_volume: formData.revenueMonthlyVolume ? parseFloat(formData.revenueMonthlyVolume) : null,
@@ -1097,6 +1101,7 @@ export default function Mandates() {
         prjDurationMonths: "",
         handoverAcv: "",
         handoverPrjType: "",
+        handoverDate: "",
         revenueMonthlyVolume: "",
         revenueCommercialPerHead: "",
         revenueMcv: "",
@@ -2290,6 +2295,7 @@ export default function Mandates() {
       prjDurationMonths: mandate.prj_duration_months?.toString() || "",
       handoverAcv: mandate.handover_acv?.toString() || "",
       handoverPrjType: mandate.handover_prj_type || "",
+      handoverDate: mandate.handover_date ? new Date(mandate.handover_date).toISOString().split('T')[0] : "",
       revenueMonthlyVolume: mandate.revenue_monthly_volume?.toString() || "",
       revenueCommercialPerHead: mandate.revenue_commercial_per_head?.toString() || "",
       revenueMcv: mandate.revenue_mcv?.toString() || "",
@@ -2402,6 +2408,7 @@ export default function Mandates() {
         prj_duration_months: editMandateData.type === "New Cross Sell" ? null : (editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null),
         handover_acv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null),
         handover_prj_type: editMandateData.type === "New Cross Sell" ? null : ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
+        handover_date: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverDate || null),
         revenue_monthly_volume: editMandateData.revenueMonthlyVolume ? parseFloat(editMandateData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: editMandateData.revenueCommercialPerHead ? parseFloat(editMandateData.revenueCommercialPerHead) : null,
         revenue_mcv: editMandateData.revenueMcv ? parseFloat(editMandateData.revenueMcv) : null,
@@ -2628,6 +2635,7 @@ export default function Mandates() {
             prjDurationMonths: "",
             handoverAcv: "",
             handoverPrjType: "",
+            handoverDate: "",
             revenueMonthlyVolume: "",
             revenueCommercialPerHead: "",
             revenueMcv: "",
@@ -3011,6 +3019,17 @@ export default function Mandates() {
                           <SelectItem value="One-time">One-time</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="handoverDate">
+                        Handover Date
+                      </Label>
+                      <Input
+                        id="handoverDate"
+                        type="date"
+                        value={formData.handoverDate}
+                        onChange={(e) => handleInputChange("handoverDate", e.target.value)}
+                      />
                     </div>
                   </div>
                 </CardContent>
@@ -3611,6 +3630,7 @@ export default function Mandates() {
                     prjDurationMonths: selectedMandate.prj_duration_months?.toString() || "",
                     handoverAcv: selectedMandate.handover_acv?.toString() || "",
                     handoverPrjType: selectedMandate.handover_prj_type || "",
+                    handoverDate: selectedMandate.handover_date ? new Date(selectedMandate.handover_date).toISOString().split('T')[0] : "",
                     revenueMonthlyVolume: selectedMandate.revenue_monthly_volume?.toString() || "",
                     revenueCommercialPerHead: selectedMandate.revenue_commercial_per_head?.toString() || "",
                     revenueMcv: selectedMandate.revenue_mcv?.toString() || "",
@@ -3884,6 +3904,7 @@ export default function Mandates() {
                               updated.prjDurationMonths = "";
                               updated.handoverAcv = "";
                               updated.handoverPrjType = "";
+                              updated.handoverDate = "";
                             }
                             setEditMandateData(updated);
                           }}
@@ -4013,6 +4034,18 @@ export default function Mandates() {
                         </Select>
                       ) : (
                         <p className="mt-1">{selectedMandate.handover_prj_type || "N/A"}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Handover Date:</Label>
+                      {isEditMode ? (
+                        <Input
+                          type="date"
+                          value={editMandateData.handoverDate}
+                          onChange={(e) => setEditMandateData({ ...editMandateData, handoverDate: e.target.value })}
+                        />
+                      ) : (
+                        <p className="mt-1">{selectedMandate.handover_date ? new Date(selectedMandate.handover_date).toLocaleDateString() : "N/A"}</p>
                       )}
                     </div>
                   </div>

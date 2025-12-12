@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from "@/components/ui/carousel";
-import { Loader2, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, X, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -108,6 +108,15 @@ export function PDFGuideDialog({ open, onOpenChange, pdfPath, pages = [], startP
     return () => clearTimeout(timeoutId);
   }, [api, loading, pagesToShow, startPage, open]); // Removed currentPageIndex to prevent re-triggering
 
+  const handleDownload = () => {
+    const link = document.createElement('a');
+    link.href = pdfPath;
+    link.download = 'Guide.pdf';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (!open) return null;
 
   const content = (
@@ -121,6 +130,19 @@ export function PDFGuideDialog({ open, onOpenChange, pdfPath, pages = [], startP
         }
       }}
     >
+      {/* Download Button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={handleDownload}
+        className="fixed top-4 right-20 h-12 w-12 text-white bg-black/70 border-2 border-white/30 hover:bg-black/90 hover:border-white/50 shadow-xl rounded-full"
+        style={{ zIndex: 100000 }}
+        title="Download PDF"
+      >
+        <Download className="h-6 w-6" />
+        <span className="sr-only">Download PDF</span>
+      </Button>
+
       {/* Close Button */}
       <Button
         variant="ghost"

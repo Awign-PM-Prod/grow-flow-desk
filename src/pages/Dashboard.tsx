@@ -473,16 +473,18 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, full_name")
+        .select("id, full_name, role")
         .eq("role", "kam")
         .not("full_name", "is", null)
         .order("full_name", { ascending: true });
 
       if (error) {
         console.error("Error fetching KAMs:", error);
+        console.error("Error details:", error.message, error.code);
         return;
       }
 
+      console.log("Fetched KAMs:", data?.length || 0, data);
       if (data) {
         setKams(data.filter((kam) => kam.full_name));
       }

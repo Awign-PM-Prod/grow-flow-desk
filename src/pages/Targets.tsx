@@ -198,7 +198,7 @@ export default function Targets() {
   const [existingTargetsData, setExistingTargetsData] = useState<Record<string, Record<string, number>>>({}); // mandateId -> monthKey -> target
   const [crossSellTargetsData, setCrossSellTargetsData] = useState<Record<string, Record<string, number>>>({}); // kamId_accountId -> monthKey -> target
   const [crossSellKamAccountCombos, setCrossSellKamAccountCombos] = useState<Array<{ kamId: string; kamName: string; accountId: string; accountName: string }>>([]); // List of unique KAM-account combinations
-  const [allMandates, setAllMandates] = useState<Array<{ id: string; project_code: string; project_name: string; kam_id?: string | null; kamName?: string | null }>>([]);
+  const [allMandates, setAllMandates] = useState<Array<{ id: string; project_code: string; project_name: string; kam_id?: string | null; kamName?: string | null; type?: string | null }>>([]);
   const [allAccounts, setAllAccounts] = useState<Array<{ id: string; name: string }>>([]);
   const [monthColumns, setMonthColumns] = useState<Array<{ month: number; year: number; key: string; label: string }>>([]);
   const [kams, setKams] = useState<KAM[]>([]);
@@ -259,7 +259,7 @@ export default function Targets() {
       // Fetch all mandates for existing targets table
       const { data: allMandatesData } = await supabase
         .from("mandates")
-        .select("id, project_code, project_name, kam_id")
+        .select("id, project_code, project_name, kam_id, type")
         .order("project_code");
       
       // Fetch KAM names for mandates
@@ -1466,8 +1466,8 @@ export default function Targets() {
     );
   }
 
-  // Check if user has access (manager, leadership, or superadmin)
-  const hasAccess = hasRole("manager") || hasRole("leadership") || hasRole("superadmin");
+  // Check if user has access (leadership or superadmin)
+  const hasAccess = hasRole("leadership") || hasRole("superadmin");
 
   if (!hasAccess) {
     return null; // Will redirect via useEffect
@@ -1877,7 +1877,8 @@ export default function Targets() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">Mandate</TableHead>
-                    <TableHead className="sticky left-[200px] z-10 bg-background min-w-[200px] w-[200px]">KAM</TableHead>
+                    <TableHead className="sticky left-[200px] z-10 bg-background min-w-[150px] w-[150px]">Mandate Type</TableHead>
+                    <TableHead className="sticky left-[350px] z-10 bg-background min-w-[200px] w-[200px]">KAM</TableHead>
                     {monthColumns.map((col) => (
                       <TableHead key={col.key} className="text-center min-w-[100px]">
                         {col.label}
@@ -1888,7 +1889,7 @@ export default function Targets() {
                 <TableBody>
                   {allMandates.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={monthColumns.length + 2} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={monthColumns.length + 3} className="text-center text-muted-foreground py-8">
                         No mandates available
                       </TableCell>
                     </TableRow>
@@ -1898,7 +1899,10 @@ export default function Targets() {
                         <TableCell className="font-medium sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">
                           {mandate.project_code} - {mandate.project_name}
                         </TableCell>
-                        <TableCell className="font-medium sticky left-[200px] z-10 bg-background min-w-[200px] w-[200px]">
+                        <TableCell className="font-medium sticky left-[200px] z-10 bg-background min-w-[150px] w-[150px]">
+                          {mandate.type || <span className="text-muted-foreground">-</span>}
+                        </TableCell>
+                        <TableCell className="font-medium sticky left-[350px] z-10 bg-background min-w-[200px] w-[200px]">
                           {mandate.kamName || <span className="text-muted-foreground">-</span>}
                         </TableCell>
                         {monthColumns.map((col) => {
