@@ -455,26 +455,64 @@ export default function Contacts() {
       }
 
       // Get account name to ID mapping for validation
-      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
-      const { data: accountData } = await supabase
+      // Fetch all accounts and do case-insensitive matching
+      const { data: allAccounts, error: accountsError } = await supabase
         .from("accounts")
-        .select("id, name")
-        .in("name", accountNames);
+        .select("id, name");
 
-      const accountMap: Record<string, string> = {};
-      accountData?.forEach((acc) => {
-        accountMap[acc.name] = acc.id;
+      if (accountsError) {
+        console.error("Error fetching accounts:", accountsError);
+        toast({
+          title: "Error",
+          description: "Failed to fetch accounts. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Create case-insensitive lookup map
+      // Map: lowercase trimmed name -> { id, originalName }
+      const accountLookupMap: Record<string, { id: string; originalName: string }> = {};
+      allAccounts?.forEach((acc) => {
+        const normalizedKey = acc.name.trim().toLowerCase();
+        if (!accountLookupMap[normalizedKey]) {
+          accountLookupMap[normalizedKey] = { id: acc.id, originalName: acc.name.trim() };
+        }
       });
+
+      // Also create direct map for exact matches (for backward compatibility)
+      const accountMap: Record<string, string> = {};
+      allAccounts?.forEach((acc) => {
+        const trimmedName = acc.name.trim();
+        accountMap[trimmedName] = acc.id;
+        accountMap[acc.name] = acc.id;
+        accountMap[trimmedName.toLowerCase()] = acc.id;
+        accountMap[acc.name.toLowerCase()] = acc.id;
+      });
+
+      // Debug: Log account names from CSV and database
+      const csvAccountNames = [...new Set(csvData.map((row: any) => {
+        return (row["Account Name"] || row["account_name"] || row["Account"] || row["account"])?.trim();
+      }).filter(Boolean))];
+      console.log("CSV Account Names:", csvAccountNames);
+      console.log("Database Account Names:", allAccounts?.map(a => a.name.trim()));
+      console.log("Account Lookup Map Keys:", Object.keys(accountLookupMap));
+      console.log("Sample CSV row keys:", csvData.length > 0 ? Object.keys(csvData[0]) : []);
 
       // Parse and validate each row
       const previewRows = csvData.map((row: any, index: number) => {
         const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
         const errors: string[] = [];
-        const accountName = row["Account Name"];
+        // Try multiple possible column name variations
+        const accountName = (row["Account Name"] || row["account_name"] || row["Account"] || row["account"])?.trim();
 
-        // Validate lookup fields
-        if (accountName && !accountMap[accountName]) {
-          errors.push(`Account "${accountName}" does not exist`);
+        // Validate lookup fields - use case-insensitive matching
+        if (accountName) {
+          const normalizedAccountName = accountName.toLowerCase();
+          const accountMatch = accountLookupMap[normalizedAccountName];
+          if (!accountMatch) {
+            errors.push(`Account "${accountName}" does not exist`);
+          }
         }
 
         if (!accountName || accountName.trim() === "") {
@@ -583,15 +621,38 @@ export default function Contacts() {
       }
 
       // Get account name to ID mapping
-      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
-      const { data: accountData } = await supabase
+      // Fetch all accounts and do case-insensitive matching
+      const { data: allAccounts, error: accountsError } = await supabase
         .from("accounts")
-        .select("id, name")
-        .in("name", accountNames);
+        .select("id, name");
 
+      if (accountsError) {
+        console.error("Error fetching accounts:", accountsError);
+        toast({
+          title: "Error",
+          description: "Failed to fetch accounts. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Create case-insensitive lookup map
+      const accountLookupMap: Record<string, { id: string; originalName: string }> = {};
+      allAccounts?.forEach((acc) => {
+        const normalizedKey = acc.name.trim().toLowerCase();
+        if (!accountLookupMap[normalizedKey]) {
+          accountLookupMap[normalizedKey] = { id: acc.id, originalName: acc.name.trim() };
+        }
+      });
+
+      // Also create direct map for exact matches (for backward compatibility)
       const accountMap: Record<string, string> = {};
-      accountData?.forEach((acc) => {
+      allAccounts?.forEach((acc) => {
+        const trimmedName = acc.name.trim();
+        accountMap[trimmedName] = acc.id;
         accountMap[acc.name] = acc.id;
+        accountMap[trimmedName.toLowerCase()] = acc.id;
+        accountMap[acc.name.toLowerCase()] = acc.id;
       });
 
       // Filter out invalid rows
@@ -636,8 +697,13 @@ export default function Contacts() {
           throw new Error(`Row has invalid enum values. Level: ${row["Level"]}, Zone: ${row["Zone"]}, Positioning: ${row["Positioning"]}`);
         }
 
+        // Try multiple possible column name variations
+        const accountName = (row["Account Name"] || row["account_name"] || row["Account"] || row["account"])?.trim();
+        const normalizedAccountName = accountName?.toLowerCase();
+        const accountMatch = accountLookupMap[normalizedAccountName];
+        
         return {
-          account_id: accountMap[row["Account Name"]],
+          account_id: accountMatch?.id || accountMap[accountName] || accountMap[row["Account Name"]] || accountMap[row["account_name"]],
           first_name: row["First Name"],
           last_name: row["Last Name"],
           email: row["Email"],

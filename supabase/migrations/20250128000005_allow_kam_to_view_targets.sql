@@ -15,3 +15,8 @@ CREATE POLICY "KAMs and above can view targets"
     public.has_role(auth.uid(), 'superadmin'::app_role)
   );
 
+
+
+
+
+
