@@ -939,8 +939,9 @@ export default function Mandates() {
         [field]: value,
       };
       
-      // If type is changed to "New Cross Sell", clear all handover values
-      if (field === "type" && value === "New Cross Sell") {
+      // If type is changed to "Existing" or "New Cross Sell", clear all handover values
+      // Handover info is only required for "New Acquisition"
+      if (field === "type" && (value === "Existing" || value === "New Cross Sell")) {
         updated.newSalesOwner = "";
         updated.handoverMonthlyVolume = "";
         updated.handoverCommercialPerHead = "";
@@ -1028,15 +1029,15 @@ export default function Mandates() {
           'Existing'
         ]),
         
-        // Handover Info - Set to null if type is "New Cross Sell"
-        new_sales_owner: formData.type === "New Cross Sell" ? null : (formData.newSalesOwner || null),
-        handover_monthly_volume: formData.type === "New Cross Sell" ? null : (formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null),
-        handover_commercial_per_head: formData.type === "New Cross Sell" ? null : (formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null),
-        handover_mcv: formData.type === "New Cross Sell" ? null : (formData.handoverMcv ? parseFloat(formData.handoverMcv) : null),
-        prj_duration_months: formData.type === "New Cross Sell" ? null : (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null),
-        handover_acv: formData.type === "New Cross Sell" ? null : (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null),
-        handover_prj_type: formData.type === "New Cross Sell" ? null : ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
-        handover_date: formData.type === "New Cross Sell" ? null : (formData.handoverDate || null),
+        // Handover Info - Only save if type is "New Acquisition", set to null for "Existing" or "New Cross Sell"
+        new_sales_owner: formData.type === "New Acquisition" ? (formData.newSalesOwner || null) : null,
+        handover_monthly_volume: formData.type === "New Acquisition" ? (formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null) : null,
+        handover_commercial_per_head: formData.type === "New Acquisition" ? (formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null) : null,
+        handover_mcv: formData.type === "New Acquisition" ? (formData.handoverMcv ? parseFloat(formData.handoverMcv) : null) : null,
+        prj_duration_months: formData.type === "New Acquisition" ? (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null) : null,
+        handover_acv: formData.type === "New Acquisition" ? (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null) : null,
+        handover_prj_type: formData.type === "New Acquisition" ? ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']) : null,
+        handover_date: formData.type === "New Acquisition" ? (formData.handoverDate || null) : null,
         
         // Revenue Info
         revenue_monthly_volume: formData.revenueMonthlyVolume ? parseFloat(formData.revenueMonthlyVolume) : null,
@@ -1686,20 +1687,24 @@ export default function Mandates() {
           validatedUpsellConstraintSub2 = null;
         }
 
+        const mandateType = row["Type"] && ["New Acquisition", "Existing"].includes(row["Type"]) ? row["Type"] : null;
+        
         return {
           project_code: projectCode,
           project_name: row["Project Name"],
           account_id: accountMap[row["Account Name"]],
           kam_id: kamMap[row["KAM Name"]],
           lob: row["LoB (Vertical)"],
-          type: row["Type"] && ["New Acquisition", "Existing"].includes(row["Type"]) ? row["Type"] : null,
-          new_sales_owner: row["New Sales Owner"] || null,
-          handover_monthly_volume: handoverMonthlyVolume || null,
-          handover_commercial_per_head: handoverCommercialPerHead || null,
-          handover_mcv: handoverMcv || null,
-          prj_duration_months: parseInt(row["PRJ duration in months"]) || null,
-          handover_acv: parseFloat(row["Handover ACV"]) || null,
-          handover_prj_type: normalizePrjType(row["Handover PRJ Type"]),
+          type: mandateType,
+          // Handover Info - Only save if type is "New Acquisition", set to null for "Existing"
+          new_sales_owner: mandateType === "New Acquisition" ? (row["New Sales Owner"] || null) : null,
+          handover_monthly_volume: mandateType === "New Acquisition" ? (handoverMonthlyVolume || null) : null,
+          handover_commercial_per_head: mandateType === "New Acquisition" ? (handoverCommercialPerHead || null) : null,
+          handover_mcv: mandateType === "New Acquisition" ? (handoverMcv || null) : null,
+          prj_duration_months: mandateType === "New Acquisition" ? (parseInt(row["PRJ duration in months"]) || null) : null,
+          handover_acv: mandateType === "New Acquisition" ? (parseFloat(row["Handover ACV"]) || null) : null,
+          handover_prj_type: mandateType === "New Acquisition" ? normalizePrjType(row["Handover PRJ Type"]) : null,
+          handover_date: mandateType === "New Acquisition" ? (row["Handover Date"] || null) : null,
           revenue_monthly_volume: revenueMonthlyVolume || null,
           revenue_commercial_per_head: revenueCommercialPerHead || null,
           revenue_mcv: revenueMcv || null,
@@ -2400,15 +2405,15 @@ export default function Mandates() {
           'New Cross Sell',
           'Existing'
         ]),
-        // Handover Info - Set to null if type is "New Cross Sell"
-        new_sales_owner: editMandateData.type === "New Cross Sell" ? null : sanitizeValue(editMandateData.newSalesOwner),
-        handover_monthly_volume: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null),
-        handover_commercial_per_head: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null),
-        handover_mcv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null),
-        prj_duration_months: editMandateData.type === "New Cross Sell" ? null : (editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null),
-        handover_acv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null),
-        handover_prj_type: editMandateData.type === "New Cross Sell" ? null : ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
-        handover_date: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverDate || null),
+        // Handover Info - Only save if type is "New Acquisition", set to null for "Existing" or "New Cross Sell"
+        new_sales_owner: editMandateData.type === "New Acquisition" ? sanitizeValue(editMandateData.newSalesOwner) : null,
+        handover_monthly_volume: editMandateData.type === "New Acquisition" ? (editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null) : null,
+        handover_commercial_per_head: editMandateData.type === "New Acquisition" ? (editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null) : null,
+        handover_mcv: editMandateData.type === "New Acquisition" ? (editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null) : null,
+        prj_duration_months: editMandateData.type === "New Acquisition" ? (editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null) : null,
+        handover_acv: editMandateData.type === "New Acquisition" ? (editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null) : null,
+        handover_prj_type: editMandateData.type === "New Acquisition" ? ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']) : null,
+        handover_date: editMandateData.type === "New Acquisition" ? (editMandateData.handoverDate || null) : null,
         revenue_monthly_volume: editMandateData.revenueMonthlyVolume ? parseFloat(editMandateData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: editMandateData.revenueCommercialPerHead ? parseFloat(editMandateData.revenueCommercialPerHead) : null,
         revenue_mcv: editMandateData.revenueMcv ? parseFloat(editMandateData.revenueMcv) : null,
@@ -2917,7 +2922,7 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
-              {(formData.type === "New Acquisition" || formData.type === "Existing") && (
+              {formData.type === "New Acquisition" && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
@@ -3895,8 +3900,9 @@ export default function Mandates() {
                           value={editMandateData.type}
                           onValueChange={(value) => {
                             const updated = { ...editMandateData, type: value };
-                            // If type is changed to "New Cross Sell", clear all handover values
-                            if (value === "New Cross Sell") {
+                            // If type is changed to "Existing" or "New Cross Sell", clear all handover values
+                            // Handover info is only required for "New Acquisition"
+                            if (value === "Existing" || value === "New Cross Sell") {
                               updated.newSalesOwner = "";
                               updated.handoverMonthlyVolume = "";
                               updated.handoverCommercialPerHead = "";
@@ -3927,8 +3933,8 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
-              {((isEditMode && (editMandateData.type === "New Acquisition" || editMandateData.type === "Existing")) || 
-                (!isEditMode && (selectedMandate.type === "New Acquisition" || selectedMandate.type === "Existing"))) && (
+              {((isEditMode && editMandateData.type === "New Acquisition") || 
+                (!isEditMode && selectedMandate.type === "New Acquisition")) && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
