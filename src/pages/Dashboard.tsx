@@ -556,12 +556,39 @@ export default function Dashboard() {
 
       if (monthError) throw monthError;
 
-      // Fetch total accounts count (NOT filtered by financial year - always shows total)
-      const { count: accountsCount, error: accountsError } = await supabase
-        .from("accounts")
-        .select("*", { count: "exact", head: true });
+      // Fetch accounts count filtered by KAM and status filters
+      // Get unique account IDs from mandates that match the filters
+      let accountsQuery = supabase
+        .from("mandates")
+        .select("account_id");
+      
+      // Apply status filter
+      accountsQuery = applyStatusFilter(accountsQuery, filterUpsellStatus);
+      
+      // Apply KAM filter
+      accountsQuery = applyKamFilter(accountsQuery, filterKam);
+      
+      // Filter by created_at within selected financial year
+      accountsQuery = accountsQuery
+        .gte("created_at", fyDateRange.start.toISOString())
+        .lte("created_at", fyDateRange.end.toISOString())
+        .not("account_id", "is", null);
+      
+      const { data: mandatesForAccounts, error: accountsError } = await accountsQuery;
 
       if (accountsError) throw accountsError;
+
+      // Get unique account IDs
+      const uniqueAccountIds = new Set<string>();
+      if (mandatesForAccounts) {
+        mandatesForAccounts.forEach((mandate: any) => {
+          if (mandate.account_id) {
+            uniqueAccountIds.add(mandate.account_id);
+          }
+        });
+      }
+      
+      const accountsCount = uniqueAccountIds.size;
 
       // Fetch mandates with awign_share_percent to calculate average
       let mandatesDataQuery = supabase
@@ -857,13 +884,17 @@ export default function Dashboard() {
       // Sum all targets for the current month (there may be multiple targets with different types)
       let query = supabase
         .from("monthly_targets")
-        .select("target, month, year, financial_year")
+        .select("target, month, year, financial_year, target_type")
         .eq("month", currentMonth)
         .eq("year", currentYear);
       
-      // Filter by financial_year if available
+      // Filter by financial_year if available - this is REQUIRED to avoid showing wrong targets
       if (financialYearString) {
         query = query.eq("financial_year", financialYearString);
+      } else {
+        // If no financial year is selected, don't show any targets to avoid confusion
+        // Set query to return no results
+        query = query.eq("financial_year", "nonexistent_fy_to_return_no_results");
       }
       
       // Apply target type filter based on status filter
@@ -875,16 +906,20 @@ export default function Dashboard() {
         console.error("Error fetching monthly targets for MCV Planned:", targetsError);
       }
 
-      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'any'}, statusFilter=${filterUpsellStatus}`);
+      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'NONE SELECTED'}, statusFilter=${filterUpsellStatus}`);
       console.log(`MCV Planned Results:`, currentMonthTargets);
       
-      // Debug: Also fetch all targets for current month to see what's in the DB
+      // Debug: Also fetch all targets for current month to see what's in the DB (for debugging only)
       const { data: allCurrentMonthTargets } = await supabase
         .from("monthly_targets")
         .select("target, month, year, financial_year, target_type, mandate_id, account_id, kam_id")
         .eq("month", currentMonth)
         .eq("year", currentYear);
-      console.log(`All targets for current month (${currentMonth}/${currentYear}):`, allCurrentMonthTargets);
+      console.log(`[DEBUG] All targets for current month (${currentMonth}/${currentYear}) in database:`, allCurrentMonthTargets);
+      if (allCurrentMonthTargets && allCurrentMonthTargets.length > 0) {
+        console.log(`[DEBUG] Found ${allCurrentMonthTargets.length} target(s) in DB for current month. Financial years:`, 
+          allCurrentMonthTargets.map(t => t.financial_year));
+      }
 
       if (!targetsError && currentMonthTargets && currentMonthTargets.length > 0) {
         totalMcvPlanned = currentMonthTargets.reduce((sum, targetRecord) => {
@@ -892,8 +927,13 @@ export default function Dashboard() {
           return sum + targetValue;
         }, 0);
         console.log(`MCV Planned for ${currentMonth}/${currentYear} (${filterFinancialYear}):`, totalMcvPlanned, "from", currentMonthTargets.length, "target(s)");
+        console.log(`[DEBUG] Target details:`, currentMonthTargets.map(t => ({
+          target: t.target,
+          financial_year: t.financial_year,
+          target_type: t.target_type
+        })));
       } else {
-        console.log(`No targets found for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'any'}, statusFilter=${filterUpsellStatus}`);
+        console.log(`No targets found for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'NONE SELECTED'}, statusFilter=${filterUpsellStatus}`);
         totalMcvPlanned = 0;
       }
 
