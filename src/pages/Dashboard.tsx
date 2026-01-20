@@ -2209,12 +2209,13 @@ export default function Dashboard() {
         const tierKey = `MCV Tier_${tier}`;
         
         // Row 1: Target (only this row shows category and tier)
+        // Show non-cumulative values - each month shows only that month's target
         formattedTierData.push({
           category: "MCV Tier",
           tier: tier,
           rowType: "Target",
           ...monthColumns.reduce((acc, col) => {
-            const value = tierCumulativeTargetData[tierKey][col.key] || 0;
+            const value = tierTargetData[tierKey][col.key] || 0;
             acc[col.key] = formatCurrency(value);
             return acc;
           }, {} as Record<string, string>),
@@ -2233,13 +2234,14 @@ export default function Dashboard() {
         });
 
         // Row 3: Achievement (Percentage) (empty category and tier)
+        // Compare cumulative actual to cumulative target for meaningful percentage
         formattedTierData.push({
           category: "",
           tier: "",
           rowType: "Achievement",
           ...monthColumns.reduce((acc, col) => {
-            const target = tierCumulativeTargetData[tierKey][col.key] || 0;
-            const actual = tierActualData[tierKey][col.key] || 0;
+            const target = tierCumulativeTargetData[tierKey][col.key] || 0; // Cumulative target
+            const actual = tierActualData[tierKey][col.key] || 0; // Cumulative actual
             const percentage = target > 0 ? (actual / target) * 100 : 0;
             acc[col.key] = `${percentage.toFixed(1)}%`;
             return acc;
@@ -2248,13 +2250,14 @@ export default function Dashboard() {
 
         // Row 4: Balance (Target - Actual) (empty category and tier)
         // Store raw numeric value for Balance row to enable color coding
+        // Compare cumulative actual to cumulative target for meaningful balance
         formattedTierData.push({
           category: "",
           tier: "",
           rowType: "Balance",
           ...monthColumns.reduce((acc, col) => {
-            const target = tierCumulativeTargetData[tierKey][col.key] || 0;
-            const actual = tierActualData[tierKey][col.key] || 0;
+            const target = tierCumulativeTargetData[tierKey][col.key] || 0; // Cumulative target
+            const actual = tierActualData[tierKey][col.key] || 0; // Cumulative actual
             const balance = target - actual;
             // Store raw numeric value (will be formatted with colors in display)
             acc[col.key] = balance;
