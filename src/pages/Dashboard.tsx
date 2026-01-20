@@ -2029,21 +2029,53 @@ export default function Dashboard() {
         "MCV Tier_Tier 2": {},
       };
 
+      // Get current date to determine which months are in the future
+      // Reuse the 'currentYear' and 'currentMonth' variables already declared earlier in the function (around line 877-878)
+
       // Calculate cumulative values for each tier
       // Process months in order and accumulate
+      // Only carry forward cumulative for past months. For current and future months without data, show 0
       monthColumns.forEach((col, index) => {
         Object.keys(tierDataMap).forEach((tierKey) => {
           // Get current month's value
           const currentMonthValue = monthlyTierData[tierKey][col.key] || 0;
+          
+          // Check if this month is in the past (already completed)
+          const isPastMonth = col.year < currentYear || 
+            (col.year === currentYear && col.month < currentMonth);
+          
+          // Check if this month is the current month
+          const isCurrentMonth = col.year === currentYear && col.month === currentMonth;
           
           // Get previous cumulative value (from previous month)
           const prevCumulative = index > 0 
             ? tierDataMap[tierKey][monthColumns[index - 1].key] || 0
             : 0;
           
-          // Set cumulative value for this month (Actual)
-          tierDataMap[tierKey][col.key] = prevCumulative + currentMonthValue;
-          tierActualData[tierKey][col.key] = prevCumulative + currentMonthValue;
+          // Calculate cumulative based on month type and data availability
+          if (isPastMonth) {
+            // Past month: always calculate cumulative (carry forward even if 0)
+            tierDataMap[tierKey][col.key] = prevCumulative + currentMonthValue;
+            tierActualData[tierKey][col.key] = prevCumulative + currentMonthValue;
+          } else if (isCurrentMonth) {
+            // Current month: only show cumulative if there's data, otherwise show 0
+            if (currentMonthValue > 0) {
+              tierDataMap[tierKey][col.key] = prevCumulative + currentMonthValue;
+              tierActualData[tierKey][col.key] = prevCumulative + currentMonthValue;
+            } else {
+              tierDataMap[tierKey][col.key] = 0;
+              tierActualData[tierKey][col.key] = 0;
+            }
+          } else {
+            // Future month: only show cumulative if there's data, otherwise show 0
+            if (currentMonthValue > 0) {
+              tierDataMap[tierKey][col.key] = prevCumulative + currentMonthValue;
+              tierActualData[tierKey][col.key] = prevCumulative + currentMonthValue;
+            } else {
+              tierDataMap[tierKey][col.key] = 0;
+              tierActualData[tierKey][col.key] = 0;
+            }
+          }
         });
       });
 
