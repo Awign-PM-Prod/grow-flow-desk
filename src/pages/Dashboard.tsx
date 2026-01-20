@@ -882,9 +882,10 @@ export default function Dashboard() {
 
       // Fetch MCV Planned from monthly_targets table for current month within selected FY
       // Sum all targets for the current month (there may be multiple targets with different types)
+      // For KAM filtering: new_cross_sell targets have kam_id directly, existing targets have kam_id via mandate
       let query = supabase
         .from("monthly_targets")
-        .select("target, month, year, financial_year, target_type")
+        .select("target, month, year, financial_year, target_type, kam_id, mandate_id, mandates(kam_id)")
         .eq("month", currentMonth)
         .eq("year", currentYear);
       
@@ -900,13 +901,31 @@ export default function Dashboard() {
       // Apply target type filter based on status filter
       query = applyTargetTypeFilter(query, filterUpsellStatus);
       
-      const { data: currentMonthTargets, error: targetsError } = await query;
+      const { data: allTargets, error: targetsError } = await query;
+      
+      // Apply KAM filter client-side to handle both direct kam_id and via mandate
+      let currentMonthTargets = allTargets;
+      if (filterKam && filterKam !== "" && allTargets) {
+        currentMonthTargets = allTargets.filter((target: any) => {
+          // For new_cross_sell targets: check monthly_targets.kam_id directly
+          if (target.kam_id === filterKam) {
+            return true;
+          }
+          // For existing targets: check mandate's kam_id
+          // Handle both single object and array (though it should be single)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
+            return true;
+          }
+          return false;
+        });
+      }
 
       if (targetsError) {
         console.error("Error fetching monthly targets for MCV Planned:", targetsError);
       }
 
-      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'NONE SELECTED'}, statusFilter=${filterUpsellStatus}`);
+      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'NONE SELECTED'}, statusFilter=${filterUpsellStatus}, kamFilter=${filterKam || 'ALL KAMs'}`);
       console.log(`MCV Planned Results:`, currentMonthTargets);
       
       // Debug: Also fetch all targets for current month to see what's in the DB (for debugging only)
@@ -1269,7 +1288,7 @@ export default function Dashboard() {
       // Fetch targets for next quarter months within selected FY
       let nextQuarterQuery = supabase
         .from("monthly_targets")
-        .select("target")
+        .select("target, kam_id, mandate_id, mandates(kam_id)")
         .in("month", nextQuarterMonths)
         .eq("year", nextQuarterYear);
       
@@ -1281,7 +1300,25 @@ export default function Dashboard() {
       // Apply target type filter based on status filter
       nextQuarterQuery = applyTargetTypeFilter(nextQuarterQuery, filterUpsellStatus);
       
-      const { data: nextQuarterTargets, error: nextQuarterTargetsError } = await nextQuarterQuery;
+      const { data: allNextQuarterTargets, error: nextQuarterTargetsError } = await nextQuarterQuery;
+
+      // Apply KAM filter client-side to handle both direct kam_id and via mandate
+      let nextQuarterTargets = allNextQuarterTargets;
+      if (filterKam && filterKam !== "" && allNextQuarterTargets) {
+        nextQuarterTargets = allNextQuarterTargets.filter((target: any) => {
+          // For new_cross_sell targets: check monthly_targets.kam_id directly
+          if (target.kam_id === filterKam) {
+            return true;
+          }
+          // For existing targets: check mandate's kam_id
+          // Handle both single object and array (though it should be single)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
+            return true;
+          }
+          return false;
+        });
+      }
 
       let totalTargetNextQuarter = 0;
       if (!nextQuarterTargetsError && nextQuarterTargets) {
@@ -1421,7 +1458,7 @@ export default function Dashboard() {
       
       let fyTargetsQuery = supabase
         .from("monthly_targets")
-        .select("target, month, year")
+        .select("target, month, year, kam_id, mandate_id, mandates(kam_id)")
         .in("month", fyMonthNumbers)
         .in("year", fyYears);
       
@@ -1433,7 +1470,25 @@ export default function Dashboard() {
       // Apply target type filter based on status filter
       fyTargetsQuery = applyTargetTypeFilter(fyTargetsQuery, filterUpsellStatus);
       
-      const { data: fyTargets, error: fyTargetsError } = await fyTargetsQuery;
+      const { data: allFyTargets, error: fyTargetsError } = await fyTargetsQuery;
+      
+      // Apply KAM filter client-side to handle both direct kam_id and via mandate
+      let fyTargets = allFyTargets;
+      if (filterKam && filterKam !== "" && allFyTargets) {
+        fyTargets = allFyTargets.filter((target: any) => {
+          // For new_cross_sell targets: check monthly_targets.kam_id directly
+          if (target.kam_id === filterKam) {
+            return true;
+          }
+          // For existing targets: check mandate's kam_id
+          // Handle both single object and array (though it should be single)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
+            return true;
+          }
+          return false;
+        });
+      }
       
       let totalAnnualTarget = 0;
       if (!fyTargetsError && fyTargets) {
@@ -1475,7 +1530,7 @@ export default function Dashboard() {
       // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table within selected FY
       let quarterTargetsQuery = supabase
         .from("monthly_targets")
-        .select("target")
+        .select("target, kam_id, mandate_id, mandates(kam_id)")
         .in("month", quarterMonthsForTarget)
         .eq("year", quarterYearForTarget);
       
@@ -1487,7 +1542,25 @@ export default function Dashboard() {
       // Apply target type filter based on status filter
       quarterTargetsQuery = applyTargetTypeFilter(quarterTargetsQuery, filterUpsellStatus);
       
-      const { data: quarterTargets, error: quarterTargetsError } = await quarterTargetsQuery;
+      const { data: allQuarterTargets, error: quarterTargetsError } = await quarterTargetsQuery;
+
+      // Apply KAM filter client-side to handle both direct kam_id and via mandate
+      let quarterTargets = allQuarterTargets;
+      if (filterKam && filterKam !== "" && allQuarterTargets) {
+        quarterTargets = allQuarterTargets.filter((target: any) => {
+          // For new_cross_sell targets: check monthly_targets.kam_id directly
+          if (target.kam_id === filterKam) {
+            return true;
+          }
+          // For existing targets: check mandate's kam_id
+          // Handle both single object and array (though it should be single)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
+            return true;
+          }
+          return false;
+        });
+      }
 
       let totalQuarterTarget = 0;
       if (!quarterTargetsError && quarterTargets) {
@@ -1598,7 +1671,7 @@ export default function Dashboard() {
       // Sum all targets for the current month (there may be multiple targets with different types)
       let currentMonthTargetQuery = supabase
         .from("monthly_targets")
-        .select("target")
+        .select("target, kam_id, mandate_id, mandates(kam_id)")
         .eq("month", currentMonth)
         .eq("year", currentYear);
       
@@ -1610,7 +1683,25 @@ export default function Dashboard() {
       // Apply target type filter based on status filter
       currentMonthTargetQuery = applyTargetTypeFilter(currentMonthTargetQuery, filterUpsellStatus);
       
-      const { data: currentMonthTargetsData, error: currentMonthTargetError } = await currentMonthTargetQuery;
+      const { data: allCurrentMonthTargetsData, error: currentMonthTargetError } = await currentMonthTargetQuery;
+
+      // Apply KAM filter client-side to handle both direct kam_id and via mandate
+      let currentMonthTargetsData = allCurrentMonthTargetsData;
+      if (filterKam && filterKam !== "" && allCurrentMonthTargetsData) {
+        currentMonthTargetsData = allCurrentMonthTargetsData.filter((target: any) => {
+          // For new_cross_sell targets: check monthly_targets.kam_id directly
+          if (target.kam_id === filterKam) {
+            return true;
+          }
+          // For existing targets: check mandate's kam_id
+          // Handle both single object and array (though it should be single)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
+            return true;
+          }
+          return false;
+        });
+      }
 
       let totalCurrentMonthTarget = 0;
       if (!currentMonthTargetError && currentMonthTargetsData && currentMonthTargetsData.length > 0) {
@@ -1698,46 +1789,32 @@ export default function Dashboard() {
       setDroppedSalesData(droppedSalesChartData);
 
       // Calculate MCV Tier and Company Size Tier data
-      // Generate month columns from April to current month
-      // Use currentMonth and currentYear already declared above
-      const currentMonthNum = currentMonth; // Alias for consistency
-      const currentYearNum = currentYear; // Alias for consistency
+      // Generate month columns from April to March of the selected financial year
+      // Show ALL months in the selected FY, including future months (to allow viewing historical data)
       const fyStartMonth = 4; // April
+      const fyEndMonth = 3; // March
       
-      // Generate months from April to current month
       const monthColumns: Array<{ month: number; year: number; key: string; label: string }> = [];
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       
-      if (currentMonthNum >= 4) {
-        // Current month is April or later - all months are in current year
-        for (let month = fyStartMonth; month <= currentMonthNum; month++) {
-          monthColumns.push({
-            month,
-            year: currentYearNum,
-            key: `${currentYearNum}-${String(month).padStart(2, '0')}`,
-            label: `${monthNames[month - 1]} ${currentYearNum}`,
-          });
-        }
-      } else {
-        // Current month is Jan-Mar - include months from previous year's April to current month
-        // April to December of previous year
-        for (let month = fyStartMonth; month <= 12; month++) {
-          monthColumns.push({
-            month,
-            year: fyStartYear,
-            key: `${fyStartYear}-${String(month).padStart(2, '0')}`,
-            label: `${monthNames[month - 1]} ${fyStartYear}`,
-          });
-        }
-        // January to current month of current year
-        for (let month = 1; month <= currentMonthNum; month++) {
-          monthColumns.push({
-            month,
-            year: currentYearNum,
-            key: `${currentYearNum}-${String(month).padStart(2, '0')}`,
-            label: `${monthNames[month - 1]} ${currentYearNum}`,
-          });
-        }
+      // April to December of FY start year
+      for (let month = fyStartMonth; month <= 12; month++) {
+        monthColumns.push({
+          month,
+          year: fyStartYear,
+          key: `${fyStartYear}-${String(month).padStart(2, '0')}`,
+          label: `${monthNames[month - 1]} ${fyStartYear}`,
+        });
+      }
+      
+      // January to March of FY end year
+      for (let month = 1; month <= fyEndMonth; month++) {
+        monthColumns.push({
+          month,
+          year: fyEndYear,
+          key: `${fyEndYear}-${String(month).padStart(2, '0')}`,
+          label: `${monthNames[month - 1]} ${fyEndYear}`,
+        });
       }
 
       // Fetch all accounts (we need all accounts that have mandates to determine MCV Tier)
@@ -1818,6 +1895,10 @@ export default function Dashboard() {
       };
 
       if (!mandatesTierError && mandatesTierData) {
+        console.log(`[MCV Tier] Processing ${mandatesTierData.length} mandates for tier calculation`);
+        console.log(`[MCV Tier] FY Date Range: ${fyDateRange.start.toISOString()} to ${fyDateRange.end.toISOString()}`);
+        console.log(`[MCV Tier] Month columns:`, monthColumns.map(col => col.key));
+        
         mandatesTierData.forEach((mandate: any) => {
           const accountId = mandate.account_id;
           const accountTiers = accountTierMap[accountId];
@@ -1827,29 +1908,43 @@ export default function Dashboard() {
           const monthlyData = mandate.monthly_data;
           if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
             Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-              if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                // Check if this month falls within the selected financial year
-                const [yearStr, monthStr] = monthYear.split('-');
-                const year = parseInt(yearStr);
-                const month = parseInt(monthStr);
-                const monthDate = new Date(year, month - 1, 1);
-                
-                // Only include if within selected FY date range and in our month columns
-                if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && 
-                    monthColumns.some((col) => col.key === monthYear)) {
-                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                  
-                  // Add achieved MCV to the appropriate tier buckets
-                  if (accountTiers.mcvTier === "Tier 1") {
-                    monthlyTierData["MCV Tier_Tier 1"][monthYear] = (monthlyTierData["MCV Tier_Tier 1"][monthYear] || 0) + achievedMcv;
-                  } else if (accountTiers.mcvTier === "Tier 2") {
-                    monthlyTierData["MCV Tier_Tier 2"][monthYear] = (monthlyTierData["MCV Tier_Tier 2"][monthYear] || 0) + achievedMcv;
-                  }
+              // Skip if monthRecord is null or undefined
+              if (monthRecord === null || monthRecord === undefined) return;
+              
+              // Use getAchievedMcv helper to handle both old format (array) and new format (number)
+              const achievedMcv = getAchievedMcv(monthRecord);
+              
+              // Check if this month falls within the selected financial year
+              const [yearStr, monthStr] = monthYear.split('-');
+              const year = parseInt(yearStr);
+              const month = parseInt(monthStr);
+              
+              // Skip if year/month parsing failed
+              if (isNaN(year) || isNaN(month)) return;
+              
+              const monthDate = new Date(year, month - 1, 1);
+              const isInFYRange = monthDate >= fyDateRange.start && monthDate <= fyDateRange.end;
+              const isInMonthColumns = monthColumns.some((col) => col.key === monthYear);
+              
+              // Debug logging for months with data
+              if (achievedMcv > 0) {
+                console.log(`[MCV Tier] Found data for ${monthYear}: achievedMcv=${achievedMcv}, isInFYRange=${isInFYRange}, isInMonthColumns=${isInMonthColumns}, accountTier=${accountTiers.mcvTier}`);
+              }
+              
+              // Only include if within selected FY date range and in our month columns
+              if (isInFYRange && isInMonthColumns) {
+                // Add achieved MCV to the appropriate tier buckets (include 0 values)
+                if (accountTiers.mcvTier === "Tier 1") {
+                  monthlyTierData["MCV Tier_Tier 1"][monthYear] = (monthlyTierData["MCV Tier_Tier 1"][monthYear] || 0) + achievedMcv;
+                } else if (accountTiers.mcvTier === "Tier 2") {
+                  monthlyTierData["MCV Tier_Tier 2"][monthYear] = (monthlyTierData["MCV Tier_Tier 2"][monthYear] || 0) + achievedMcv;
                 }
               }
             });
           }
         });
+        
+        console.log(`[MCV Tier] Monthly tier data after processing:`, monthlyTierData);
       }
 
       // Fetch targets from monthly_targets table
@@ -2019,18 +2114,20 @@ export default function Dashboard() {
           }, {} as Record<string, string>),
         });
 
-        // Row 4: Remaining (Target - Actual) (empty category and tier)
+        // Row 4: Balance (Target - Actual) (empty category and tier)
+        // Store raw numeric value for Balance row to enable color coding
         formattedTierData.push({
           category: "",
           tier: "",
-          rowType: "Remaining",
+          rowType: "Balance",
           ...monthColumns.reduce((acc, col) => {
             const target = tierCumulativeTargetData[tierKey][col.key] || 0;
             const actual = tierActualData[tierKey][col.key] || 0;
-            const remaining = target - actual;
-            acc[col.key] = formatCurrency(remaining);
+            const balance = target - actual;
+            // Store raw numeric value (will be formatted with colors in display)
+            acc[col.key] = balance;
             return acc;
-          }, {} as Record<string, string>),
+          }, {} as Record<string, number | string>),
         });
       });
 
@@ -3205,11 +3302,41 @@ export default function Dashboard() {
                       <TableCell>{row.category}</TableCell>
                       <TableCell>{row.tier}</TableCell>
                       <TableCell>{row.rowType}</TableCell>
-                      {tierMonthColumns.map((col) => (
-                        <TableCell key={col.key}>
-                          {row[col.key] || (row.rowType === "Achievement" ? "0.0%" : "₹0")}
-                        </TableCell>
-                      ))}
+                      {tierMonthColumns.map((col) => {
+                        const cellValue = row[col.key];
+                        
+                        // Special handling for Balance row: color code based on sign
+                        if (row.rowType === "Balance") {
+                          const balanceValue = typeof cellValue === 'number' ? cellValue : parseFloat(cellValue?.toString() || "0") || 0;
+                          const isNegative = balanceValue < 0;
+                          const isPositive = balanceValue > 0;
+                          const displayValue = Math.abs(balanceValue);
+                          const formattedValue = formatCurrency(displayValue);
+                          
+                          // Apply color: green for negative (surplus), red for positive (deficit), default for zero
+                          const colorClass = isNegative 
+                            ? "text-green-600 font-medium" 
+                            : isPositive 
+                            ? "text-red-600 font-medium" 
+                            : "";
+                          
+                          return (
+                            <TableCell 
+                              key={col.key}
+                              className={colorClass}
+                            >
+                              {formattedValue}
+                            </TableCell>
+                          );
+                        }
+                        
+                        // Default display for other rows
+                        return (
+                          <TableCell key={col.key}>
+                            {cellValue || (row.rowType === "Achievement" ? "0.0%" : "₹0")}
+                          </TableCell>
+                        );
+                      })}
                     </TableRow>
                   ));
                 })()}
