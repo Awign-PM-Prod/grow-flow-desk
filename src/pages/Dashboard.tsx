@@ -2209,7 +2209,7 @@ export default function Dashboard() {
         const tierKey = `MCV Tier_${tier}`;
         
         // Row 1: Target (only this row shows category and tier)
-        // Show non-cumulative values - each month shows only that month's target
+        // Show non-cumulative values - each month shows only its own target
         formattedTierData.push({
           category: "MCV Tier",
           tier: tier,
@@ -2222,26 +2222,28 @@ export default function Dashboard() {
         });
 
         // Row 2: Actual (empty category and tier)
+        // Show non-cumulative values - each month shows only its own achieved MCV
         formattedTierData.push({
           category: "",
           tier: "",
           rowType: "Actual",
           ...monthColumns.reduce((acc, col) => {
-            const value = tierActualData[tierKey][col.key] || 0;
+            // Use monthlyTierData for non-cumulative actual values
+            const value = monthlyTierData[tierKey][col.key] || 0;
             acc[col.key] = formatCurrency(value);
             return acc;
           }, {} as Record<string, string>),
         });
 
         // Row 3: Achievement (Percentage) (empty category and tier)
-        // Compare cumulative actual to cumulative target for meaningful percentage
+        // Compare non-cumulative actual with non-cumulative target
         formattedTierData.push({
           category: "",
           tier: "",
           rowType: "Achievement",
           ...monthColumns.reduce((acc, col) => {
-            const target = tierCumulativeTargetData[tierKey][col.key] || 0; // Cumulative target
-            const actual = tierActualData[tierKey][col.key] || 0; // Cumulative actual
+            const target = tierTargetData[tierKey][col.key] || 0;
+            const actual = monthlyTierData[tierKey][col.key] || 0;
             const percentage = target > 0 ? (actual / target) * 100 : 0;
             acc[col.key] = `${percentage.toFixed(1)}%`;
             return acc;
@@ -2250,14 +2252,14 @@ export default function Dashboard() {
 
         // Row 4: Balance (Target - Actual) (empty category and tier)
         // Store raw numeric value for Balance row to enable color coding
-        // Compare cumulative actual to cumulative target for meaningful balance
+        // Compare non-cumulative target with non-cumulative actual
         formattedTierData.push({
           category: "",
           tier: "",
           rowType: "Balance",
           ...monthColumns.reduce((acc, col) => {
-            const target = tierCumulativeTargetData[tierKey][col.key] || 0; // Cumulative target
-            const actual = tierActualData[tierKey][col.key] || 0; // Cumulative actual
+            const target = tierTargetData[tierKey][col.key] || 0;
+            const actual = monthlyTierData[tierKey][col.key] || 0;
             const balance = target - actual;
             // Store raw numeric value (will be formatted with colors in display)
             acc[col.key] = balance;
