@@ -1103,19 +1103,52 @@ export default function Targets() {
         return;
       }
 
-      // Create maps for lookups
-      const kamMap: Record<string, string> = {};
-      kams.forEach((kam) => {
-        kamMap[kam.full_name] = kam.id;
+      // Fetch ALL accounts fresh from database for validation (to include newly added accounts and handle name variations)
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("id, name");
+
+      // Create a normalized map: normalized name (trimmed, lowercase) -> account id
+      // Also create a direct map for exact matches
+      const accountMap: Record<string, string> = {};
+      const accountMapNormalized: Record<string, string> = {};
+      accountData?.forEach((acc) => {
+        const normalizedName = acc.name.trim().toLowerCase();
+        accountMap[acc.name.trim()] = acc.id; // Direct match with trimmed
+        accountMap[acc.name] = acc.id; // Direct match with original
+        accountMapNormalized[normalizedName] = acc.id; // Normalized match
       });
 
-      const accountMap: Record<string, string> = {};
-      allAccounts.forEach((account) => {
-        accountMap[account.name] = account.id;
+      // Fetch ALL KAMs fresh from database for validation (to handle name variations)
+      const { data: kamData } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam");
+
+      // Create normalized maps for robust matching
+      const kamMap: Record<string, string> = {};
+      const kamMapNormalized: Record<string, string> = {};
+      kamData?.forEach((kam) => {
+        const normalizedName = kam.full_name.trim().toLowerCase();
+        kamMap[kam.full_name.trim()] = kam.id;
+        kamMap[kam.full_name] = kam.id;
+        kamMapNormalized[normalizedName] = kam.id;
       });
+
+      // Fetch mandates fresh from database for validation
+      const mandateCodes = selectedTargetType === "existing"
+        ? [...new Set(csvData.map((row: any) => row["Mandate Project Code"]?.trim()).filter(Boolean))]
+        : [];
+      
+      const { data: mandateData } = mandateCodes.length > 0
+        ? await supabase
+            .from("mandates")
+            .select("id, project_code, kam_id")
+            .in("project_code", mandateCodes)
+        : { data: null };
 
       const mandateMap: Record<string, string> = {};
-      allMandates.forEach((mandate) => {
+      mandateData?.forEach((mandate) => {
         mandateMap[mandate.project_code] = mandate.id;
       });
 
@@ -1205,27 +1238,37 @@ export default function Targets() {
         }
 
         if (selectedTargetType === "cross_sell") {
-          // Validate KAM Name
+          // Validate KAM Name (case-insensitive, trimmed matching)
           const kamName = row["KAM Name"]?.trim();
           if (!kamName) {
             errors.push("KAM Name is required");
-          } else if (!kamMap[kamName]) {
-            errors.push(`KAM "${kamName}" does not exist`);
+          } else {
+            const normalizedKamName = kamName.toLowerCase();
+            const kamId = kamMap[kamName] || kamMapNormalized[normalizedKamName];
+            if (!kamId) {
+              errors.push(`KAM "${kamName}" does not exist`);
+            }
           }
 
-          // Validate Account Name
+          // Validate Account Name (case-insensitive, trimmed matching)
           const accountName = row["Account Name"]?.trim();
           if (!accountName) {
             errors.push("Account Name is required");
-          } else if (!accountMap[accountName]) {
-            errors.push(`Account "${accountName}" does not exist`);
+          } else {
+            const normalizedAccountName = accountName.toLowerCase();
+            const accountId = accountMap[accountName] || accountMapNormalized[normalizedAccountName];
+            if (!accountId) {
+              errors.push(`Account "${accountName}" does not exist`);
+            }
           }
 
           // Validate KAM-Account relationship
-          if (kamName && accountName && kamMap[kamName] && accountMap[accountName]) {
-            const kamId = kamMap[kamName];
-            const accountId = accountMap[accountName];
-            if (!kamAccountRelations.has(`${kamId}_${accountId}`)) {
+          if (kamName && accountName) {
+            const normalizedKamName = kamName.toLowerCase();
+            const kamId = kamMap[kamName] || kamMapNormalized[normalizedKamName];
+            const normalizedAccountName = accountName.toLowerCase();
+            const accountId = accountMap[accountName] || accountMapNormalized[normalizedAccountName];
+            if (kamId && accountId && !kamAccountRelations.has(`${kamId}_${accountId}`)) {
               errors.push(`KAM "${kamName}" and Account "${accountName}" are not related (no mandate exists for this combination)`);
             }
           }
@@ -1241,7 +1284,7 @@ export default function Targets() {
           // Validate KAM-Mandate relationship (optional check - mandate should have a KAM)
           if (mandateCode && mandateMap[mandateCode]) {
             const mandateId = mandateMap[mandateCode];
-            const mandate = allMandates.find((m) => m.id === mandateId);
+            const mandate = mandateData?.find((m) => m.id === mandateId);
             if (mandate && !mandate.kam_id) {
               errors.push(`Mandate "${mandateCode}" does not have an associated KAM`);
             }
@@ -1259,8 +1302,10 @@ export default function Targets() {
             if (selectedTargetType === "cross_sell") {
               const kamName = row["KAM Name"]?.trim();
               const accountName = row["Account Name"]?.trim();
-              const kamId = kamMap[kamName];
-              const accountId = accountMap[accountName];
+              const normalizedKamName = kamName?.toLowerCase();
+              const kamId = kamMap[kamName] || (normalizedKamName ? kamMapNormalized[normalizedKamName] : null);
+              const normalizedAccountName = accountName?.toLowerCase();
+              const accountId = accountMap[accountName] || (normalizedAccountName ? accountMapNormalized[normalizedAccountName] : null);
               
               if (kamId && accountId) {
                 lookupKey = `${month}_${year}_new_cross_sell_${kamId}_${accountId}`;
@@ -1317,19 +1362,51 @@ export default function Targets() {
         throw new Error("You must be logged in to upload targets");
       }
 
-      // Create maps for lookups
-      const kamMap: Record<string, string> = {};
-      kams.forEach((kam) => {
-        kamMap[kam.full_name] = kam.id;
+      // Fetch accounts fresh from database (to include newly added accounts and handle name variations)
+      const { data: accountData } = await supabase
+        .from("accounts")
+        .select("id, name");
+
+      // Create normalized maps for robust matching
+      const accountMap: Record<string, string> = {};
+      const accountMapNormalized: Record<string, string> = {};
+      accountData?.forEach((acc) => {
+        const normalizedName = acc.name.trim().toLowerCase();
+        accountMap[acc.name.trim()] = acc.id;
+        accountMap[acc.name] = acc.id;
+        accountMapNormalized[normalizedName] = acc.id;
       });
 
-      const accountMap: Record<string, string> = {};
-      allAccounts.forEach((account) => {
-        accountMap[account.name] = account.id;
+      // Fetch ALL KAMs fresh from database (to handle name variations)
+      const { data: kamData } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam");
+
+      // Create normalized maps for robust matching
+      const kamMap: Record<string, string> = {};
+      const kamMapNormalized: Record<string, string> = {};
+      kamData?.forEach((kam) => {
+        const normalizedName = kam.full_name.trim().toLowerCase();
+        kamMap[kam.full_name.trim()] = kam.id;
+        kamMap[kam.full_name] = kam.id;
+        kamMapNormalized[normalizedName] = kam.id;
       });
+
+      // Fetch mandates fresh from database
+      const mandateCodes = selectedTargetType === "existing"
+        ? [...new Set(csvData.map((row: any) => row["Mandate Project Code"]?.trim()).filter(Boolean))]
+        : [];
+      
+      const { data: mandateData } = mandateCodes.length > 0
+        ? await supabase
+            .from("mandates")
+            .select("id, project_code")
+            .in("project_code", mandateCodes)
+        : { data: null };
 
       const mandateMap: Record<string, string> = {};
-      allMandates.forEach((mandate) => {
+      mandateData?.forEach((mandate) => {
         mandateMap[mandate.project_code] = mandate.id;
       });
 
@@ -1344,8 +1421,10 @@ export default function Targets() {
           if (selectedTargetType === "cross_sell") {
             const kamName = row["KAM Name"]?.trim();
             const accountName = row["Account Name"]?.trim();
-            const kamId = kamMap[kamName];
-            const accountId = accountMap[accountName];
+            const normalizedKamName = kamName?.toLowerCase();
+            const kamId = kamMap[kamName] || (normalizedKamName ? kamMapNormalized[normalizedKamName] : null);
+            const normalizedAccountName = accountName?.toLowerCase();
+            const accountId = accountMap[accountName] || (normalizedAccountName ? accountMapNormalized[normalizedAccountName] : null);
 
             if (!kamId || !accountId) return null;
 
