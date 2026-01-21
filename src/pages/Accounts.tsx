@@ -635,8 +635,8 @@ export default function Accounts() {
         count: count as number,
       }));
 
-      // Sort by retention type (STAR, A, B, C, D, E, NI)
-      const order = ["STAR", "A", "B", "C", "D", "E", "NI"];
+      // Sort by retention type (Star, A, B, C, D, E, NI)
+      const order = ["Star", "A", "B", "C", "D", "E", "NI"];
       retentionArray.sort((a, b) => {
         const aIndex = order.indexOf(a.retention_type);
         const bIndex = order.indexOf(b.retention_type);

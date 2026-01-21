@@ -28,3 +28,4 @@ CREATE POLICY "Users can view their own deals or all if KAM/Manager"
 
 
 
+

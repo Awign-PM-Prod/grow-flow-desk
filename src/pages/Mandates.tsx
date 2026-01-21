@@ -58,7 +58,6 @@ interface MandateFormData {
   prjDurationMonths: string;
   handoverAcv: string;
   handoverPrjType: string;
-  handoverDate: string;
 
   // Revenue Info
   revenueMonthlyVolume: string;
@@ -253,7 +252,6 @@ export default function Mandates() {
     prjDurationMonths: "",
     handoverAcv: "",
     handoverPrjType: "",
-    handoverDate: "",
     revenueMonthlyVolume: "",
     revenueCommercialPerHead: "",
     revenueMcv: "",
@@ -939,9 +937,8 @@ export default function Mandates() {
         [field]: value,
       };
       
-      // If type is changed to "Existing" or "New Cross Sell", clear all handover values
-      // Handover info is only required for "New Acquisition"
-      if (field === "type" && (value === "Existing" || value === "New Cross Sell")) {
+      // If type is changed to "New Cross Sell", clear all handover values
+      if (field === "type" && value === "New Cross Sell") {
         updated.newSalesOwner = "";
         updated.handoverMonthlyVolume = "";
         updated.handoverCommercialPerHead = "";
@@ -949,7 +946,6 @@ export default function Mandates() {
         updated.prjDurationMonths = "";
         updated.handoverAcv = "";
         updated.handoverPrjType = "";
-        updated.handoverDate = "";
       }
       
       return updated;
@@ -1029,15 +1025,14 @@ export default function Mandates() {
           'Existing'
         ]),
         
-        // Handover Info - Only save if type is "New Acquisition", set to null for "Existing" or "New Cross Sell"
-        new_sales_owner: formData.type === "New Acquisition" ? (formData.newSalesOwner || null) : null,
-        handover_monthly_volume: formData.type === "New Acquisition" ? (formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null) : null,
-        handover_commercial_per_head: formData.type === "New Acquisition" ? (formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null) : null,
-        handover_mcv: formData.type === "New Acquisition" ? (formData.handoverMcv ? parseFloat(formData.handoverMcv) : null) : null,
-        prj_duration_months: formData.type === "New Acquisition" ? (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null) : null,
-        handover_acv: formData.type === "New Acquisition" ? (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null) : null,
-        handover_prj_type: formData.type === "New Acquisition" ? ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']) : null,
-        handover_date: formData.type === "New Acquisition" ? (formData.handoverDate || null) : null,
+        // Handover Info - Set to null if type is "New Cross Sell"
+        new_sales_owner: formData.type === "New Cross Sell" ? null : (formData.newSalesOwner || null),
+        handover_monthly_volume: formData.type === "New Cross Sell" ? null : (formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null),
+        handover_commercial_per_head: formData.type === "New Cross Sell" ? null : (formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null),
+        handover_mcv: formData.type === "New Cross Sell" ? null : (formData.handoverMcv ? parseFloat(formData.handoverMcv) : null),
+        prj_duration_months: formData.type === "New Cross Sell" ? null : (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null),
+        handover_acv: formData.type === "New Cross Sell" ? null : (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null),
+        handover_prj_type: formData.type === "New Cross Sell" ? null : ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
         
         // Revenue Info
         revenue_monthly_volume: formData.revenueMonthlyVolume ? parseFloat(formData.revenueMonthlyVolume) : null,
@@ -1064,7 +1059,7 @@ export default function Mandates() {
         upsell_constraint_sub2: sanitizeValue(formData.upsellConstraintSub2), // Can be free text, so just sanitize
         client_budget_trend: ensureEnumValue(formData.clientBudgetTrend, ['Increase', 'Same', 'Decrease']),
         awign_share_percent: ensureEnumValue(formData.awignSharePercent, ['Below 70%', '70% & Above']),
-        retention_type: ensureEnumValue(formData.retentionType, ['STAR', 'A', 'B', 'C', 'D', 'E', 'NI']),
+        retention_type: ensureEnumValue(formData.retentionType, ['Star', 'A', 'B', 'C', 'D', 'E', 'NI']),
         
         // Upsell Action Status
         upsell_action_status: ensureEnumValue(formData.upsellActionStatus, ['Not Started', 'Ongoing', 'Done']),
@@ -1102,7 +1097,6 @@ export default function Mandates() {
         prjDurationMonths: "",
         handoverAcv: "",
         handoverPrjType: "",
-        handoverDate: "",
         revenueMonthlyVolume: "",
         revenueCommercialPerHead: "",
         revenueMcv: "",
@@ -1687,24 +1681,20 @@ export default function Mandates() {
           validatedUpsellConstraintSub2 = null;
         }
 
-        const mandateType = row["Type"] && ["New Acquisition", "Existing"].includes(row["Type"]) ? row["Type"] : null;
-        
         return {
           project_code: projectCode,
           project_name: row["Project Name"],
           account_id: accountMap[row["Account Name"]],
           kam_id: kamMap[row["KAM Name"]],
           lob: row["LoB (Vertical)"],
-          type: mandateType,
-          // Handover Info - Only save if type is "New Acquisition", set to null for "Existing"
-          new_sales_owner: mandateType === "New Acquisition" ? (row["New Sales Owner"] || null) : null,
-          handover_monthly_volume: mandateType === "New Acquisition" ? (handoverMonthlyVolume || null) : null,
-          handover_commercial_per_head: mandateType === "New Acquisition" ? (handoverCommercialPerHead || null) : null,
-          handover_mcv: mandateType === "New Acquisition" ? (handoverMcv || null) : null,
-          prj_duration_months: mandateType === "New Acquisition" ? (parseInt(row["PRJ duration in months"]) || null) : null,
-          handover_acv: mandateType === "New Acquisition" ? (parseFloat(row["Handover ACV"]) || null) : null,
-          handover_prj_type: mandateType === "New Acquisition" ? normalizePrjType(row["Handover PRJ Type"]) : null,
-          handover_date: mandateType === "New Acquisition" ? (row["Handover Date"] || null) : null,
+          type: row["Type"] && ["New Acquisition", "Existing"].includes(row["Type"]) ? row["Type"] : null,
+          new_sales_owner: row["New Sales Owner"] || null,
+          handover_monthly_volume: handoverMonthlyVolume || null,
+          handover_commercial_per_head: handoverCommercialPerHead || null,
+          handover_mcv: handoverMcv || null,
+          prj_duration_months: parseInt(row["PRJ duration in months"]) || null,
+          handover_acv: parseFloat(row["Handover ACV"]) || null,
+          handover_prj_type: normalizePrjType(row["Handover PRJ Type"]),
           revenue_monthly_volume: revenueMonthlyVolume || null,
           revenue_commercial_per_head: revenueCommercialPerHead || null,
           revenue_mcv: revenueMcv || null,
@@ -2149,7 +2139,7 @@ export default function Mandates() {
         revenue_acv: mandate.revenue_acv || 0,
         revenue_prj_type: mandate.revenue_prj_type || "",
         mandate_health: mandate.mandate_health || "",
-        upsell_constraint: mandate.upsell_constraint ? "YES" : "NO",
+        upsell_constraint: mandate.upsell_constraint === "YES" ? "YES" : (mandate.upsell_constraint === "NO" ? "NO" : ""),
         upsell_constraint_type: mandate.upsell_constraint_type || "",
         upsell_constraint_sub: mandate.upsell_constraint_sub || "",
         upsell_constraint_sub2: mandate.upsell_constraint_sub2 || "",
@@ -2300,14 +2290,13 @@ export default function Mandates() {
       prjDurationMonths: mandate.prj_duration_months?.toString() || "",
       handoverAcv: mandate.handover_acv?.toString() || "",
       handoverPrjType: mandate.handover_prj_type || "",
-      handoverDate: mandate.handover_date ? new Date(mandate.handover_date).toISOString().split('T')[0] : "",
       revenueMonthlyVolume: mandate.revenue_monthly_volume?.toString() || "",
       revenueCommercialPerHead: mandate.revenue_commercial_per_head?.toString() || "",
       revenueMcv: mandate.revenue_mcv?.toString() || "",
       revenueAcv: mandate.revenue_acv?.toString() || "",
       revenuePrjType: mandate.revenue_prj_type || "",
       mandateHealth: mandate.mandate_health || "",
-      upsellConstraint: mandate.upsell_constraint ? "YES" : "NO",
+      upsellConstraint: mandate.upsell_constraint === "YES" ? "YES" : (mandate.upsell_constraint === "NO" ? "NO" : ""),
       upsellConstraintType: mandate.upsell_constraint_type || "",
       upsellConstraintSub: mandate.upsell_constraint_sub || "",
       upsellConstraintSub2: mandate.upsell_constraint_sub2 || "",
@@ -2405,15 +2394,14 @@ export default function Mandates() {
           'New Cross Sell',
           'Existing'
         ]),
-        // Handover Info - Only save if type is "New Acquisition", set to null for "Existing" or "New Cross Sell"
-        new_sales_owner: editMandateData.type === "New Acquisition" ? sanitizeValue(editMandateData.newSalesOwner) : null,
-        handover_monthly_volume: editMandateData.type === "New Acquisition" ? (editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null) : null,
-        handover_commercial_per_head: editMandateData.type === "New Acquisition" ? (editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null) : null,
-        handover_mcv: editMandateData.type === "New Acquisition" ? (editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null) : null,
-        prj_duration_months: editMandateData.type === "New Acquisition" ? (editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null) : null,
-        handover_acv: editMandateData.type === "New Acquisition" ? (editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null) : null,
-        handover_prj_type: editMandateData.type === "New Acquisition" ? ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']) : null,
-        handover_date: editMandateData.type === "New Acquisition" ? (editMandateData.handoverDate || null) : null,
+        // Handover Info - Set to null if type is "New Cross Sell"
+        new_sales_owner: editMandateData.type === "New Cross Sell" ? null : sanitizeValue(editMandateData.newSalesOwner),
+        handover_monthly_volume: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null),
+        handover_commercial_per_head: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null),
+        handover_mcv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null),
+        prj_duration_months: editMandateData.type === "New Cross Sell" ? null : (editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null),
+        handover_acv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null),
+        handover_prj_type: editMandateData.type === "New Cross Sell" ? null : ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
         revenue_monthly_volume: editMandateData.revenueMonthlyVolume ? parseFloat(editMandateData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: editMandateData.revenueCommercialPerHead ? parseFloat(editMandateData.revenueCommercialPerHead) : null,
         revenue_mcv: editMandateData.revenueMcv ? parseFloat(editMandateData.revenueMcv) : null,
@@ -2436,7 +2424,7 @@ export default function Mandates() {
         upsell_constraint_sub2: sanitizeValue(editMandateData.upsellConstraintSub2), // Can be free text
         client_budget_trend: ensureEnumValue(editMandateData.clientBudgetTrend, ['Increase', 'Same', 'Decrease']),
         awign_share_percent: ensureEnumValue(editMandateData.awignSharePercent, ['Below 70%', '70% & Above']),
-        retention_type: ensureEnumValue(editMandateData.retentionType, ['STAR', 'A', 'B', 'C', 'D', 'E', 'NI']),
+        retention_type: ensureEnumValue(editMandateData.retentionType, ['Star', 'A', 'B', 'C', 'D', 'E', 'NI']),
         upsell_action_status: ensureEnumValue(editMandateData.upsellActionStatus, ['Not Started', 'Ongoing', 'Done']),
       };
 
@@ -2490,7 +2478,7 @@ export default function Mandates() {
         upsell_constraint_sub2: sanitizeValue(editMandateData.upsellConstraintSub2), // Can be free text
         client_budget_trend: ensureEnumValue(editMandateData.clientBudgetTrend, ['Increase', 'Same', 'Decrease']),
         awign_share_percent: ensureEnumValue(editMandateData.awignSharePercent, ['Below 70%', '70% & Above']),
-        retention_type: ensureEnumValue(editMandateData.retentionType, ['STAR', 'A', 'B', 'C', 'D', 'E', 'NI']),
+        retention_type: ensureEnumValue(editMandateData.retentionType, ['Star', 'A', 'B', 'C', 'D', 'E', 'NI']),
       };
 
       const { error } = await supabase
@@ -2519,7 +2507,7 @@ export default function Mandates() {
         setEditMandateData({
           ...editMandateData,
           mandateHealth: updatedMandate.mandate_health || "",
-          upsellConstraint: updatedMandate.upsell_constraint ? "YES" : "NO",
+          upsellConstraint: updatedMandate.upsell_constraint === "YES" ? "YES" : (updatedMandate.upsell_constraint === "NO" ? "NO" : ""),
           upsellConstraintType: updatedMandate.upsell_constraint_type || "",
           upsellConstraintSub: updatedMandate.upsell_constraint_sub || "",
           upsellConstraintSub2: updatedMandate.upsell_constraint_sub2 || "",
@@ -2640,7 +2628,6 @@ export default function Mandates() {
             prjDurationMonths: "",
             handoverAcv: "",
             handoverPrjType: "",
-            handoverDate: "",
             revenueMonthlyVolume: "",
             revenueCommercialPerHead: "",
             revenueMcv: "",
@@ -2922,7 +2909,7 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
-              {formData.type === "New Acquisition" && (
+              {(formData.type === "New Acquisition" || formData.type === "Existing") && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
@@ -3024,17 +3011,6 @@ export default function Mandates() {
                           <SelectItem value="One-time">One-time</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="handoverDate">
-                        Handover Date
-                      </Label>
-                      <Input
-                        id="handoverDate"
-                        type="date"
-                        value={formData.handoverDate}
-                        onChange={(e) => handleInputChange("handoverDate", e.target.value)}
-                      />
                     </div>
                   </div>
                 </CardContent>
@@ -3635,14 +3611,13 @@ export default function Mandates() {
                     prjDurationMonths: selectedMandate.prj_duration_months?.toString() || "",
                     handoverAcv: selectedMandate.handover_acv?.toString() || "",
                     handoverPrjType: selectedMandate.handover_prj_type || "",
-                    handoverDate: selectedMandate.handover_date ? new Date(selectedMandate.handover_date).toISOString().split('T')[0] : "",
                     revenueMonthlyVolume: selectedMandate.revenue_monthly_volume?.toString() || "",
                     revenueCommercialPerHead: selectedMandate.revenue_commercial_per_head?.toString() || "",
                     revenueMcv: selectedMandate.revenue_mcv?.toString() || "",
                     revenueAcv: selectedMandate.revenue_acv?.toString() || "",
                     revenuePrjType: selectedMandate.revenue_prj_type || "",
                     mandateHealth: selectedMandate.mandate_health || "",
-                    upsellConstraint: selectedMandate.upsell_constraint ? "YES" : "NO",
+                    upsellConstraint: selectedMandate.upsell_constraint === "YES" ? "YES" : (selectedMandate.upsell_constraint === "NO" ? "NO" : ""),
                     upsellConstraintType: selectedMandate.upsell_constraint_type || "",
                     upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
                     upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
@@ -3900,9 +3875,8 @@ export default function Mandates() {
                           value={editMandateData.type}
                           onValueChange={(value) => {
                             const updated = { ...editMandateData, type: value };
-                            // If type is changed to "Existing" or "New Cross Sell", clear all handover values
-                            // Handover info is only required for "New Acquisition"
-                            if (value === "Existing" || value === "New Cross Sell") {
+                            // If type is changed to "New Cross Sell", clear all handover values
+                            if (value === "New Cross Sell") {
                               updated.newSalesOwner = "";
                               updated.handoverMonthlyVolume = "";
                               updated.handoverCommercialPerHead = "";
@@ -3910,7 +3884,6 @@ export default function Mandates() {
                               updated.prjDurationMonths = "";
                               updated.handoverAcv = "";
                               updated.handoverPrjType = "";
-                              updated.handoverDate = "";
                             }
                             setEditMandateData(updated);
                           }}
@@ -3933,8 +3906,8 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
-              {((isEditMode && editMandateData.type === "New Acquisition") || 
-                (!isEditMode && selectedMandate.type === "New Acquisition")) && (
+              {((isEditMode && (editMandateData.type === "New Acquisition" || editMandateData.type === "Existing")) || 
+                (!isEditMode && (selectedMandate.type === "New Acquisition" || selectedMandate.type === "Existing"))) && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
@@ -4042,18 +4015,6 @@ export default function Mandates() {
                         <p className="mt-1">{selectedMandate.handover_prj_type || "N/A"}</p>
                       )}
                     </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">Handover Date:</Label>
-                      {isEditMode ? (
-                        <Input
-                          type="date"
-                          value={editMandateData.handoverDate}
-                          onChange={(e) => setEditMandateData({ ...editMandateData, handoverDate: e.target.value })}
-                        />
-                      ) : (
-                        <p className="mt-1">{selectedMandate.handover_date ? new Date(selectedMandate.handover_date).toLocaleDateString() : "N/A"}</p>
-                      )}
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -4150,7 +4111,7 @@ export default function Mandates() {
                           setEditMandateData({
                             ...editMandateData,
                             mandateHealth: selectedMandate.mandate_health || "",
-                            upsellConstraint: selectedMandate.upsell_constraint ? "YES" : "NO",
+                            upsellConstraint: selectedMandate.upsell_constraint === "YES" ? "YES" : (selectedMandate.upsell_constraint === "NO" ? "NO" : ""),
                             upsellConstraintType: selectedMandate.upsell_constraint_type || "",
                             upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
                             upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
@@ -4217,7 +4178,7 @@ export default function Mandates() {
                           </SelectContent>
                         </Select>
                       ) : (
-                        <p className="mt-1">{selectedMandate.upsell_constraint ? "YES" : selectedMandate.upsell_constraint === false ? "NO" : "N/A"}</p>
+                        <p className="mt-1">{selectedMandate.upsell_constraint === "YES" ? "YES" : (selectedMandate.upsell_constraint === "NO" ? "NO" : "N/A")}</p>
                       )}
                     </div>
                     {/* Always show Upsell Constraint Type fields - always visible in view mode, conditionally enabled in edit mode */}

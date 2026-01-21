@@ -1109,16 +1109,9 @@ export default function Targets() {
         kamMap[kam.full_name] = kam.id;
       });
 
-      // Create a robust account map that handles whitespace and case-insensitive matching
-      // Similar to the fix in Contacts.tsx for bulk contact upload
       const accountMap: Record<string, string> = {};
       allAccounts.forEach((account) => {
-        const trimmedName = account.name.trim();
-        // Store multiple variations for robust lookup
-        accountMap[trimmedName] = account.id;
-        accountMap[account.name] = account.id; // Original name
-        accountMap[trimmedName.toLowerCase()] = account.id; // Lowercase trimmed
-        accountMap[account.name.toLowerCase()] = account.id; // Lowercase original
+        accountMap[account.name] = account.id;
       });
 
       const mandateMap: Record<string, string> = {};
@@ -1220,26 +1213,18 @@ export default function Targets() {
             errors.push(`KAM "${kamName}" does not exist`);
           }
 
-          // Validate Account Name - handle whitespace and case-insensitive matching
-          const rawAccountName = row["Account Name"] || row["account_name"] || row["Account"] || row["account"];
-          const accountName = rawAccountName?.trim();
-          let accountId: string | undefined;
-          
+          // Validate Account Name
+          const accountName = row["Account Name"]?.trim();
           if (!accountName) {
             errors.push("Account Name is required");
-          } else {
-            // Try both trimmed name and lowercase for lookup
-            accountId = accountMap[accountName] || accountMap[accountName.toLowerCase()];
-            if (!accountId) {
-              // Provide helpful error message with available accounts
-              const availableAccountNames = allAccounts.slice(0, 10).map(a => a.name).join(', ') || 'None';
-              errors.push(`Account "${accountName}" does not exist or does not match. Available accounts (first 10): ${availableAccountNames}`);
-            }
+          } else if (!accountMap[accountName]) {
+            errors.push(`Account "${accountName}" does not exist`);
           }
 
           // Validate KAM-Account relationship
-          if (kamName && accountName && kamMap[kamName] && accountId) {
+          if (kamName && accountName && kamMap[kamName] && accountMap[accountName]) {
             const kamId = kamMap[kamName];
+            const accountId = accountMap[accountName];
             if (!kamAccountRelations.has(`${kamId}_${accountId}`)) {
               errors.push(`KAM "${kamName}" and Account "${accountName}" are not related (no mandate exists for this combination)`);
             }
