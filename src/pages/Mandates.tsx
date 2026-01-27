@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { Loader2, Download, Upload, FileText, BookOpen } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
@@ -232,6 +233,8 @@ const extractYearFromFinancialYear = (financialYear: string): number => {
 };
 
 export default function Mandates() {
+  const { user, hasRole } = useAuth();
+  const isKAM = hasRole("kam");
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
@@ -2177,10 +2180,20 @@ export default function Mandates() {
   const fetchMandates = async () => {
     setLoadingMandates(true);
     try {
-      const { data, error } = await supabase
+      // Get current user and KAM status (in case they changed)
+      const currentUser = user;
+      const currentIsKAM = hasRole("kam");
+      
+      let query = supabase
         .from("mandates")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("*");
+      
+      // If user is a KAM, filter by their KAM ID
+      if (currentIsKAM && currentUser?.id) {
+        query = query.eq("kam_id", currentUser.id);
+      }
+      
+      const { data, error } = await query.order("created_at", { ascending: false });
 
       if (error) throw error;
 
@@ -2255,12 +2268,12 @@ export default function Mandates() {
     }
   };
 
-  // Fetch mandates when switching to view mode
+  // Fetch mandates when switching to view mode or when user/auth state changes
   useEffect(() => {
     if (viewMode === "view") {
       fetchMandates();
     }
-  }, [viewMode]);
+  }, [viewMode, user?.id, isKAM]);
 
   const clearFilters = () => {
     setSearchTerm("");
@@ -2548,7 +2561,7 @@ export default function Mandates() {
     })();
     
     const matchesAccount = filterAccount === "all" || mandate.account_id === filterAccount;
-    const matchesKam = filterKam === "all" || mandate.kam_id === filterKam;
+    const matchesKam = isKAM ? true : (filterKam === "all" || mandate.kam_id === filterKam);
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
     const matchesHealth = filterMandateHealth === "all" || mandate.mandateHealth === filterMandateHealth;
     const matchesStatus = filterUpsellStatus === "all" || mandate.upsellStatus === filterUpsellStatus;
@@ -2558,7 +2571,7 @@ export default function Mandates() {
   });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterMandateHealth !== "all" || filterUpsellStatus !== "all" || filterRetentionType !== "all";
+  const hasActiveFilters = searchTerm || filterAccount !== "all" || (!isKAM && filterKam !== "all") || filterLob !== "all" || filterMandateHealth !== "all" || filterUpsellStatus !== "all" || filterRetentionType !== "all";
 
   return (
     <div className="space-y-6">
@@ -3377,19 +3390,21 @@ export default function Mandates() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={filterKam} onValueChange={setFilterKam}>
+                {!isKAM && (
+                  <Select value={filterKam} onValueChange={setFilterKam}>
                     <SelectTrigger className={`text-left ${filterKam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                    <SelectValue placeholder="All KAMs" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All KAMs</SelectItem>
-                    {kams.map((kam) => (
-                      <SelectItem key={kam.id} value={kam.id}>
-                        {kam.full_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      <SelectValue placeholder="All KAMs" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All KAMs</SelectItem>
+                      {kams.map((kam) => (
+                        <SelectItem key={kam.id} value={kam.id}>
+                          {kam.full_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Select value={filterLob} onValueChange={setFilterLob}>
                     <SelectTrigger className={`text-left ${filterLob !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All LoB" />
@@ -4452,7 +4467,7 @@ export default function Mandates() {
                     {sortedFinancialYears.map((financialYear) => (
                       <Card key={financialYear} className="border-purple-200 bg-purple-50/50">
                         <CardContent className="pt-6">
-                          <h4 className="font-semibold text-md mb-4 text-purple-800">Financial Year: {financialYear}</h4>
+                          <h4 className="font-semibold text-md mb-4 text-purple-800">Financial Year: FY {financialYear}</h4>
                           <div className="overflow-x-auto">
                             <Table>
                               <TableHeader>

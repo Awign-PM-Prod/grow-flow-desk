@@ -8,6 +8,7 @@ import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
+import { useAuth } from "@/hooks/useAuth";
 
 // All LoB options
 const lobOptions = [
@@ -35,6 +36,8 @@ const getAchievedMcv = (monthRecord: any): number => {
 };
 
 export default function Dashboard() {
+  const { user, hasRole } = useAuth();
+  const isKAM = hasRole("kam");
   const [loading, setLoading] = useState(true);
   const [totalMandates, setTotalMandates] = useState(0);
   const [mandatesThisMonth, setMandatesThisMonth] = useState(0);
@@ -120,16 +123,25 @@ export default function Dashboard() {
     
     return `FY${fyYearDigits}`;
   });
-  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("All Cross Sell + Existing");
+  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("All mandate types");
   const [filterKam, setFilterKam] = useState<string>("");
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
 
+  // Set filterKam to current user's ID when they're a KAM
+  useEffect(() => {
+    if (isKAM && user?.id) {
+      setFilterKam(user.id);
+    }
+  }, [isKAM, user?.id]);
+
   useEffect(() => {
     fetchDashboardData();
-    fetchKams();
-  }, [filterFinancialYear, filterUpsellStatus, filterKam]);
+    if (!isKAM) {
+      fetchKams();
+    }
+  }, [filterFinancialYear, filterUpsellStatus, filterKam, isKAM]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -146,6 +158,24 @@ export default function Dashboard() {
     const fyYearDigits = fyStartYear.toString().slice(-2);
     
     return `FY${fyYearDigits}`;
+  };
+
+  // Helper function to convert FY string to display format (e.g., "FY25" -> "FY 2025-26")
+  const formatFYForDisplay = (fyString: string): string => {
+    const yearMatch = fyString.match(/FY(\d{2})/);
+    if (!yearMatch) {
+      // If it's already in "2025-26" format, add "FY " prefix
+      if (fyString.match(/^\d{4}-\d{2}$/)) {
+        return `FY ${fyString}`;
+      }
+      return fyString; // Return as-is if format is unrecognized
+    }
+    
+    const yearDigits = parseInt(yearMatch[1], 10);
+    const startYear = 2000 + yearDigits;
+    const endYear = (startYear + 1).toString().slice(-2);
+    
+    return `FY ${startYear}-${endYear}`;
   };
 
   // Helper function to convert FY string to date range
@@ -176,8 +206,8 @@ export default function Dashboard() {
 
   // Helper function to apply status filter to a Supabase query
   const applyStatusFilter = (query: any, statusFilter: string): any => {
-    if (statusFilter === "all") {
-      return query; // No filter applied
+    if (statusFilter === "all" || statusFilter === "All mandate types") {
+      return query; // No filter applied - show all mandate types
     } else if (statusFilter === "Existing") {
       return query.eq("type", "Existing");
     } else if (statusFilter === "All Cross Sell") {
@@ -192,6 +222,10 @@ export default function Dashboard() {
 
   // Helper function to apply KAM filter to a Supabase query
   const applyKamFilter = (query: any, kamFilter: string): any => {
+    // If user is a KAM, always filter by their ID
+    if (isKAM && user?.id) {
+      return query.eq("kam_id", user.id);
+    }
     if (!kamFilter || kamFilter === "") {
       return query; // No filter applied
     }
@@ -2441,15 +2475,15 @@ export default function Dashboard() {
         <div className="flex items-center gap-4">
         {/* Financial Year Filter */}
         <Select value={filterFinancialYear} onValueChange={setFilterFinancialYear}>
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Financial Year" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="FY24">FY24</SelectItem>
-            <SelectItem value="FY25">FY25</SelectItem>
-            <SelectItem value="FY26">FY26</SelectItem>
-            <SelectItem value="FY27">FY27</SelectItem>
-            <SelectItem value="FY28">FY28</SelectItem>
+            <SelectItem value="FY24">{formatFYForDisplay("FY24")}</SelectItem>
+            <SelectItem value="FY25">{formatFYForDisplay("FY25")}</SelectItem>
+            <SelectItem value="FY26">{formatFYForDisplay("FY26")}</SelectItem>
+            <SelectItem value="FY27">{formatFYForDisplay("FY27")}</SelectItem>
+            <SelectItem value="FY28">{formatFYForDisplay("FY28")}</SelectItem>
           </SelectContent>
         </Select>
 
@@ -2459,6 +2493,7 @@ export default function Dashboard() {
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="All mandate types">All mandate types</SelectItem>
             <SelectItem value="Existing">Existing</SelectItem>
             <SelectItem value="All Cross Sell">All Cross Sell</SelectItem>
             <SelectItem value="All Cross Sell + Existing">All Cross Sell + Existing</SelectItem>
@@ -2466,37 +2501,39 @@ export default function Dashboard() {
           </SelectContent>
         </Select>
 
-        {/* KAM Filter with Search */}
-        <Select value={filterKam || "all"} onValueChange={(value) => setFilterKam(value === "all" ? "" : value)}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="All KAMs" />
-          </SelectTrigger>
-          <SelectContent>
-            <div className="px-2 pb-2">
-              <Input
-                placeholder="Search KAM..."
-                value={kamSearch}
-                onChange={(e) => setKamSearch(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => e.stopPropagation()}
-                className="h-8"
-              />
-            </div>
-            <SelectItem value="all">All KAMs</SelectItem>
-            {kams
-              .filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase()))
-              .map((kam) => (
-                <SelectItem key={kam.id} value={kam.id}>
-                  {kam.full_name}
-                </SelectItem>
-              ))}
-            {kams.filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase())).length === 0 && (
-              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                No KAMs found
+        {/* KAM Filter with Search - Hidden for KAM users */}
+        {!isKAM && (
+          <Select value={filterKam || "all"} onValueChange={(value) => setFilterKam(value === "all" ? "" : value)}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All KAMs" />
+            </SelectTrigger>
+            <SelectContent>
+              <div className="px-2 pb-2">
+                <Input
+                  placeholder="Search KAM..."
+                  value={kamSearch}
+                  onChange={(e) => setKamSearch(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="h-8"
+                />
               </div>
-            )}
-          </SelectContent>
-        </Select>
+              <SelectItem value="all">All KAMs</SelectItem>
+              {kams
+                .filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase()))
+                .map((kam) => (
+                  <SelectItem key={kam.id} value={kam.id}>
+                    {kam.full_name}
+                  </SelectItem>
+                ))}
+              {kams.filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase())).length === 0 && (
+                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                  No KAMs found
+                </div>
+              )}
+            </SelectContent>
+          </Select>
+        )}
         </div>
       </div>
 
@@ -2703,7 +2740,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {`${filterFinancialYear} Actual vs Target (Annual)`}
+              {`${formatFYForDisplay(filterFinancialYear)} Actual vs Target (Annual)`}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -2799,7 +2836,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {`${filterFinancialYear} Actual vs Target (${getCurrentFinancialYearQuarter()})`}
+              {`${formatFYForDisplay(filterFinancialYear)} Actual vs Target (${getCurrentFinancialYearQuarter()})`}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -2896,7 +2933,7 @@ export default function Dashboard() {
               {(() => {
                 const now = new Date();
                 const monthName = now.toLocaleString('default', { month: 'long' });
-                return `${filterFinancialYear} Actual vs Target (${monthName})`;
+                return `${formatFYForDisplay(filterFinancialYear)} Actual vs Target (${monthName})`;
               })()}
             </CardTitle>
           </CardHeader>
@@ -3262,7 +3299,7 @@ export default function Dashboard() {
         {/* Annual Sales Target - Individual */}
         <Card>
         <CardHeader>
-          <CardTitle>{filterFinancialYear} Annual Sales Target - Individual</CardTitle>
+          <CardTitle>{formatFYForDisplay(filterFinancialYear)} Annual Sales Target - Individual</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">Compare target vs achieved sales for individual staff members.</p>
         </CardHeader>
         <CardContent>

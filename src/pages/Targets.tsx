@@ -84,6 +84,24 @@ const convertFYToFinancialYear = (fyString: string): string => {
   return `${startYear}-${endYear}`;
 };
 
+// Helper function to convert FY string to display format (e.g., "FY25" -> "FY 2025-26")
+const formatFYForDisplay = (fyString: string): string => {
+  const yearMatch = fyString.match(/FY(\d{2})/);
+  if (!yearMatch) {
+    // If it's already in "2025-26" format, add "FY " prefix
+    if (fyString.match(/^\d{4}-\d{2}$/)) {
+      return `FY ${fyString}`;
+    }
+    return fyString; // Return as-is if format is unrecognized
+  }
+  
+  const yearDigits = parseInt(yearMatch[1], 10);
+  const startYear = 2000 + yearDigits;
+  const endYear = (startYear + 1).toString().slice(-2);
+  
+  return `FY ${startYear}-${endYear}`;
+};
+
 // Helper function to get month columns for a specific FY
 // Returns all 12 months of the financial year (April to March) in order
 const getFinancialYearMonths = (fyString: string): Array<{ month: number; year: number; key: string; label: string }> => {
@@ -170,7 +188,8 @@ interface KAM {
 }
 
 export default function Targets() {
-  const { hasRole, loading, userRoles } = useAuth();
+  const { hasRole, loading, userRoles, user } = useAuth();
+  const isKAM = hasRole("kam");
   const navigate = useNavigate();
   const { toast } = useToast();
   const [formDialogOpen, setFormDialogOpen] = useState(false);
@@ -200,7 +219,10 @@ export default function Targets() {
   const [crossSellKamAccountCombos, setCrossSellKamAccountCombos] = useState<Array<{ kamId: string; kamName: string; accountId: string; accountName: string }>>([]); // List of unique KAM-account combinations
   const [allMandates, setAllMandates] = useState<Array<{ id: string; project_code: string; project_name: string; kam_id?: string | null; kamName?: string | null; type?: string | null }>>([]);
   const [allAccounts, setAllAccounts] = useState<Array<{ id: string; name: string }>>([]);
-  const [monthColumns, setMonthColumns] = useState<Array<{ month: number; year: number; key: string; label: string }>>([]);
+  // Initialize monthColumns with current financial year months
+  const [monthColumns, setMonthColumns] = useState<Array<{ month: number; year: number; key: string; label: string }>>(() => {
+    return getFinancialYearMonths(getCurrentFinancialYear());
+  });
   const [kams, setKams] = useState<KAM[]>([]);
   const [loadingKams, setLoadingKams] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -222,6 +244,10 @@ export default function Targets() {
   const fetchMonthlyTargets = async () => {
     setLoadingTargets(true);
     try {
+      // Get current user and KAM status (in case they changed)
+      const currentUser = user;
+      const currentIsKAM = hasRole("kam");
+      
       // Calculate month columns for selected FY
       const calculatedMonthColumns = getFinancialYearMonths(filterFinancialYear);
       setMonthColumns(calculatedMonthColumns);
@@ -257,10 +283,16 @@ export default function Targets() {
       }
 
       // Fetch all mandates for existing targets table
-      const { data: allMandatesData } = await supabase
+      // If user is a KAM, filter by their KAM ID
+      let mandatesQuery = supabase
         .from("mandates")
-        .select("id, project_code, project_name, kam_id, type")
-        .order("project_code");
+        .select("id, project_code, project_name, kam_id, type");
+      
+      if (currentIsKAM && currentUser?.id) {
+        mandatesQuery = mandatesQuery.eq("kam_id", currentUser.id);
+      }
+      
+      const { data: allMandatesData } = await mandatesQuery.order("project_code");
       
       // Fetch KAM names for mandates
       const mandateKamIds = [...new Set((allMandatesData || []).map((m: any) => m.kam_id).filter(Boolean))];
@@ -288,12 +320,36 @@ export default function Targets() {
       setAllMandates(mandatesWithKam);
 
       // Fetch all accounts for cross sell targets table
-      const { data: allAccountsData } = await supabase
-        .from("accounts")
-        .select("id, name")
-        .order("name");
+      // If user is a KAM, only fetch accounts linked to their mandates
+      let allAccountsData: any[] = [];
       
-      setAllAccounts(allAccountsData || []);
+      if (currentIsKAM && currentUser?.id) {
+        // Get account IDs from KAM's mandates
+        const { data: kamMandatesData } = await supabase
+          .from("mandates")
+          .select("account_id")
+          .eq("kam_id", currentUser.id)
+          .not("account_id", "is", null);
+        
+        const accountIds = [...new Set((kamMandatesData || []).map((m: any) => m.account_id).filter(Boolean))];
+        
+        if (accountIds.length > 0) {
+          const { data: accountsData } = await supabase
+            .from("accounts")
+            .select("id, name")
+            .in("id", accountIds)
+            .order("name");
+          allAccountsData = accountsData || [];
+        }
+      } else {
+        const { data: accountsData } = await supabase
+          .from("accounts")
+          .select("id, name")
+          .order("name");
+        allAccountsData = accountsData || [];
+      }
+      
+      setAllAccounts(allAccountsData);
 
       // Fetch account, mandate, and KAM names for display (for form editing)
       const accountIds = [...new Set((data || []).map((t: any) => t.account_id).filter(Boolean))];
@@ -357,11 +413,33 @@ export default function Targets() {
       setMonthlyTargets(targetsWithNames);
 
       // Organize targets by type for table display
+      // Filter targets by KAM's mandates and accounts if user is a KAM
       const existingData: Record<string, Record<string, number>> = {};
       const crossSellData: Record<string, Record<string, number>> = {}; // kamId_accountId -> monthKey -> target
       const kamAccountComboSet = new Set<string>(); // Track unique KAM-account combinations
 
-      (data || []).forEach((target: any) => {
+      // Get KAM's mandate IDs and account IDs for filtering
+      const kamMandateIds = currentIsKAM && currentUser?.id ? new Set((allMandatesData || []).map((m: any) => m.id)) : null;
+      const kamAccountIds = currentIsKAM && currentUser?.id ? new Set((allAccountsData || []).map((a: any) => a.id)) : null;
+
+      // Filter targets if user is a KAM
+      let filteredTargets = data || [];
+      if (currentIsKAM && currentUser?.id) {
+        filteredTargets = (data || []).filter((target: any) => {
+          // For existing targets: only include if mandate belongs to KAM
+          if (target.target_type === "existing" && target.mandate_id) {
+            return kamMandateIds?.has(target.mandate_id) || false;
+          }
+          // For cross-sell targets: only include if KAM matches and account is linked to KAM
+          else if (target.target_type === "new_cross_sell" && target.account_id && target.kam_id) {
+            return target.kam_id === currentUser.id && (kamAccountIds?.has(target.account_id) || false);
+          }
+          // Skip targets that don't match KAM's mandates/accounts
+          return false;
+        });
+      }
+
+      filteredTargets.forEach((target: any) => {
         const monthKey = `${target.year}-${String(target.month).padStart(2, '0')}`;
         
         if (target.target_type === "existing" && target.mandate_id) {
@@ -522,10 +600,20 @@ export default function Targets() {
   const fetchMandates = async () => {
     setLoadingMandates(true);
     try {
-      const { data, error } = await supabase
+      // Get current user and KAM status (in case they changed)
+      const currentUser = user;
+      const currentIsKAM = hasRole("kam");
+      
+      let query = supabase
         .from("mandates")
-        .select("id, project_code, project_name")
-        .order("project_code");
+        .select("id, project_code, project_name");
+      
+      // If user is a KAM, filter by their KAM ID
+      if (currentIsKAM && currentUser?.id) {
+        query = query.eq("kam_id", currentUser.id);
+      }
+      
+      const { data, error } = await query.order("project_code");
 
       if (error) {
         console.error("Error fetching mandates:", error);
@@ -542,23 +630,35 @@ export default function Targets() {
   };
 
   useEffect(() => {
-    if (!loading && userRoles.length > 0) {
-      // Only allow manager, leadership, and superadmin roles
-      // KAM users should not have access
-      const hasAccess = hasRole("manager") || hasRole("leadership") || hasRole("superadmin");
+    if (!loading && userRoles.length > 0 && user !== undefined) {
+      // Allow manager, leadership, superadmin, and KAM roles
+      const hasAccess = hasRole("manager") || hasRole("leadership") || hasRole("superadmin") || hasRole("kam");
       
       if (!hasAccess) {
         navigate("/dashboard");
       } else {
         // Fetch targets, KAMs, accounts, and mandates when user has access
         fetchMonthlyTargets();
-        fetchKams();
-        fetchAccounts();
+        if (!isKAM) {
+          fetchKams();
+        }
+        if (isKAM && user?.id) {
+          // For KAMs, fetch accounts linked to their mandates
+          fetchAccountsByKam(user.id);
+        } else {
+          fetchAccounts();
+        }
         fetchMandates();
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userRoles.length, navigate, filterFinancialYear]);
+  }, [loading, userRoles.length, navigate, filterFinancialYear, isKAM, user?.id, user]);
+
+  // Update monthColumns when filterFinancialYear changes
+  useEffect(() => {
+    const calculatedMonthColumns = getFinancialYearMonths(filterFinancialYear);
+    setMonthColumns(calculatedMonthColumns);
+  }, [filterFinancialYear]);
 
   // Calculate Financial Year when month or year changes
   useEffect(() => {
@@ -903,7 +1003,7 @@ export default function Targets() {
 
       toast({
         title: "Success!",
-        description: `Target for ${getMonthName(parseInt(formData.month))} ${formData.year} (FY: ${formData.financialYear}) ${editingTarget ? "updated" : "saved"} successfully.`,
+        description: `Target for ${getMonthName(parseInt(formData.month))} ${formData.year} (${formatFYForDisplay(formData.financialYear)}) ${editingTarget ? "updated" : "saved"} successfully.`,
       });
 
       // Reset form
@@ -1545,8 +1645,8 @@ export default function Targets() {
     );
   }
 
-  // Check if user has access (leadership or superadmin)
-  const hasAccess = hasRole("leadership") || hasRole("superadmin");
+  // Check if user has access (manager, leadership, superadmin, or KAM)
+  const hasAccess = hasRole("manager") || hasRole("leadership") || hasRole("superadmin") || hasRole("kam");
 
   if (!hasAccess) {
     return null; // Will redirect via useEffect
@@ -1565,15 +1665,15 @@ export default function Targets() {
         <div className="flex items-center gap-4">
           {/* Financial Year Filter */}
           <Select value={filterFinancialYear} onValueChange={setFilterFinancialYear}>
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Financial Year" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="FY24">FY24</SelectItem>
-              <SelectItem value="FY25">FY25</SelectItem>
-              <SelectItem value="FY26">FY26</SelectItem>
-              <SelectItem value="FY27">FY27</SelectItem>
-              <SelectItem value="FY28">FY28</SelectItem>
+              <SelectItem value="FY24">{formatFYForDisplay("FY24")}</SelectItem>
+              <SelectItem value="FY25">{formatFYForDisplay("FY25")}</SelectItem>
+              <SelectItem value="FY26">{formatFYForDisplay("FY26")}</SelectItem>
+              <SelectItem value="FY27">{formatFYForDisplay("FY27")}</SelectItem>
+              <SelectItem value="FY28">{formatFYForDisplay("FY28")}</SelectItem>
             </SelectContent>
           </Select>
           
@@ -1909,7 +2009,7 @@ export default function Targets() {
                   <div className="grid gap-2">
                     <Label>Financial Year (Auto-calculated)</Label>
                     <div className="rounded-md bg-muted px-3 py-2 text-sm font-medium">
-                      {formData.financialYear}
+                      {formatFYForDisplay(formData.financialYear)}
                     </div>
                   </div>
                 )}
