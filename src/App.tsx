@@ -13,6 +13,7 @@ import Mandates from "./pages/Mandates";
 import Pipeline from "./pages/Pipeline";
 import Targets from "./pages/Targets";
 import AdminUsers from "./pages/AdminUsers";
+import AdminNSOs from "./pages/AdminNSOs";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
@@ -104,6 +105,16 @@ const App = () => (
               <ProtectedRoute>
                 <AppLayout>
                   <AdminUsers />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/nso"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <AdminNSOs />
                 </AppLayout>
               </ProtectedRoute>
             }

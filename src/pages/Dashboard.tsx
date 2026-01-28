@@ -125,14 +125,19 @@ export default function Dashboard() {
   });
   const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("All mandate types");
   const [filterKam, setFilterKam] = useState<string>("");
+  const [filterType, setFilterType] = useState<"all" | "kam" | "nso">("all");
+  const [filterNso, setFilterNso] = useState<string>("");
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
+  const [nsos, setNsos] = useState<Array<{ mail_id: string; first_name: string; last_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
+  const [nsoSearch, setNsoSearch] = useState("");
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
 
   // Set filterKam to current user's ID when they're a KAM
   useEffect(() => {
     if (isKAM && user?.id) {
       setFilterKam(user.id);
+      setFilterType("kam");
     }
   }, [isKAM, user?.id]);
 
@@ -140,8 +145,9 @@ export default function Dashboard() {
     fetchDashboardData();
     if (!isKAM) {
       fetchKams();
+      fetchNsos();
     }
-  }, [filterFinancialYear, filterUpsellStatus, filterKam, isKAM]);
+  }, [filterFinancialYear, filterUpsellStatus, filterKam, filterNso, filterType, isKAM]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -205,7 +211,13 @@ export default function Dashboard() {
   };
 
   // Helper function to apply status filter to a Supabase query
-  const applyStatusFilter = (query: any, statusFilter: string): any => {
+  // Note: When filterType is "nso", we skip status filter since NSOs only exist for "New Acquisition" mandates
+  const applyStatusFilter = (query: any, statusFilter: string, filterType?: "all" | "kam" | "nso"): any => {
+    // If filtering by NSO, skip status filter (NSOs only exist for New Acquisition mandates)
+    if (filterType === "nso") {
+      return query; // Skip status filter when filtering by NSO
+    }
+    
     if (statusFilter === "all" || statusFilter === "All mandate types") {
       return query; // No filter applied - show all mandate types
     } else if (statusFilter === "Existing") {
@@ -220,16 +232,79 @@ export default function Dashboard() {
     return query; // Default: no filter
   };
 
-  // Helper function to apply KAM filter to a Supabase query
-  const applyKamFilter = (query: any, kamFilter: string): any => {
+  // Helper function to apply KAM/NSO filter to a Supabase query
+  const applyKamFilter = (query: any, kamFilter: string, nsoFilter: string, filterType: "all" | "kam" | "nso"): any => {
     // If user is a KAM, always filter by their ID
     if (isKAM && user?.id) {
       return query.eq("kam_id", user.id);
     }
-    if (!kamFilter || kamFilter === "") {
-      return query; // No filter applied
+    
+    // If filterType is "all", don't apply any filter (show all)
+    if (filterType === "all") {
+      return query; // No filter applied - show all KAMs and NSOs
     }
-    return query.eq("kam_id", kamFilter);
+    
+    // If filterType is "kam", filter by KAM
+    if (filterType === "kam" && kamFilter && kamFilter !== "") {
+      return query.eq("kam_id", kamFilter);
+    }
+    
+    // If filterType is "nso", filter by NSO (for New Acquisition mandates)
+    if (filterType === "nso" && nsoFilter && nsoFilter !== "") {
+      // Filter mandates where type is "New Acquisition" and new_sales_owner matches
+      return query.eq("type", "New Acquisition").eq("new_sales_owner", nsoFilter);
+    }
+    
+    return query; // Default: no filter
+  };
+
+  // Helper function to filter targets by KAM/NSO client-side
+  const filterTargetsByKamNso = (targets: any[]): any[] => {
+    if (!targets || targets.length === 0) return targets;
+    
+    if (filterType === "all") {
+      // When "All KAMs and NSOs" is selected, include all targets
+      // No additional filtering needed - mandates are already unique
+      return targets;
+    } else if (filterType === "kam" && filterKam && filterKam !== "") {
+      return targets.filter((target: any) => {
+        // For new_cross_sell targets: check monthly_targets.kam_id directly
+        if (target.kam_id === filterKam) {
+          return true;
+        }
+        // For existing targets: check mandate's kam_id
+        const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+        if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
+          return true;
+        }
+        return false;
+      });
+    } else if (filterType === "nso" && filterNso && filterNso !== "") {
+      const filtered = targets.filter((target: any) => {
+        // For NSO filter: check nso_mail_id directly first (for existing targets)
+        if (target.nso_mail_id === filterNso) {
+          return true;
+        }
+        // Also check mandate's new_sales_owner for backward compatibility
+        if (target.mandate_id) {
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (mandate && mandate.type === "New Acquisition" && mandate.new_sales_owner === filterNso) {
+            return true;
+          }
+        }
+        return false;
+      });
+      console.log(`NSO Filter Debug - filterNso: ${filterNso}, total targets: ${targets.length}, filtered: ${filtered.length}`);
+      console.log(`NSO Filter Debug - Sample targets:`, targets.slice(0, 3).map(t => ({ 
+        nso_mail_id: t.nso_mail_id, 
+        mandate_id: t.mandate_id, 
+        mandate_type: t.mandates?.type, 
+        mandate_nso: t.mandates?.new_sales_owner 
+      })));
+      return filtered;
+    }
+    
+    return targets; // No filter, return all
   };
 
   // Helper function to filter mandates by account MCV Tier
@@ -527,6 +602,26 @@ export default function Dashboard() {
     }
   };
 
+  const fetchNsos = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("new_sales_officers")
+        .select("mail_id, first_name, last_name")
+        .order("first_name", { ascending: true });
+
+      if (error) {
+        console.error("Error fetching NSOs:", error);
+        return;
+      }
+
+      if (data) {
+        setNsos(data);
+      }
+    } catch (error) {
+      console.error("Error fetching NSOs:", error);
+    }
+  };
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
@@ -562,10 +657,10 @@ export default function Dashboard() {
         .select("*", { count: "exact", head: true });
       
       // Apply status filter
-      mandatesCountQuery = applyStatusFilter(mandatesCountQuery, filterUpsellStatus);
+      mandatesCountQuery = applyStatusFilter(mandatesCountQuery, filterUpsellStatus, filterType);
       
-      // Apply KAM filter
-      mandatesCountQuery = applyKamFilter(mandatesCountQuery, filterKam);
+      // Apply KAM/NSO filter
+      mandatesCountQuery = applyKamFilter(mandatesCountQuery, filterKam, filterNso, filterType);
       
       // Filter by created_at within selected financial year
       mandatesCountQuery = mandatesCountQuery
@@ -583,8 +678,8 @@ export default function Dashboard() {
         .gte("created_at", startOfMonth.toISOString())
         .lte("created_at", endOfMonth.toISOString());
       
-      // Apply KAM filter
-      monthCountQuery = applyKamFilter(monthCountQuery, filterKam);
+      // Apply KAM/NSO filter
+      monthCountQuery = applyKamFilter(monthCountQuery, filterKam, filterNso, filterType);
       
       const { count: monthCount, error: monthError } = await monthCountQuery;
 
@@ -597,10 +692,10 @@ export default function Dashboard() {
         .select("account_id");
       
       // Apply status filter
-      accountsQuery = applyStatusFilter(accountsQuery, filterUpsellStatus);
+      accountsQuery = applyStatusFilter(accountsQuery, filterUpsellStatus, filterType);
       
-      // Apply KAM filter
-      accountsQuery = applyKamFilter(accountsQuery, filterKam);
+      // Apply KAM/NSO filter
+      accountsQuery = applyKamFilter(accountsQuery, filterKam, filterNso, filterType);
       
       // Filter by created_at within selected financial year
       accountsQuery = accountsQuery
@@ -630,8 +725,8 @@ export default function Dashboard() {
         .select("awign_share_percent")
         .not("awign_share_percent", "is", null);
       
-      // Apply KAM filter
-      mandatesDataQuery = applyKamFilter(mandatesDataQuery, filterKam);
+      // Apply KAM/NSO filter
+      mandatesDataQuery = applyKamFilter(mandatesDataQuery, filterKam, filterNso, filterType);
       
       const { data: mandatesData, error: mandatesDataError } = await mandatesDataQuery;
 
@@ -693,10 +788,10 @@ export default function Dashboard() {
         .eq("retention_type", "B");
       
       // Apply status filter
-      groupBMandatesQuery = applyStatusFilter(groupBMandatesQuery, filterUpsellStatus);
+      groupBMandatesQuery = applyStatusFilter(groupBMandatesQuery, filterUpsellStatus, filterType);
       
-      // Apply KAM filter
-      groupBMandatesQuery = applyKamFilter(groupBMandatesQuery, filterKam);
+      // Apply KAM/NSO filter
+      groupBMandatesQuery = applyKamFilter(groupBMandatesQuery, filterKam, filterNso, filterType);
       
       // Apply FY filter
       groupBMandatesQuery = groupBMandatesQuery
@@ -717,10 +812,10 @@ export default function Dashboard() {
         .eq("retention_type", "C");
       
       // Apply status filter
-      groupCMandatesQuery = applyStatusFilter(groupCMandatesQuery, filterUpsellStatus);
+      groupCMandatesQuery = applyStatusFilter(groupCMandatesQuery, filterUpsellStatus, filterType);
       
-      // Apply KAM filter
-      groupCMandatesQuery = applyKamFilter(groupCMandatesQuery, filterKam);
+      // Apply KAM/NSO filter
+      groupCMandatesQuery = applyKamFilter(groupCMandatesQuery, filterKam, filterNso, filterType);
       
       // Apply FY filter
       groupCMandatesQuery = groupCMandatesQuery
@@ -741,10 +836,10 @@ export default function Dashboard() {
         .select("retention_type, revenue_mcv, account_id, created_at, type, kam_id");
       
       // Apply status filter
-      allMandatesQuery = applyStatusFilter(allMandatesQuery, filterUpsellStatus);
+      allMandatesQuery = applyStatusFilter(allMandatesQuery, filterUpsellStatus, filterType);
       
-      // Apply KAM filter
-      allMandatesQuery = applyKamFilter(allMandatesQuery, filterKam);
+      // Apply KAM/NSO filter
+      allMandatesQuery = applyKamFilter(allMandatesQuery, filterKam, filterNso, filterType);
       
       // Apply FY filter
       allMandatesQuery = allMandatesQuery
@@ -764,8 +859,8 @@ export default function Dashboard() {
       let lobMandatesQuery = supabase
         .from("mandates")
         .select("lob, monthly_data, type");
-      lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus);
-      lobMandatesQuery = applyKamFilter(lobMandatesQuery, filterKam);
+      lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus, filterType);
+      lobMandatesQuery = applyKamFilter(lobMandatesQuery, filterKam, filterNso, filterType);
       const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
 
       // Initialize all LoBs from the mandate form with 0 values
@@ -831,8 +926,8 @@ export default function Dashboard() {
       let kamMandatesQuery = supabase
         .from("mandates")
         .select("kam_id, monthly_data, type");
-      kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus);
-      kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam);
+      kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus, filterType);
+      kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam, filterNso, filterType);
       const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
 
       // Fetch all KAMs to get their names (only profiles with role = 'kam')
@@ -920,7 +1015,7 @@ export default function Dashboard() {
       // We also need to filter by mandate type to ensure targets match the selected mandate type filter
       let query = supabase
         .from("monthly_targets")
-        .select("target, month, year, financial_year, target_type, kam_id, mandate_id, mandates(kam_id, type)")
+        .select("target, month, year, financial_year, target_type, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
         .eq("month", currentMonth)
         .eq("year", currentYear);
       
@@ -1004,8 +1099,12 @@ export default function Dashboard() {
             return false;
           }
           
-          // Apply KAM filter
-          if (filterKam && filterKam !== "") {
+          // Apply KAM/NSO filter
+          if (filterType === "all") {
+            // When "All KAMs and NSOs" is selected, include all targets
+            // No additional filtering needed - mandates are already unique
+            return true;
+          } else if (filterType === "kam" && filterKam && filterKam !== "") {
             // For new_cross_sell targets: check monthly_targets.kam_id directly
             if (targetType === 'new_cross_sell') {
               if (target.kam_id === filterKam) {
@@ -1023,9 +1122,23 @@ export default function Dashboard() {
               }
             }
             return false; // KAM doesn't match
+          } else if (filterType === "nso" && filterNso && filterNso !== "") {
+            // For NSO filter: check nso_mail_id directly first (for existing targets)
+            if (targetType === 'existing') {
+              if (target.nso_mail_id === filterNso) {
+                return true;
+              }
+              // Also check mandate's new_sales_owner for backward compatibility
+              if (target.mandate_id && mandate) {
+                if (mandate.type === "New Acquisition" && mandate.new_sales_owner === filterNso) {
+                  return true;
+                }
+              }
+            }
+            return false; // NSO doesn't match or not applicable
           }
           
-          return true; // No KAM filter, include this target
+          return true; // No filter, include this target
         });
       }
 
@@ -1033,7 +1146,7 @@ export default function Dashboard() {
         console.error("Error fetching monthly targets for MCV Planned:", targetsError);
       }
 
-      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'NONE SELECTED'}, statusFilter=${filterUpsellStatus}, kamFilter=${filterKam || 'ALL KAMs'}`);
+      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'NONE SELECTED'}, statusFilter=${filterUpsellStatus}, filterType=${filterType}, kamFilter=${filterKam || 'NONE'}, nsoFilter=${filterNso || 'NONE'}`);
       console.log(`MCV Planned - All targets from query (before client-side filter):`, allTargets);
       console.log(`MCV Planned - Filtered targets (after client-side filter):`, currentMonthTargets);
       console.log(`MCV Planned - Filter details:`, {
@@ -1065,7 +1178,7 @@ export default function Dashboard() {
       // Debug: Also fetch all targets for current month to see what's in the DB (for debugging only)
       const { data: allCurrentMonthTargets } = await supabase
         .from("monthly_targets")
-        .select("target, month, year, financial_year, target_type, mandate_id, account_id, kam_id")
+        .select("target, month, year, financial_year, target_type, mandate_id, account_id, kam_id, nso_mail_id")
         .eq("month", currentMonth)
         .eq("year", currentYear);
       console.log(`[DEBUG] All targets for current month (${currentMonth}/${currentYear}) in database:`, allCurrentMonthTargets);
@@ -1094,12 +1207,51 @@ export default function Dashboard() {
       // Apply status filter based on filterUpsellStatus
       let mandatesQuery = supabase
         .from("mandates")
-        .select("monthly_data, type");
-      mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus);
-      mandatesQuery = applyKamFilter(mandatesQuery, filterKam);
+        .select("monthly_data, type, new_sales_owner");
+      mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus, filterType);
+      mandatesQuery = applyKamFilter(mandatesQuery, filterKam, filterNso, filterType);
       const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
+      
+      // Debug logging for NSO filter
+      if (filterType === "nso" && filterNso) {
+        console.log(`NSO Filter - Mandates Query: filterNso=${filterNso}, mandates found: ${allMandatesForMcv?.length || 0}`);
+        if (allMandatesForMcv && allMandatesForMcv.length > 0) {
+          console.log(`NSO Filter - Sample mandates:`, allMandatesForMcv.slice(0, 3).map(m => ({ 
+            type: m.type, 
+            new_sales_owner: m.new_sales_owner 
+          })));
+        }
+      }
 
-      if (filterUpsellStatus === "All Cross Sell") {
+      // If filtering by NSO, process New Acquisition mandates
+      if (filterType === "nso") {
+        // For NSO filter, only process New Acquisition mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Acquisition' (should always be true when filtering by NSO)
+            if (mandate.type === "New Acquisition") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    // Check if this month falls within the selected financial year
+                    const [yearStr, monthStr] = monthYear.split('-');
+                    const year = parseInt(yearStr);
+                    const month = parseInt(monthStr);
+                    const monthDate = new Date(year, month - 1, 1);
+                    
+                    // Only include if within selected FY date range and current month
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                      const achievedMcv = getAchievedMcv(monthRecord);
+                      totalFfmAchieved += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell") {
         // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
         // Only count achieved MCV for current month that falls within selected FY
         if (!mcvError && allMandatesForMcv) {
@@ -1261,7 +1413,33 @@ export default function Dashboard() {
       let totalMcvThisQuarter = 0;
 
       // Calculate sum of achieved MCV for current quarter months
-      if (filterUpsellStatus === "All Cross Sell") {
+      // If filtering by NSO, process New Acquisition mandates
+      if (filterType === "nso") {
+        // For NSO filter, only process New Acquisition mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Acquisition' (should always be true when filtering by NSO)
+            if (mandate.type === "New Acquisition") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  const [year, month] = monthYear.split('-');
+                  const yearNum = parseInt(year);
+                  const monthNum = parseInt(month);
+                  const achievedMcv = getAchievedMcv(monthRecord);
+                  
+                  // Check if this month belongs to the current quarter and selected FY
+                  const monthDate = new Date(yearNum, monthNum - 1, 1);
+                  if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                      monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    totalMcvThisQuarter += achievedMcv;
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell") {
         // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
         // Only count achieved MCV for months that belong to current quarter and selected FY
         if (!mcvError && allMandatesForMcv) {
@@ -1422,7 +1600,7 @@ export default function Dashboard() {
       // Fetch targets for next quarter months within selected FY
       let nextQuarterQuery = supabase
         .from("monthly_targets")
-        .select("target, kam_id, mandate_id, mandates(kam_id)")
+        .select("target, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
         .in("month", nextQuarterMonths)
         .eq("year", nextQuarterYear);
       
@@ -1436,23 +1614,8 @@ export default function Dashboard() {
       
       const { data: allNextQuarterTargets, error: nextQuarterTargetsError } = await nextQuarterQuery;
 
-      // Apply KAM filter client-side to handle both direct kam_id and via mandate
-      let nextQuarterTargets = allNextQuarterTargets;
-      if (filterKam && filterKam !== "" && allNextQuarterTargets) {
-        nextQuarterTargets = allNextQuarterTargets.filter((target: any) => {
-          // For new_cross_sell targets: check monthly_targets.kam_id directly
-          if (target.kam_id === filterKam) {
-            return true;
-          }
-          // For existing targets: check mandate's kam_id
-          // Handle both single object and array (though it should be single)
-          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
-          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
-            return true;
-          }
-          return false;
-        });
-      }
+      // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
+      let nextQuarterTargets = filterTargetsByKamNso(allNextQuarterTargets || []);
 
       let totalTargetNextQuarter = 0;
       if (!nextQuarterTargetsError && nextQuarterTargets) {
@@ -1469,7 +1632,32 @@ export default function Dashboard() {
       // Calculate Annual Achieved: Sum of achieved MCV for all months in selected FY
       let totalAnnualAchieved = 0;
       
-      if (filterUpsellStatus === "All Cross Sell") {
+      // If filtering by NSO, process New Acquisition mandates
+      if (filterType === "nso") {
+        // For NSO filter, only process New Acquisition mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Acquisition' (should always be true when filtering by NSO)
+            if (mandate.type === "New Acquisition") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  const [year, month] = monthYear.split('-');
+                  const yearNum = parseInt(year);
+                  const monthNum = parseInt(month);
+                  const monthDate = new Date(yearNum, monthNum - 1, 1);
+                  const achievedMcv = getAchievedMcv(monthRecord);
+                  
+                  // Only include if within selected FY date range
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    totalAnnualAchieved += achievedMcv;
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell") {
         // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
         // Only count achieved MCV for months that fall within the selected FY
         if (!mcvError && allMandatesForMcv) {
@@ -1592,7 +1780,7 @@ export default function Dashboard() {
       
       let fyTargetsQuery = supabase
         .from("monthly_targets")
-        .select("target, month, year, kam_id, mandate_id, mandates(kam_id)")
+        .select("target, month, year, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
         .in("month", fyMonthNumbers)
         .in("year", fyYears);
       
@@ -1606,23 +1794,8 @@ export default function Dashboard() {
       
       const { data: allFyTargets, error: fyTargetsError } = await fyTargetsQuery;
       
-      // Apply KAM filter client-side to handle both direct kam_id and via mandate
-      let fyTargets = allFyTargets;
-      if (filterKam && filterKam !== "" && allFyTargets) {
-        fyTargets = allFyTargets.filter((target: any) => {
-          // For new_cross_sell targets: check monthly_targets.kam_id directly
-          if (target.kam_id === filterKam) {
-            return true;
-          }
-          // For existing targets: check mandate's kam_id
-          // Handle both single object and array (though it should be single)
-          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
-          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
-            return true;
-          }
-          return false;
-        });
-      }
+      // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
+      let fyTargets = filterTargetsByKamNso(allFyTargets || []);
       
       let totalAnnualTarget = 0;
       if (!fyTargetsError && fyTargets) {
@@ -1664,7 +1837,7 @@ export default function Dashboard() {
       // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table within selected FY
       let quarterTargetsQuery = supabase
         .from("monthly_targets")
-        .select("target, kam_id, mandate_id, mandates(kam_id)")
+        .select("target, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
         .in("month", quarterMonthsForTarget)
         .eq("year", quarterYearForTarget);
       
@@ -1678,23 +1851,8 @@ export default function Dashboard() {
       
       const { data: allQuarterTargets, error: quarterTargetsError } = await quarterTargetsQuery;
 
-      // Apply KAM filter client-side to handle both direct kam_id and via mandate
-      let quarterTargets = allQuarterTargets;
-      if (filterKam && filterKam !== "" && allQuarterTargets) {
-        quarterTargets = allQuarterTargets.filter((target: any) => {
-          // For new_cross_sell targets: check monthly_targets.kam_id directly
-          if (target.kam_id === filterKam) {
-            return true;
-          }
-          // For existing targets: check mandate's kam_id
-          // Handle both single object and array (though it should be single)
-          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
-          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
-            return true;
-          }
-          return false;
-        });
-      }
+      // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
+      let quarterTargets = filterTargetsByKamNso(allQuarterTargets || []);
 
       let totalQuarterTarget = 0;
       if (!quarterTargetsError && quarterTargets) {
@@ -1713,7 +1871,37 @@ export default function Dashboard() {
       // Calculate Current Month Achieved: Sum of achieved MCV for current month from all mandates
       let totalCurrentMonthAchieved = 0;
       
-      if (filterUpsellStatus === "All Cross Sell") {
+      // If filtering by NSO, process New Acquisition mandates
+      if (filterType === "nso") {
+        // For NSO filter, only process New Acquisition mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            // Ensure mandate type is 'New Acquisition' (should always be true when filtering by NSO)
+            if (mandate.type === "New Acquisition") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                    // Check if this is the current month and within selected FY
+                    if (monthYear === currentMonthYear) {
+                      const [yearStr, monthStr] = monthYear.split('-');
+                      const year = parseInt(yearStr);
+                      const month = parseInt(monthStr);
+                      const monthDate = new Date(year, month - 1, 1);
+                      
+                      // Only include if within selected FY date range
+                      if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                        const achievedMcv = getAchievedMcv(monthRecord);
+                        totalCurrentMonthAchieved += achievedMcv;
+                      }
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell") {
         // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
         // Only count achieved MCV for current month that falls within selected FY
         if (!mcvError && allMandatesForMcv) {
@@ -1805,7 +1993,7 @@ export default function Dashboard() {
       // Sum all targets for the current month (there may be multiple targets with different types)
       let currentMonthTargetQuery = supabase
         .from("monthly_targets")
-        .select("target, kam_id, mandate_id, mandates(kam_id)")
+        .select("target, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
         .eq("month", currentMonth)
         .eq("year", currentYear);
       
@@ -1819,23 +2007,8 @@ export default function Dashboard() {
       
       const { data: allCurrentMonthTargetsData, error: currentMonthTargetError } = await currentMonthTargetQuery;
 
-      // Apply KAM filter client-side to handle both direct kam_id and via mandate
-      let currentMonthTargetsData = allCurrentMonthTargetsData;
-      if (filterKam && filterKam !== "" && allCurrentMonthTargetsData) {
-        currentMonthTargetsData = allCurrentMonthTargetsData.filter((target: any) => {
-          // For new_cross_sell targets: check monthly_targets.kam_id directly
-          if (target.kam_id === filterKam) {
-            return true;
-          }
-          // For existing targets: check mandate's kam_id
-          // Handle both single object and array (though it should be single)
-          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
-          if (target.mandate_id && mandate && mandate.kam_id === filterKam) {
-            return true;
-          }
-          return false;
-        });
-      }
+      // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
+      let currentMonthTargetsData = filterTargetsByKamNso(allCurrentMonthTargetsData || []);
 
       let totalCurrentMonthTarget = 0;
       if (!currentMonthTargetError && currentMonthTargetsData && currentMonthTargetsData.length > 0) {
@@ -1961,8 +2134,8 @@ export default function Dashboard() {
       let mandatesTierQuery = supabase
         .from("mandates")
         .select("id, account_id, monthly_data, type");
-      mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus);
-      mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam);
+      mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus, filterType);
+      mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam, filterNso, filterType);
       const { data: mandatesTierData, error: mandatesTierError } = await mandatesTierQuery;
 
       // Calculate total achieved MCV for each account from all mandates to determine MCV Tier dynamically
@@ -2493,7 +2666,7 @@ export default function Dashboard() {
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="All mandate types">All mandate types</SelectItem>
+            <SelectItem value="All mandate types">All Mndate Types</SelectItem>
             <SelectItem value="Existing">Existing</SelectItem>
             <SelectItem value="All Cross Sell">All Cross Sell</SelectItem>
             <SelectItem value="All Cross Sell + Existing">All Cross Sell + Existing</SelectItem>
@@ -2501,13 +2674,38 @@ export default function Dashboard() {
           </SelectContent>
         </Select>
 
-        {/* KAM Filter with Search - Hidden for KAM users */}
+        {/* KAM/NSO Filter with Two-Level Selection - Hidden for KAM users */}
         {!isKAM && (
-          <Select value={filterKam || "all"} onValueChange={(value) => setFilterKam(value === "all" ? "" : value)}>
+          <Select 
+            value={filterType === "all" ? "all" : filterType === "kam" ? `kam_${filterKam}` : `nso_${filterNso}`}
+            onValueChange={(value) => {
+              if (value === "all") {
+                setFilterType("all");
+                setFilterKam("");
+                setFilterNso("");
+              } else if (value.startsWith("kam_")) {
+                const kamId = value.replace("kam_", "");
+                setFilterType("kam");
+                setFilterKam(kamId);
+                setFilterNso("");
+              } else if (value.startsWith("nso_")) {
+                const nsoMailId = value.replace("nso_", "");
+                setFilterType("nso");
+                setFilterNso(nsoMailId);
+                setFilterKam("");
+              }
+            }}
+          >
             <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="All KAMs" />
+              <SelectValue placeholder="All KAMs and NSOs">
+                {filterType === "all" && "All KAMs and NSOs"}
+                {filterType === "kam" && filterKam && kams.find(k => k.id === filterKam)?.full_name}
+                {filterType === "nso" && filterNso && nsos.find(n => n.mail_id === filterNso) && `${nsos.find(n => n.mail_id === filterNso)?.first_name} ${nsos.find(n => n.mail_id === filterNso)?.last_name}`}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">All KAMs and NSOs</SelectItem>
+              <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">KAM</div>
               <div className="px-2 pb-2">
                 <Input
                   placeholder="Search KAM..."
@@ -2518,17 +2716,45 @@ export default function Dashboard() {
                   className="h-8"
                 />
               </div>
-              <SelectItem value="all">All KAMs</SelectItem>
               {kams
                 .filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase()))
                 .map((kam) => (
-                  <SelectItem key={kam.id} value={kam.id}>
+                  <SelectItem key={kam.id} value={`kam_${kam.id}`}>
                     {kam.full_name}
                   </SelectItem>
                 ))}
               {kams.filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase())).length === 0 && (
                 <div className="px-2 py-1.5 text-sm text-muted-foreground">
                   No KAMs found
+                </div>
+              )}
+              <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">NSO</div>
+              <div className="px-2 pb-2">
+                <Input
+                  placeholder="Search NSO..."
+                  value={nsoSearch}
+                  onChange={(e) => setNsoSearch(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="h-8"
+                />
+              </div>
+              {nsos
+                .filter((nso) => 
+                  `${nso.first_name} ${nso.last_name}`.toLowerCase().includes(nsoSearch.toLowerCase()) ||
+                  nso.mail_id.toLowerCase().includes(nsoSearch.toLowerCase())
+                )
+                .map((nso) => (
+                  <SelectItem key={nso.mail_id} value={`nso_${nso.mail_id}`}>
+                    {nso.first_name} {nso.last_name}
+                  </SelectItem>
+                ))}
+              {nsos.filter((nso) => 
+                `${nso.first_name} ${nso.last_name}`.toLowerCase().includes(nsoSearch.toLowerCase()) ||
+                nso.mail_id.toLowerCase().includes(nsoSearch.toLowerCase())
+              ).length === 0 && (
+                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                  No NSOs found
                 </div>
               )}
             </SelectContent>

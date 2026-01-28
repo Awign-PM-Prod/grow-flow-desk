@@ -15,7 +15,7 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Loader2, Download, Upload, FileText, BookOpen } from "lucide-react";
+import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
@@ -36,7 +36,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Trash2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 
 type ViewMode = "form" | "view";
 
@@ -239,6 +246,7 @@ export default function Mandates() {
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [kams, setKams] = useState<{ id: string; full_name: string }[]>([]);
+  const [nsos, setNsos] = useState<{ id: string; first_name: string; last_name: string; mail_id: string }[]>([]);
   const [formData, setFormData] = useState<MandateFormData>({
     projectCode: "",
     projectName: "",
@@ -285,6 +293,8 @@ export default function Mandates() {
   const [kamSearch, setKamSearch] = useState("");
   const [editAccountSearch, setEditAccountSearch] = useState("");
   const [editKamSearch, setEditKamSearch] = useState("");
+  const [nsoSelectOpen, setNsoSelectOpen] = useState(false);
+  const [editNsoSelectOpen, setEditNsoSelectOpen] = useState(false);
   const [mandates, setMandates] = useState<any[]>([]);
   const [loadingMandates, setLoadingMandates] = useState(false);
   const [availableLobs, setAvailableLobs] = useState<string[]>([]);
@@ -341,7 +351,6 @@ export default function Mandates() {
             console.warn("Accounts table may not exist:", accountsError.message);
           }
         }
-
         // Fetch KAMs (users with kam role)
         const { data: kamData, error: kamError } = await supabase
           .from("profiles")
@@ -356,6 +365,21 @@ export default function Mandates() {
           setKams([]);
           if (kamError) {
             console.warn("Error fetching KAMs:", kamError.message);
+          }
+        }
+
+        // Fetch New Sales Officers
+        const { data: nsoData, error: nsoError } = await supabase
+          .from("new_sales_officers")
+          .select("id, first_name, last_name, mail_id")
+          .order("first_name");
+
+        if (nsoData && !nsoError) {
+          setNsos(nsoData);
+        } else {
+          setNsos([]);
+          if (nsoError) {
+            console.warn("Error fetching New Sales Officers:", nsoError.message);
           }
         }
       } catch (error) {
@@ -2929,11 +2953,71 @@ export default function Mandates() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2 md:col-span-2">
                       <Label htmlFor="newSalesOwner">New Sales Owner</Label>
-                      <Input
-                        id="newSalesOwner"
-                        value={formData.newSalesOwner}
-                        onChange={(e) => handleInputChange("newSalesOwner", e.target.value)}
-                      />
+                      {formData.type === "New Acquisition" ? (
+                        <Popover open={nsoSelectOpen} onOpenChange={setNsoSelectOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between"
+                            >
+                              {formData.newSalesOwner
+                                ? (() => {
+                                    const selected = nsos.find(
+                                      (nso) => nso.mail_id === formData.newSalesOwner
+                                    );
+                                    return selected
+                                      ? `${selected.first_name} ${selected.last_name} (${selected.mail_id})`
+                                      : formData.newSalesOwner;
+                                  })()
+                                : "Select New Sales Officer"}
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            className="w-[var(--radix-popover-trigger-width)] p-0"
+                            align="start"
+                            onWheel={(e) => {
+                              const list = (e.currentTarget.querySelector("[cmdk-list]") as HTMLElement | null);
+                              if (list) {
+                                list.scrollTop += e.deltaY;
+                                e.preventDefault();
+                              }
+                            }}
+                          >
+                            <Command>
+                              <CommandInput placeholder="Search NSOs..." />
+                              <CommandEmpty>No New Sales Officer found.</CommandEmpty>
+                              <CommandList className="max-h-[300px]">
+                                {nsos.map((nso) => (
+                                  <CommandItem
+                                    key={nso.id}
+                                    value={`${nso.first_name} ${nso.last_name} ${nso.mail_id}`}
+                                    onSelect={() => {
+                                      handleInputChange("newSalesOwner", nso.mail_id);
+                                      setNsoSelectOpen(false);
+                                    }}
+                                  >
+                                    <div className="flex flex-col">
+                                      <span>{`${nso.first_name} ${nso.last_name}`}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {nso.mail_id}
+                                      </span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      ) : (
+                        <Input
+                          id="newSalesOwner"
+                          value={formData.newSalesOwner}
+                          onChange={(e) => handleInputChange("newSalesOwner", e.target.value)}
+                        />
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="handoverMcv">
@@ -3930,10 +4014,75 @@ export default function Mandates() {
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">New Sales Owner:</Label>
                       {isEditMode ? (
-                        <Input
-                          value={editMandateData.newSalesOwner}
-                          onChange={(e) => setEditMandateData({ ...editMandateData, newSalesOwner: e.target.value })}
-                        />
+                        editMandateData.type === "New Acquisition" ? (
+                          <Popover open={editNsoSelectOpen} onOpenChange={setEditNsoSelectOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                role="combobox"
+                                className="w-full justify-between"
+                              >
+                                {editMandateData.newSalesOwner
+                                  ? (() => {
+                                      const selected = nsos.find(
+                                        (nso) => nso.mail_id === editMandateData.newSalesOwner
+                                      );
+                                      return selected
+                                        ? `${selected.first_name} ${selected.last_name} (${selected.mail_id})`
+                                        : editMandateData.newSalesOwner;
+                                    })()
+                                  : "Select New Sales Officer"}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              className="w-[var(--radix-popover-trigger-width)] p-0"
+                              align="start"
+                              onWheel={(e) => {
+                                const list = (e.currentTarget.querySelector("[cmdk-list]") as HTMLElement | null);
+                                if (list) {
+                                  list.scrollTop += e.deltaY;
+                                  e.preventDefault();
+                                }
+                              }}
+                            >
+                              <Command>
+                                <CommandInput placeholder="Search NSOs..." />
+                                <CommandEmpty>No New Sales Officer found.</CommandEmpty>
+                                <CommandList className="max-h-[300px]">
+                                  {nsos.map((nso) => (
+                                    <CommandItem
+                                      key={nso.id}
+                                      value={`${nso.first_name} ${nso.last_name} ${nso.mail_id}`}
+                                      onSelect={() => {
+                                        setEditMandateData({
+                                          ...editMandateData,
+                                          newSalesOwner: nso.mail_id,
+                                        });
+                                        setEditNsoSelectOpen(false);
+                                      }}
+                                    >
+                                      <div className="flex flex-col">
+                                        <span>{`${nso.first_name} ${nso.last_name}`}</span>
+                                        <span className="text-xs text-muted-foreground">
+                                          {nso.mail_id}
+                                        </span>
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <Input
+                            value={editMandateData.newSalesOwner}
+                            onChange={(e) =>
+                              setEditMandateData({ ...editMandateData, newSalesOwner: e.target.value })
+                            }
+                          />
+                        )
                       ) : (
                         <p className="mt-1">{selectedMandate.new_sales_owner || "N/A"}</p>
                       )}

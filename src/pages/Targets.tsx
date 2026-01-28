@@ -217,7 +217,16 @@ export default function Targets() {
   const [existingTargetsData, setExistingTargetsData] = useState<Record<string, Record<string, number>>>({}); // mandateId -> monthKey -> target
   const [crossSellTargetsData, setCrossSellTargetsData] = useState<Record<string, Record<string, number>>>({}); // kamId_accountId -> monthKey -> target
   const [crossSellKamAccountCombos, setCrossSellKamAccountCombos] = useState<Array<{ kamId: string; kamName: string; accountId: string; accountName: string }>>([]); // List of unique KAM-account combinations
-  const [allMandates, setAllMandates] = useState<Array<{ id: string; project_code: string; project_name: string; kam_id?: string | null; kamName?: string | null; type?: string | null }>>([]);
+  const [allMandates, setAllMandates] = useState<Array<{
+    id: string;
+    project_code: string;
+    project_name: string;
+    kam_id?: string | null;
+    kamName?: string | null;
+    type?: string | null;
+    new_sales_owner?: string | null;
+    nsoInfo?: { first_name: string; last_name: string } | null;
+  }>>([]);
   const [allAccounts, setAllAccounts] = useState<Array<{ id: string; name: string }>>([]);
   // Initialize monthColumns with current financial year months
   const [monthColumns, setMonthColumns] = useState<Array<{ month: number; year: number; key: string; label: string }>>(() => {
@@ -286,7 +295,7 @@ export default function Targets() {
       // If user is a KAM, filter by their KAM ID
       let mandatesQuery = supabase
         .from("mandates")
-        .select("id, project_code, project_name, kam_id, type");
+        .select("id, project_code, project_name, kam_id, type, new_sales_owner");
       
       if (currentIsKAM && currentUser?.id) {
         mandatesQuery = mandatesQuery.eq("kam_id", currentUser.id);
@@ -311,10 +320,37 @@ export default function Targets() {
         }
       }
       
-      // Add KAM names to mandates
+      // Fetch NSO data for mandates with type "New Acquisition"
+      const nsoMailIds = [...new Set((allMandatesData || [])
+        .filter((m: any) => m.type === "New Acquisition" && m.new_sales_owner)
+        .map((m: any) => m.new_sales_owner)
+        .filter(Boolean))];
+      
+      const nsoMap: Record<string, { first_name: string; last_name: string }> = {};
+      
+      if (nsoMailIds.length > 0) {
+        const { data: nsoData } = await supabase
+          .from("new_sales_officers")
+          .select("mail_id, first_name, last_name")
+          .in("mail_id", nsoMailIds);
+        
+        if (nsoData) {
+          nsoData.forEach((nso) => {
+            nsoMap[nso.mail_id] = {
+              first_name: nso.first_name,
+              last_name: nso.last_name,
+            };
+          });
+        }
+      }
+      
+      // Add KAM names and NSO info to mandates
       const mandatesWithKam = (allMandatesData || []).map((mandate: any) => ({
         ...mandate,
         kamName: mandate.kam_id ? mandateKamMap[mandate.kam_id] || "Unknown" : null,
+        nsoInfo: mandate.type === "New Acquisition" && mandate.new_sales_owner && nsoMap[mandate.new_sales_owner]
+          ? nsoMap[mandate.new_sales_owner]
+          : null,
       }));
       
       setAllMandates(mandatesWithKam);
@@ -953,10 +989,23 @@ export default function Targets() {
         targetData.account_id = formData.accountId;
         targetData.mandate_id = null;
         targetData.kam_id = formData.kamId;
+        targetData.nso_mail_id = null;
       } else if (formData.targetType === "existing") {
         targetData.mandate_id = formData.mandateId;
         targetData.account_id = null;
-        targetData.kam_id = null;
+
+        // Derive KAM + NSO from the mandate
+        const { data: mandateRow, error: mandateErr } = await supabase
+          .from("mandates")
+          .select("kam_id, type, new_sales_owner")
+          .eq("id", formData.mandateId)
+          .single();
+
+        if (mandateErr) throw mandateErr;
+
+        targetData.kam_id = mandateRow?.kam_id || null;
+        targetData.nso_mail_id =
+          mandateRow?.type === "New Acquisition" ? (mandateRow?.new_sales_owner || null) : null;
       }
 
       // Update or insert into monthly_targets table
@@ -974,6 +1023,7 @@ export default function Targets() {
             account_id: targetData.account_id,
             mandate_id: targetData.mandate_id,
             kam_id: targetData.kam_id,
+            nso_mail_id: targetData.nso_mail_id,
           })
           .eq("id", editingTarget.id);
         
@@ -1243,13 +1293,22 @@ export default function Targets() {
       const { data: mandateData } = mandateCodes.length > 0
         ? await supabase
             .from("mandates")
-            .select("id, project_code, kam_id")
+            .select("id, project_code, kam_id, type, new_sales_owner")
             .in("project_code", mandateCodes)
         : { data: null };
 
       const mandateMap: Record<string, string> = {};
       mandateData?.forEach((mandate) => {
         mandateMap[mandate.project_code] = mandate.id;
+      });
+
+      // Map mandate_id -> derived fields
+      const mandateDerivedMap: Record<string, { kam_id: string | null; nso_mail_id: string | null }> = {};
+      mandateData?.forEach((mandate: any) => {
+        mandateDerivedMap[mandate.id] = {
+          kam_id: mandate.kam_id || null,
+          nso_mail_id: mandate.type === "New Acquisition" ? (mandate.new_sales_owner || null) : null,
+        };
       });
 
       // Fetch KAM-Account relationships from mandates for validation
@@ -1552,7 +1611,8 @@ export default function Targets() {
               financial_year: financialYear,
               target,
               target_type: "existing" as const,
-              kam_id: null,
+              kam_id: mandateDerivedMap[mandateId]?.kam_id || null,
+              nso_mail_id: mandateDerivedMap[mandateId]?.nso_mail_id || null,
               account_id: null,
               mandate_id: mandateId,
               created_by: user.id,
@@ -2057,7 +2117,7 @@ export default function Targets() {
                   <TableRow>
                     <TableHead className="sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">Mandate</TableHead>
                     <TableHead className="sticky left-[200px] z-10 bg-background min-w-[150px] w-[150px]">Mandate Type</TableHead>
-                    <TableHead className="sticky left-[350px] z-10 bg-background min-w-[200px] w-[200px]">KAM</TableHead>
+                    <TableHead className="sticky left-[350px] z-10 bg-background min-w-[200px] w-[200px]">KAM/NSO</TableHead>
                     {monthColumns.map((col) => (
                       <TableHead key={col.key} className="text-center min-w-[100px]">
                         {col.label}
@@ -2082,7 +2142,16 @@ export default function Targets() {
                           {mandate.type || <span className="text-muted-foreground">-</span>}
                         </TableCell>
                         <TableCell className="font-medium sticky left-[350px] z-10 bg-background min-w-[200px] w-[200px]">
-                          {mandate.kamName || <span className="text-muted-foreground">-</span>}
+                          <div className="flex flex-col">
+                            <span>{mandate.kamName || <span className="text-muted-foreground">-</span>}</span>
+                            {mandate.type === "New Acquisition" && mandate.new_sales_owner && (
+                              <span className="text-xs text-muted-foreground mt-1">
+                                {mandate.nsoInfo
+                                  ? `${mandate.nsoInfo.first_name} ${mandate.nsoInfo.last_name}`
+                                  : mandate.new_sales_owner}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         {monthColumns.map((col) => {
                           const targetValue = existingTargetsData[mandate.id]?.[col.key] || 0;

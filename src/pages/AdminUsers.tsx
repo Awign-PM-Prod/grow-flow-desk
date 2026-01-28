@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Search, UserCog, Loader2, Mail } from "lucide-react";
+import { Search, UserCog, Loader2, Mail, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { InviteUserDialog } from "@/components/InviteUserDialog";
@@ -21,6 +22,7 @@ interface UserData {
 }
 
 export default function AdminUsers() {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,7 +142,17 @@ export default function AdminUsers() {
             Manage users and their role assignments.
           </p>
         </div>
-        <InviteUserDialog onUserInvited={fetchUsers} />
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => navigate("/admin/nso")}
+          >
+            <Users className="h-4 w-4" />
+            Manage NSO
+          </Button>
+          <InviteUserDialog onUserInvited={fetchUsers} />
+        </div>
       </div>
 
       <UserInviteInfo />

@@ -22,3 +22,6 @@ COMMENT ON COLUMN public.mandates.handover_date IS 'Optional handover date for m
 
 
 
+
+
+

@@ -365,6 +365,7 @@ export type Database = {
           financial_year: string
           id: string
           kam_id: string | null
+          nso_mail_id: string | null
           mandate_id: string | null
           month: number
           target: number
@@ -378,6 +379,7 @@ export type Database = {
           financial_year: string
           id?: string
           kam_id?: string | null
+          nso_mail_id?: string | null
           mandate_id?: string | null
           month: number
           target: number
@@ -391,6 +393,7 @@ export type Database = {
           financial_year?: string
           id?: string
           kam_id?: string | null
+          nso_mail_id?: string | null
           mandate_id?: string | null
           month?: number
           target?: number
@@ -418,6 +421,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "mandates"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monthly_targets_nso_mail_id_fkey"
+            columns: ["nso_mail_id"]
+            isOneToOne: false
+            referencedRelation: "new_sales_officers"
+            referencedColumns: ["mail_id"]
           },
         ]
       }
