@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
+import { formatNumber } from "@/lib/utils";
 
 export default function CrossSellDashboard() {
   const [loading, setLoading] = useState(true);
@@ -984,10 +985,13 @@ export default function CrossSellDashboard() {
                     height={60}
                     interval={0}
                   />
-                  <YAxis type="number" />
+                  <YAxis 
+                    type="number" 
+                    tickFormatter={(value) => formatNumber(value)}
+                  />
                   <Tooltip 
                     formatter={(value: any) => {
-                      return typeof value === 'number' ? value.toLocaleString("en-IN") : value;
+                      return typeof value === 'number' ? formatNumber(value) : value;
                     }}
                   />
                   <Bar dataKey="value" barSize={60} radius={[4, 4, 0, 0]} isAnimationActive={false}>
@@ -1027,7 +1031,10 @@ export default function CrossSellDashboard() {
                     height={60}
                     interval={0}
                   />
-                  <YAxis type="number" />
+                  <YAxis 
+                    type="number" 
+                    tickFormatter={(value) => formatNumber(value)}
+                  />
                   <Tooltip 
                     formatter={(value: any) => {
                       return `₹${typeof value === 'number' ? value.toFixed(1) : parseFloat(value).toFixed(1)}L`;
@@ -1048,13 +1055,13 @@ export default function CrossSellDashboard() {
         <div className="space-y-4 lg:col-span-2">
           <Card>
             <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">{meetingsDoneLastWeek}</div>
+              <div className="text-3xl font-bold text-center">{formatNumber(meetingsDoneLastWeek)}</div>
               <p className="text-sm text-muted-foreground text-center mt-1">Meetings Done Last Week</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-3xl font-bold text-center">{meetingsDoneThisWeek}</div>
+              <div className="text-3xl font-bold text-center">{formatNumber(meetingsDoneThisWeek)}</div>
               <p className="text-sm text-muted-foreground text-center mt-1">Meetings Done This Week</p>
             </CardContent>
           </Card>
@@ -1113,11 +1120,11 @@ export default function CrossSellDashboard() {
                     <TableRow key={idx}>
                       <TableCell className="font-medium">{row.status}</TableCell>
                       <TableCell className="w-[200px]">
-                        ₹{row.mcv.toLocaleString("en-IN")}
+                        ₹{formatNumber(row.mcv)}
                       </TableCell>
                       <TableCell className="w-[200px]">
                         <div className="flex items-center gap-2">
-                          <span className="w-12">{row.records}</span>
+                          <span className="w-12">{formatNumber(row.records)}</span>
                           <div 
                             className="flex-1 h-4 rounded relative"
                             style={{ backgroundColor: statusColors.bg }}
@@ -1133,8 +1140,8 @@ export default function CrossSellDashboard() {
                         </div>
                       </TableCell>
                       <TableCell>{row.cvr}</TableCell>
-                      <TableCell>{row.remaining}</TableCell>
-                      <TableCell>{row.dropped}</TableCell>
+                      <TableCell>{formatNumber(row.remaining)}</TableCell>
+                      <TableCell>{formatNumber(row.dropped)}</TableCell>
                     </TableRow>
                   );
                 })
@@ -1353,31 +1360,31 @@ export default function CrossSellDashboard() {
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${tofuCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            TOFU : <span className="font-bold">{values.tofu}</span>
+                            TOFU : <span className="font-bold">{formatNumber(values.tofu)}</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${mofuCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            MOFU : <span className="font-bold">{values.mofu}</span>
+                            MOFU : <span className="font-bold">{formatNumber(values.mofu)}</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${bofuCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            BOFU : <span className="font-bold">{values.bofu}</span>
+                            BOFU : <span className="font-bold">{formatNumber(values.bofu)}</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${closedWonCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            Closed Won : <span className="font-bold">{values.closedWon}</span>
+                            Closed Won : <span className="font-bold">{formatNumber(values.closedWon)}</span>
                           </span>
                           <span 
                             className="font-medium text-gray-800 whitespace-nowrap absolute right-0"
                             style={{ top: `${droppedCenter}px`, transform: 'translateY(-50%)' }}
                           >
-                            Dropped : <span className="font-bold">{values.dropped}</span>
+                            Dropped : <span className="font-bold">{formatNumber(values.dropped)}</span>
                           </span>
                         </div>
                       );

@@ -33,6 +33,7 @@ import { Plus, Loader2, Pencil, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { parseCSV, downloadCSV } from "@/lib/csv-export";
+import { formatNumber } from "@/lib/utils";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 
 // Helper function to calculate Financial Year based on selected month and year
@@ -2159,7 +2160,7 @@ export default function Targets() {
                             <TableCell key={col.key} className="text-center">
                               {targetValue > 0 ? (
                                 <span className="font-semibold">
-                                  {Math.round(targetValue).toLocaleString()}
+                                  {formatNumber(Math.round(targetValue))}
                                 </span>
                               ) : (
                                 <span className="text-muted-foreground">-</span>
@@ -2225,7 +2226,7 @@ export default function Targets() {
                               <TableCell key={col.key} className="text-center">
                                 {targetValue > 0 ? (
                                   <span className="font-semibold">
-                                    {Math.round(targetValue).toLocaleString()}
+                                    {formatNumber(Math.round(targetValue))}
                                   </span>
                                 ) : (
                                   <span className="text-muted-foreground">-</span>

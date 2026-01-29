@@ -3012,11 +3012,11 @@ export default function Mandates() {
                           </PopoverContent>
                         </Popover>
                       ) : (
-                        <Input
-                          id="newSalesOwner"
-                          value={formData.newSalesOwner}
-                          onChange={(e) => handleInputChange("newSalesOwner", e.target.value)}
-                        />
+                      <Input
+                        id="newSalesOwner"
+                        value={formData.newSalesOwner}
+                        onChange={(e) => handleInputChange("newSalesOwner", e.target.value)}
+                      />
                       )}
                     </div>
                     <div className="space-y-2">
@@ -4076,12 +4076,12 @@ export default function Mandates() {
                             </PopoverContent>
                           </Popover>
                         ) : (
-                          <Input
-                            value={editMandateData.newSalesOwner}
+                        <Input
+                          value={editMandateData.newSalesOwner}
                             onChange={(e) =>
                               setEditMandateData({ ...editMandateData, newSalesOwner: e.target.value })
                             }
-                          />
+                        />
                         )
                       ) : (
                         <p className="mt-1">{selectedMandate.new_sales_owner || "N/A"}</p>

@@ -27,3 +27,4 @@ CREATE INDEX IF NOT EXISTS idx_monthly_targets_nso_mail_id ON public.monthly_tar
 COMMENT ON COLUMN public.monthly_targets.nso_mail_id IS 'NSO Mail ID derived from the linked mandate (only for New Acquisition mandates).';
 
 
+

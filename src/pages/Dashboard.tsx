@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { useAuth } from "@/hooks/useAuth";
+import { formatNumber } from "@/lib/utils";
 
 // All LoB options
 const lobOptions = [
@@ -125,7 +126,7 @@ export default function Dashboard() {
   });
   const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("All mandate types");
   const [filterKam, setFilterKam] = useState<string>("");
-  const [filterType, setFilterType] = useState<"all" | "kam" | "nso">("all");
+  const [filterType, setFilterType] = useState<"all" | "all_kams" | "all_nsos" | "kam" | "nso">("all");
   const [filterNso, setFilterNso] = useState<string>("");
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [nsos, setNsos] = useState<Array<{ mail_id: string; first_name: string; last_name: string }>>([]);
@@ -211,10 +212,10 @@ export default function Dashboard() {
   };
 
   // Helper function to apply status filter to a Supabase query
-  // Note: When filterType is "nso", we skip status filter since NSOs only exist for "New Acquisition" mandates
-  const applyStatusFilter = (query: any, statusFilter: string, filterType?: "all" | "kam" | "nso"): any => {
-    // If filtering by NSO, skip status filter (NSOs only exist for New Acquisition mandates)
-    if (filterType === "nso") {
+  // Note: When filterType is "nso" or "all_nsos", we skip status filter since NSOs only exist for "New Acquisition" mandates
+  const applyStatusFilter = (query: any, statusFilter: string, filterType?: "all" | "all_kams" | "all_nsos" | "kam" | "nso"): any => {
+    // If filtering by NSO or all NSOs, skip status filter (NSOs only exist for New Acquisition mandates)
+    if (filterType === "nso" || filterType === "all_nsos") {
       return query; // Skip status filter when filtering by NSO
     }
     
@@ -233,7 +234,7 @@ export default function Dashboard() {
   };
 
   // Helper function to apply KAM/NSO filter to a Supabase query
-  const applyKamFilter = (query: any, kamFilter: string, nsoFilter: string, filterType: "all" | "kam" | "nso"): any => {
+  const applyKamFilter = (query: any, kamFilter: string, nsoFilter: string, filterType: "all" | "all_kams" | "all_nsos" | "kam" | "nso"): any => {
     // If user is a KAM, always filter by their ID
     if (isKAM && user?.id) {
       return query.eq("kam_id", user.id);
@@ -242,6 +243,16 @@ export default function Dashboard() {
     // If filterType is "all", don't apply any filter (show all)
     if (filterType === "all") {
       return query; // No filter applied - show all KAMs and NSOs
+    }
+    
+    // If filterType is "all_kams", filter to only show mandates with a KAM (not New Acquisition mandates without KAM)
+    if (filterType === "all_kams") {
+      return query.not("kam_id", "is", null);
+    }
+    
+    // If filterType is "all_nsos", filter to only show New Acquisition mandates (which have NSOs)
+    if (filterType === "all_nsos") {
+      return query.eq("type", "New Acquisition").not("new_sales_owner", "is", null);
     }
     
     // If filterType is "kam", filter by KAM
@@ -266,6 +277,36 @@ export default function Dashboard() {
       // When "All KAMs and NSOs" is selected, include all targets
       // No additional filtering needed - mandates are already unique
       return targets;
+    } else if (filterType === "all_kams") {
+      // When "All KAMs" is selected, include targets that have a KAM
+      return targets.filter((target: any) => {
+        // For new_cross_sell targets: check monthly_targets.kam_id directly
+        if (target.kam_id) {
+          return true;
+        }
+        // For existing targets: check mandate's kam_id
+        const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+        if (target.mandate_id && mandate && mandate.kam_id) {
+          return true;
+        }
+        return false;
+      });
+    } else if (filterType === "all_nsos") {
+      // When "All NSOs" is selected, include targets that have an NSO (New Acquisition mandates)
+      return targets.filter((target: any) => {
+        // Check nso_mail_id directly first
+        if (target.nso_mail_id) {
+          return true;
+        }
+        // Also check mandate's new_sales_owner for backward compatibility
+        if (target.mandate_id) {
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (mandate && mandate.type === "New Acquisition" && mandate.new_sales_owner) {
+            return true;
+          }
+        }
+        return false;
+      });
     } else if (filterType === "kam" && filterKam && filterKam !== "") {
       return targets.filter((target: any) => {
         // For new_cross_sell targets: check monthly_targets.kam_id directly
@@ -1104,6 +1145,31 @@ export default function Dashboard() {
             // When "All KAMs and NSOs" is selected, include all targets
             // No additional filtering needed - mandates are already unique
             return true;
+          } else if (filterType === "all_kams") {
+            // When "All KAMs" is selected, include targets that have a KAM
+            if (targetType === 'new_cross_sell') {
+              if (target.kam_id) {
+                return true;
+              }
+            } else if (targetType === 'existing' && target.mandate_id && mandate) {
+              if (mandate.kam_id) {
+                return true;
+              }
+            }
+            return false;
+          } else if (filterType === "all_nsos") {
+            // When "All NSOs" is selected, include targets that have an NSO (New Acquisition mandates)
+            if (targetType === 'existing') {
+              if (target.nso_mail_id) {
+                return true;
+              }
+              if (target.mandate_id && mandate) {
+                if (mandate.type === "New Acquisition" && mandate.new_sales_owner) {
+                  return true;
+                }
+              }
+            }
+            return false;
           } else if (filterType === "kam" && filterKam && filterKam !== "") {
             // For new_cross_sell targets: check monthly_targets.kam_id directly
             if (targetType === 'new_cross_sell') {
@@ -1213,8 +1279,8 @@ export default function Dashboard() {
       const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
       
       // Debug logging for NSO filter
-      if (filterType === "nso" && filterNso) {
-        console.log(`NSO Filter - Mandates Query: filterNso=${filterNso}, mandates found: ${allMandatesForMcv?.length || 0}`);
+      if ((filterType === "nso" && filterNso) || filterType === "all_nsos") {
+        console.log(`NSO Filter - Mandates Query: filterType=${filterType}, filterNso=${filterNso}, mandates found: ${allMandatesForMcv?.length || 0}`);
         if (allMandatesForMcv && allMandatesForMcv.length > 0) {
           console.log(`NSO Filter - Sample mandates:`, allMandatesForMcv.slice(0, 3).map(m => ({ 
             type: m.type, 
@@ -1223,8 +1289,8 @@ export default function Dashboard() {
         }
       }
 
-      // If filtering by NSO, process New Acquisition mandates
-      if (filterType === "nso") {
+      // If filtering by NSO or all NSOs, process New Acquisition mandates
+      if (filterType === "nso" || filterType === "all_nsos") {
         // For NSO filter, only process New Acquisition mandates
         if (!mcvError && allMandatesForMcv) {
           allMandatesForMcv.forEach((mandate: any) => {
@@ -1413,8 +1479,8 @@ export default function Dashboard() {
       let totalMcvThisQuarter = 0;
 
       // Calculate sum of achieved MCV for current quarter months
-      // If filtering by NSO, process New Acquisition mandates
-      if (filterType === "nso") {
+      // If filtering by NSO or all NSOs, process New Acquisition mandates
+      if (filterType === "nso" || filterType === "all_nsos") {
         // For NSO filter, only process New Acquisition mandates
         if (!mcvError && allMandatesForMcv) {
           allMandatesForMcv.forEach((mandate: any) => {
@@ -1632,8 +1698,8 @@ export default function Dashboard() {
       // Calculate Annual Achieved: Sum of achieved MCV for all months in selected FY
       let totalAnnualAchieved = 0;
       
-      // If filtering by NSO, process New Acquisition mandates
-      if (filterType === "nso") {
+      // If filtering by NSO or all NSOs, process New Acquisition mandates
+      if (filterType === "nso" || filterType === "all_nsos") {
         // For NSO filter, only process New Acquisition mandates
         if (!mcvError && allMandatesForMcv) {
           allMandatesForMcv.forEach((mandate: any) => {
@@ -1871,8 +1937,8 @@ export default function Dashboard() {
       // Calculate Current Month Achieved: Sum of achieved MCV for current month from all mandates
       let totalCurrentMonthAchieved = 0;
       
-      // If filtering by NSO, process New Acquisition mandates
-      if (filterType === "nso") {
+      // If filtering by NSO or all NSOs, process New Acquisition mandates
+      if (filterType === "nso" || filterType === "all_nsos") {
         // For NSO filter, only process New Acquisition mandates
         if (!mcvError && allMandatesForMcv) {
           allMandatesForMcv.forEach((mandate: any) => {
@@ -2666,7 +2732,7 @@ export default function Dashboard() {
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="All mandate types">All Mndate Types</SelectItem>
+            <SelectItem value="All mandate types">All Mandate Types</SelectItem>
             <SelectItem value="Existing">Existing</SelectItem>
             <SelectItem value="All Cross Sell">All Cross Sell</SelectItem>
             <SelectItem value="All Cross Sell + Existing">All Cross Sell + Existing</SelectItem>
@@ -2677,10 +2743,18 @@ export default function Dashboard() {
         {/* KAM/NSO Filter with Two-Level Selection - Hidden for KAM users */}
         {!isKAM && (
           <Select 
-            value={filterType === "all" ? "all" : filterType === "kam" ? `kam_${filterKam}` : `nso_${filterNso}`}
+            value={filterType === "all" ? "all" : filterType === "all_kams" ? "all_kams" : filterType === "all_nsos" ? "all_nsos" : filterType === "kam" ? `kam_${filterKam}` : `nso_${filterNso}`}
             onValueChange={(value) => {
               if (value === "all") {
                 setFilterType("all");
+                setFilterKam("");
+                setFilterNso("");
+              } else if (value === "all_kams") {
+                setFilterType("all_kams");
+                setFilterKam("");
+                setFilterNso("");
+              } else if (value === "all_nsos") {
+                setFilterType("all_nsos");
                 setFilterKam("");
                 setFilterNso("");
               } else if (value.startsWith("kam_")) {
@@ -2699,12 +2773,16 @@ export default function Dashboard() {
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="All KAMs and NSOs">
                 {filterType === "all" && "All KAMs and NSOs"}
+                {filterType === "all_kams" && "All KAMs"}
+                {filterType === "all_nsos" && "All NSOs"}
                 {filterType === "kam" && filterKam && kams.find(k => k.id === filterKam)?.full_name}
                 {filterType === "nso" && filterNso && nsos.find(n => n.mail_id === filterNso) && `${nsos.find(n => n.mail_id === filterNso)?.first_name} ${nsos.find(n => n.mail_id === filterNso)?.last_name}`}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All KAMs and NSOs</SelectItem>
+              <SelectItem value="all_kams">All KAMs</SelectItem>
+              <SelectItem value="all_nsos">All NSOs</SelectItem>
               <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">KAM</div>
               <div className="px-2 pb-2">
                 <Input
@@ -2775,7 +2853,7 @@ export default function Dashboard() {
             ) : (
               <>
                 <p className="text-base font-bold mb-2">Total Mandates</p>
-                <div className="text-3xl font-bold">{totalMandates.toLocaleString("en-IN")}</div>
+                <div className="text-3xl font-bold">{formatNumber(totalMandates)}</div>
               </>
             )}
           </CardContent>
@@ -2791,7 +2869,7 @@ export default function Dashboard() {
             ) : (
               <>
                 <p className="text-base font-bold mb-2">Total Accounts</p>
-                <div className="text-3xl font-bold">{totalAccounts.toLocaleString("en-IN")}</div>
+                <div className="text-3xl font-bold">{formatNumber(totalAccounts)}</div>
                 <p className="text-xs text-muted-foreground mt-2">Unique accounts from mandates</p>
               </>
             )}
@@ -2952,7 +3030,7 @@ export default function Dashboard() {
                   {overlapFactor !== null ? overlapFactor.toFixed(2) : "N/A"}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {totalMandates} mandates / {totalAccounts} accounts
+                  {formatNumber(totalMandates)} mandates / {formatNumber(totalAccounts)} accounts
                 </p>
               </>
             )}
@@ -2988,7 +3066,10 @@ export default function Dashboard() {
                     barCategoryGap="20%"
                     barGap={0}
                   >
-                    <XAxis type="number" />
+                    <XAxis 
+                      type="number" 
+                      tickFormatter={(value) => formatNumber(value)}
+                    />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
                       formatter={(value: any, name: string, props: any) => {
@@ -3079,7 +3160,10 @@ export default function Dashboard() {
                 </div>
                 <ResponsiveContainer width="100%" height={100}>
                   <BarChart data={actualVsTargetQ2} layout="vertical" barCategoryGap="20%" barGap={0}>
-                    <XAxis type="number" />
+                    <XAxis 
+                      type="number" 
+                      tickFormatter={(value) => formatNumber(value)}
+                    />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
                       formatter={(value: any, name: string, props: any) => {
@@ -3177,7 +3261,10 @@ export default function Dashboard() {
                 </div>
                 <ResponsiveContainer width="100%" height={100}>
                   <BarChart data={actualVsTargetCurrent} layout="vertical" barCategoryGap="20%" barGap={0}>
-                    <XAxis type="number" />
+                    <XAxis 
+                      type="number" 
+                      tickFormatter={(value) => formatNumber(value)}
+                    />
                     <YAxis dataKey="name" type="category" width={80} hide />
                     <Tooltip 
                       formatter={(value: any, name: string, props: any) => {
@@ -3473,10 +3560,10 @@ export default function Dashboard() {
                 <Tooltip 
                   formatter={(value: number, name: string) => {
                     const formattedValue = value >= 10000000
-                      ? `₹${(value / 10000000).toFixed(2)}Cr`
-                      : value >= 100000
-                      ? `₹${(value / 100000).toFixed(1)}L`
-                      : `₹${value.toLocaleString("en-IN")}`;
+                        ? `₹${(value / 10000000).toFixed(2)}Cr`
+                        : value >= 100000
+                        ? `₹${(value / 100000).toFixed(1)}L`
+                        : `₹${formatNumber(value)}`;
                     return formattedValue;
                   }}
                   content={({ active, payload }: any) => {
@@ -3492,7 +3579,7 @@ export default function Dashboard() {
                                     ? `₹${(entry.value / 10000000).toFixed(2)}Cr`
                                     : entry.value >= 100000
                                     ? `₹${(entry.value / 100000).toFixed(1)}L`
-                                    : `₹${entry.value.toLocaleString("en-IN")}`}
+                                    : `₹${formatNumber(entry.value)}`}
                                 </p>
                               );
                             }
@@ -3599,7 +3686,7 @@ export default function Dashboard() {
                     } else if (originalValue >= 100000) {
                       return [`₹${(originalValue / 100000).toFixed(1)}L`, displayName];
                     } else {
-                      return [`₹${originalValue.toLocaleString("en-IN")}`, displayName];
+                      return [`₹${formatNumber(originalValue)}`, displayName];
                     }
                   }}
                   cursor={false}
@@ -3799,9 +3886,9 @@ export default function Dashboard() {
                   upsellGroupB.map((row, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{row.status}</TableCell>
-                      <TableCell>{row.count}</TableCell>
+                      <TableCell>{formatNumber(row.count)}</TableCell>
                       <TableCell>{row.revenue}</TableCell>
-                      <TableCell>{row.accounts}</TableCell>
+                      <TableCell>{formatNumber(row.accounts)}</TableCell>
                     </TableRow>
                   ))
                 )}
@@ -3841,9 +3928,9 @@ export default function Dashboard() {
                   upsellGroupC.map((row, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{row.status}</TableCell>
-                      <TableCell>{row.count}</TableCell>
+                      <TableCell>{formatNumber(row.count)}</TableCell>
                       <TableCell>{row.revenue}</TableCell>
-                      <TableCell>{row.accounts}</TableCell>
+                      <TableCell>{formatNumber(row.accounts)}</TableCell>
                     </TableRow>
                   ))
                 )}
