@@ -1610,24 +1610,22 @@ export default function Dashboard() {
           });
         }
       } else {
-        // For other statuses, use mandates
+        // For other statuses (including "All mandate types"), use all mandates
         if (!mcvError && allMandatesForMcv) {
           allMandatesForMcv.forEach((mandate: any) => {
             const monthlyData = mandate.monthly_data;
             if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
               Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
-                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                  
-                  // Check if this month belongs to the current quarter and selected FY
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                      monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalMcvThisQuarter += achievedMcv;
-                  }
+                const [year, month] = monthYear.split('-');
+                const yearNum = parseInt(year);
+                const monthNum = parseInt(month);
+                const achievedMcv = getAchievedMcv(monthRecord);
+                
+                // Check if this month belongs to the current quarter and selected FY
+                const monthDate = new Date(yearNum, monthNum - 1, 1);
+                if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
+                    monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  totalMcvThisQuarter += achievedMcv;
                 }
               });
             }
@@ -1799,23 +1797,21 @@ export default function Dashboard() {
           });
         }
       } else {
-        // For other statuses, use mandates
+        // For other statuses (including "All mandate types"), use all mandates
         if (!mcvError && allMandatesForMcv) {
           allMandatesForMcv.forEach((mandate: any) => {
             const monthlyData = mandate.monthly_data;
             if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
               Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                  const [year, month] = monthYear.split('-');
-                  const yearNum = parseInt(year);
-                  const monthNum = parseInt(month);
-                  const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                  
-                  // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    totalAnnualAchieved += achievedMcv;
-                  }
+                const [year, month] = monthYear.split('-');
+                const yearNum = parseInt(year);
+                const monthNum = parseInt(month);
+                const monthDate = new Date(yearNum, monthNum - 1, 1);
+                const achievedMcv = getAchievedMcv(monthRecord);
+                
+                // Only include if within selected FY date range
+                if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  totalAnnualAchieved += achievedMcv;
                 }
               });
             }
@@ -2028,25 +2024,23 @@ export default function Dashboard() {
           });
         }
       } else {
-        // For other statuses, use mandates
+        // For other statuses (including "All mandate types"), use all mandates
         if (!mcvError && allMandatesForMcv) {
           allMandatesForMcv.forEach((mandate: any) => {
             const monthlyData = mandate.monthly_data;
             if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
               Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                  // Check if this is the current month and within selected FY
-                  if (monthYear === currentMonthYear) {
-                    const [yearStr, monthStr] = monthYear.split('-');
-                    const year = parseInt(yearStr);
-                    const month = parseInt(monthStr);
-                    const monthDate = new Date(year, month - 1, 1);
-                    
-                    // Only include if within selected FY date range
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                      const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                      totalCurrentMonthAchieved += achievedMcv;
-                    }
+                // Check if this is the current month and within selected FY
+                if (monthYear === currentMonthYear) {
+                  const [yearStr, monthStr] = monthYear.split('-');
+                  const year = parseInt(yearStr);
+                  const month = parseInt(monthStr);
+                  const monthDate = new Date(year, month - 1, 1);
+                  
+                  // Only include if within selected FY date range
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const achievedMcv = getAchievedMcv(monthRecord);
+                    totalCurrentMonthAchieved += achievedMcv;
                   }
                 }
               });
