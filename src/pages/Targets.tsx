@@ -2134,33 +2134,64 @@ export default function Targets() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    allMandates.map((mandate) => (
-                      <TableRow key={mandate.id}>
-                        <TableCell className="font-medium sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">
-                          {mandate.project_code} - {mandate.project_name}
+                    <>
+                      {allMandates.map((mandate) => (
+                        <TableRow key={mandate.id}>
+                          <TableCell className="font-medium sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">
+                            {mandate.project_code} - {mandate.project_name}
+                          </TableCell>
+                          <TableCell className="font-medium sticky left-[200px] z-10 bg-background min-w-[150px] w-[150px]">
+                            {mandate.type || <span className="text-muted-foreground">-</span>}
+                          </TableCell>
+                          <TableCell className="font-medium sticky left-[350px] z-10 bg-background min-w-[200px] w-[200px]">
+                            <div className="flex flex-col">
+                              <span>{mandate.kamName || <span className="text-muted-foreground">-</span>}</span>
+                              {mandate.type === "New Acquisition" && mandate.new_sales_owner && (
+                                <span className="text-xs text-muted-foreground mt-1">
+                                  {mandate.nsoInfo
+                                    ? `${mandate.nsoInfo.first_name} ${mandate.nsoInfo.last_name}`
+                                    : mandate.new_sales_owner}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          {monthColumns.map((col) => {
+                            const targetValue = existingTargetsData[mandate.id]?.[col.key] || 0;
+                            return (
+                              <TableCell key={col.key} className="text-center">
+                                {targetValue > 0 ? (
+                                  <span className="font-semibold">
+                                    {formatNumber(Math.round(targetValue))}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))}
+                      {/* Summary Row */}
+                      <TableRow className="bg-muted/50 font-bold">
+                        <TableCell className="font-bold sticky left-0 z-10 bg-muted/50 min-w-[200px] w-[200px]">
+                          Total
                         </TableCell>
-                        <TableCell className="font-medium sticky left-[200px] z-10 bg-background min-w-[150px] w-[150px]">
-                          {mandate.type || <span className="text-muted-foreground">-</span>}
+                        <TableCell className="font-bold sticky left-[200px] z-10 bg-muted/50 min-w-[150px] w-[150px]">
+                          -
                         </TableCell>
-                        <TableCell className="font-medium sticky left-[350px] z-10 bg-background min-w-[200px] w-[200px]">
-                          <div className="flex flex-col">
-                            <span>{mandate.kamName || <span className="text-muted-foreground">-</span>}</span>
-                            {mandate.type === "New Acquisition" && mandate.new_sales_owner && (
-                              <span className="text-xs text-muted-foreground mt-1">
-                                {mandate.nsoInfo
-                                  ? `${mandate.nsoInfo.first_name} ${mandate.nsoInfo.last_name}`
-                                  : mandate.new_sales_owner}
-                              </span>
-                            )}
-                          </div>
+                        <TableCell className="font-bold sticky left-[350px] z-10 bg-muted/50 min-w-[200px] w-[200px]">
+                          -
                         </TableCell>
                         {monthColumns.map((col) => {
-                          const targetValue = existingTargetsData[mandate.id]?.[col.key] || 0;
+                          // Calculate sum for this month across all mandates
+                          const monthSum = Object.values(existingTargetsData).reduce((sum, mandateData) => {
+                            return sum + (mandateData[col.key] || 0);
+                          }, 0);
                           return (
-                            <TableCell key={col.key} className="text-center">
-                              {targetValue > 0 ? (
-                                <span className="font-semibold">
-                                  {formatNumber(Math.round(targetValue))}
+                            <TableCell key={col.key} className="text-center font-bold">
+                              {monthSum > 0 ? (
+                                <span>
+                                  {formatNumber(Math.round(monthSum))}
                                 </span>
                               ) : (
                                 <span className="text-muted-foreground">-</span>
@@ -2169,7 +2200,7 @@ export default function Targets() {
                           );
                         })}
                       </TableRow>
-                    ))
+                    </>
                   )}
                 </TableBody>
               </Table>
@@ -2210,33 +2241,61 @@ export default function Targets() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    crossSellKamAccountCombos.map((combo) => {
-                      const compositeKey = `${combo.kamId}_${combo.accountId}`;
-                      return (
-                        <TableRow key={compositeKey}>
-                          <TableCell className="font-medium sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">
-                            {combo.kamName}
-                          </TableCell>
-                          <TableCell className="font-medium sticky left-[200px] z-10 bg-background min-w-[200px] w-[200px]">
-                            {combo.accountName}
-                          </TableCell>
-                          {monthColumns.map((col) => {
-                            const targetValue = crossSellTargetsData[compositeKey]?.[col.key] || 0;
-                            return (
-                              <TableCell key={col.key} className="text-center">
-                                {targetValue > 0 ? (
-                                  <span className="font-semibold">
-                                    {formatNumber(Math.round(targetValue))}
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground">-</span>
-                                )}
-                              </TableCell>
-                            );
-                          })}
-                        </TableRow>
-                      );
-                    })
+                    <>
+                      {crossSellKamAccountCombos.map((combo) => {
+                        const compositeKey = `${combo.kamId}_${combo.accountId}`;
+                        return (
+                          <TableRow key={compositeKey}>
+                            <TableCell className="font-medium sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">
+                              {combo.kamName}
+                            </TableCell>
+                            <TableCell className="font-medium sticky left-[200px] z-10 bg-background min-w-[200px] w-[200px]">
+                              {combo.accountName}
+                            </TableCell>
+                            {monthColumns.map((col) => {
+                              const targetValue = crossSellTargetsData[compositeKey]?.[col.key] || 0;
+                              return (
+                                <TableCell key={col.key} className="text-center">
+                                  {targetValue > 0 ? (
+                                    <span className="font-semibold">
+                                      {formatNumber(Math.round(targetValue))}
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                              );
+                            })}
+                          </TableRow>
+                        );
+                      })}
+                      {/* Summary Row */}
+                      <TableRow className="bg-muted/50 font-bold">
+                        <TableCell className="font-bold sticky left-0 z-10 bg-muted/50 min-w-[200px] w-[200px]">
+                          Total
+                        </TableCell>
+                        <TableCell className="font-bold sticky left-[200px] z-10 bg-muted/50 min-w-[200px] w-[200px]">
+                          -
+                        </TableCell>
+                        {monthColumns.map((col) => {
+                          // Calculate sum for this month across all KAM-Account combinations
+                          const monthSum = Object.values(crossSellTargetsData).reduce((sum, comboData) => {
+                            return sum + (comboData[col.key] || 0);
+                          }, 0);
+                          return (
+                            <TableCell key={col.key} className="text-center font-bold">
+                              {monthSum > 0 ? (
+                                <span>
+                                  {formatNumber(Math.round(monthSum))}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    </>
                   )}
                 </TableBody>
               </Table>

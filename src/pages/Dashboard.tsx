@@ -1102,10 +1102,13 @@ export default function Dashboard() {
             }
           } else if (filterUpsellStatus === "All Cross Sell") {
             // Include:
-            // 1. Targets with target_type = 'new_cross_sell' (account-based targets)
+            // 1. Targets with target_type = 'new_cross_sell' (account-based targets) - must have account_id and kam_id
             // 2. Targets with target_type = 'existing' linked to mandates with type = 'New Cross Sell'
             if (targetType === 'new_cross_sell') {
-              shouldInclude = true;
+              // Only include cross-sell targets that have both account_id and kam_id
+              if (target.account_id && target.kam_id) {
+                shouldInclude = true;
+              }
             } else if (targetType === 'existing' && target.mandate_id && mandate) {
               if (mandateType === 'New Cross Sell') {
                 shouldInclude = true;
@@ -1113,11 +1116,14 @@ export default function Dashboard() {
             }
           } else if (filterUpsellStatus === "All Cross Sell + Existing") {
             // Include:
-            // 1. Targets with target_type = 'new_cross_sell' (account-based targets)
+            // 1. Targets with target_type = 'new_cross_sell' (account-based targets) - must have account_id and kam_id
             // 2. Targets with target_type = 'existing' linked to mandates with type = 'Existing'
             // 3. Targets with target_type = 'existing' linked to mandates with type = 'New Cross Sell'
             if (targetType === 'new_cross_sell') {
-              shouldInclude = true;
+              // Only include cross-sell targets that have both account_id and kam_id
+              if (target.account_id && target.kam_id) {
+                shouldInclude = true;
+              }
             } else if (targetType === 'existing' && target.mandate_id && mandate) {
               if (mandateType === 'Existing' || mandateType === 'New Cross Sell') {
                 shouldInclude = true;
@@ -1132,8 +1138,20 @@ export default function Dashboard() {
               }
             }
           } else {
-            // For other status filters, include all targets
-            shouldInclude = true;
+            // For other status filters (like "All mandate types"), include all targets
+            // BUT only if they are properly linked (have mandate_id for existing, or account_id+kam_id for cross-sell)
+            if (targetType === 'existing') {
+              // Only include existing targets that have a mandate_id
+              if (target.mandate_id && mandate) {
+                shouldInclude = true;
+              }
+            } else if (targetType === 'new_cross_sell') {
+              // Only include cross-sell targets that have both account_id and kam_id
+              if (target.account_id && target.kam_id) {
+                shouldInclude = true;
+              }
+            }
+            // If target_type is null or doesn't match, exclude it
           }
           
           if (!shouldInclude) {
@@ -1664,7 +1682,7 @@ export default function Dashboard() {
       // Fetch targets for next quarter months within selected FY
       let nextQuarterQuery = supabase
         .from("monthly_targets")
-        .select("target, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
+        .select("target, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
         .in("month", nextQuarterMonths)
         .eq("year", nextQuarterYear);
       
@@ -1673,13 +1691,44 @@ export default function Dashboard() {
         nextQuarterQuery = nextQuarterQuery.eq("financial_year", financialYearString);
       }
       
-      // Apply target type filter based on status filter
-      nextQuarterQuery = applyTargetTypeFilter(nextQuarterQuery, filterUpsellStatus);
-      
+      // Don't apply target_type filter - we'll filter by mandate type client-side
       const { data: allNextQuarterTargets, error: nextQuarterTargetsError } = await nextQuarterQuery;
 
       // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
       let nextQuarterTargets = filterTargetsByKamNso(allNextQuarterTargets || []);
+
+      // Filter by mandate type based on filterUpsellStatus
+      // Only include targets that are linked to mandates (target_type = 'existing' with mandate_id)
+      if (nextQuarterTargets && nextQuarterTargets.length > 0) {
+        nextQuarterTargets = nextQuarterTargets.filter((target: any) => {
+          // Only include targets linked to mandates
+          if (target.target_type !== 'existing' || !target.mandate_id) {
+            return false;
+          }
+          
+          // Get mandate object (handle both array and single object)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (!mandate) {
+            return false;
+          }
+          
+          const mandateType = mandate.type;
+          
+          // Filter by mandate type based on filterUpsellStatus
+          if (filterUpsellStatus === "Existing") {
+            return mandateType === 'Existing';
+          } else if (filterUpsellStatus === "All Cross Sell") {
+            return mandateType === 'New Cross Sell';
+          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+            return mandateType === 'Existing' || mandateType === 'New Cross Sell';
+          } else if (filterUpsellStatus === "New Acquisitions") {
+            return mandateType === 'New Acquisition';
+          } else {
+            // For "All mandate types" or other status filters, include all targets linked to mandates
+            return true;
+          }
+        });
+      }
 
       let totalTargetNextQuarter = 0;
       if (!nextQuarterTargetsError && nextQuarterTargets) {
@@ -1842,7 +1891,7 @@ export default function Dashboard() {
       
       let fyTargetsQuery = supabase
         .from("monthly_targets")
-        .select("target, month, year, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
+        .select("target, month, year, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
         .in("month", fyMonthNumbers)
         .in("year", fyYears);
       
@@ -1851,13 +1900,48 @@ export default function Dashboard() {
         fyTargetsQuery = fyTargetsQuery.eq("financial_year", financialYearString);
       }
       
-      // Apply target type filter based on status filter
-      fyTargetsQuery = applyTargetTypeFilter(fyTargetsQuery, filterUpsellStatus);
-      
+      // Don't apply target_type filter - we'll filter by mandate type client-side
       const { data: allFyTargets, error: fyTargetsError } = await fyTargetsQuery;
       
       // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
       let fyTargets = filterTargetsByKamNso(allFyTargets || []);
+      
+      // Filter by mandate type based on filterUpsellStatus
+      // Only include targets that are linked to mandates (target_type = 'existing' with mandate_id)
+      if (fyTargets && fyTargets.length > 0) {
+        fyTargets = fyTargets.filter((target: any) => {
+          // Only include targets linked to mandates
+          if (target.target_type !== 'existing' || !target.mandate_id) {
+            return false;
+          }
+          
+          // Get mandate object (handle both array and single object)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (!mandate) {
+            return false;
+          }
+          
+          const mandateType = mandate.type;
+          
+          // Filter by mandate type based on filterUpsellStatus
+          if (filterUpsellStatus === "Existing") {
+            // Only include targets linked to mandates with type = 'Existing'
+            return mandateType === 'Existing';
+          } else if (filterUpsellStatus === "All Cross Sell") {
+            // Only include targets linked to mandates with type = 'New Cross Sell'
+            return mandateType === 'New Cross Sell';
+          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+            // Include targets linked to mandates with type = 'Existing' or 'New Cross Sell'
+            return mandateType === 'Existing' || mandateType === 'New Cross Sell';
+          } else if (filterUpsellStatus === "New Acquisitions") {
+            // Only include targets linked to mandates with type = 'New Acquisition'
+            return mandateType === 'New Acquisition';
+          } else {
+            // For "All mandate types" or other status filters, include all targets linked to mandates
+            return true;
+          }
+        });
+      }
       
       let totalAnnualTarget = 0;
       if (!fyTargetsError && fyTargets) {
@@ -1899,7 +1983,7 @@ export default function Dashboard() {
       // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table within selected FY
       let quarterTargetsQuery = supabase
         .from("monthly_targets")
-        .select("target, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
+        .select("target, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
         .in("month", quarterMonthsForTarget)
         .eq("year", quarterYearForTarget);
       
@@ -1908,13 +1992,44 @@ export default function Dashboard() {
         quarterTargetsQuery = quarterTargetsQuery.eq("financial_year", financialYearString);
       }
       
-      // Apply target type filter based on status filter
-      quarterTargetsQuery = applyTargetTypeFilter(quarterTargetsQuery, filterUpsellStatus);
-      
+      // Don't apply target_type filter - we'll filter by mandate type client-side
       const { data: allQuarterTargets, error: quarterTargetsError } = await quarterTargetsQuery;
 
       // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
       let quarterTargets = filterTargetsByKamNso(allQuarterTargets || []);
+
+      // Filter by mandate type based on filterUpsellStatus
+      // Only include targets that are linked to mandates (target_type = 'existing' with mandate_id)
+      if (quarterTargets && quarterTargets.length > 0) {
+        quarterTargets = quarterTargets.filter((target: any) => {
+          // Only include targets linked to mandates
+          if (target.target_type !== 'existing' || !target.mandate_id) {
+            return false;
+          }
+          
+          // Get mandate object (handle both array and single object)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (!mandate) {
+            return false;
+          }
+          
+          const mandateType = mandate.type;
+          
+          // Filter by mandate type based on filterUpsellStatus
+          if (filterUpsellStatus === "Existing") {
+            return mandateType === 'Existing';
+          } else if (filterUpsellStatus === "All Cross Sell") {
+            return mandateType === 'New Cross Sell';
+          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+            return mandateType === 'Existing' || mandateType === 'New Cross Sell';
+          } else if (filterUpsellStatus === "New Acquisitions") {
+            return mandateType === 'New Acquisition';
+          } else {
+            // For "All mandate types" or other status filters, include all targets linked to mandates
+            return true;
+          }
+        });
+      }
 
       let totalQuarterTarget = 0;
       if (!quarterTargetsError && quarterTargets) {
@@ -2053,7 +2168,7 @@ export default function Dashboard() {
       // Sum all targets for the current month (there may be multiple targets with different types)
       let currentMonthTargetQuery = supabase
         .from("monthly_targets")
-        .select("target, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
+        .select("target, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
         .eq("month", currentMonth)
         .eq("year", currentYear);
       
@@ -2062,13 +2177,44 @@ export default function Dashboard() {
         currentMonthTargetQuery = currentMonthTargetQuery.eq("financial_year", financialYearString);
       }
       
-      // Apply target type filter based on status filter
-      currentMonthTargetQuery = applyTargetTypeFilter(currentMonthTargetQuery, filterUpsellStatus);
-      
+      // Don't apply target_type filter - we'll filter by mandate type client-side
       const { data: allCurrentMonthTargetsData, error: currentMonthTargetError } = await currentMonthTargetQuery;
 
       // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
       let currentMonthTargetsData = filterTargetsByKamNso(allCurrentMonthTargetsData || []);
+
+      // Filter by mandate type based on filterUpsellStatus
+      // Only include targets that are linked to mandates (target_type = 'existing' with mandate_id)
+      if (currentMonthTargetsData && currentMonthTargetsData.length > 0) {
+        currentMonthTargetsData = currentMonthTargetsData.filter((target: any) => {
+          // Only include targets linked to mandates
+          if (target.target_type !== 'existing' || !target.mandate_id) {
+            return false;
+          }
+          
+          // Get mandate object (handle both array and single object)
+          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+          if (!mandate) {
+            return false;
+          }
+          
+          const mandateType = mandate.type;
+          
+          // Filter by mandate type based on filterUpsellStatus
+          if (filterUpsellStatus === "Existing") {
+            return mandateType === 'Existing';
+          } else if (filterUpsellStatus === "All Cross Sell") {
+            return mandateType === 'New Cross Sell';
+          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+            return mandateType === 'Existing' || mandateType === 'New Cross Sell';
+          } else if (filterUpsellStatus === "New Acquisitions") {
+            return mandateType === 'New Acquisition';
+          } else {
+            // For "All mandate types" or other status filters, include all targets linked to mandates
+            return true;
+          }
+        });
+      }
 
       let totalCurrentMonthTarget = 0;
       if (!currentMonthTargetError && currentMonthTargetsData && currentMonthTargetsData.length > 0) {
