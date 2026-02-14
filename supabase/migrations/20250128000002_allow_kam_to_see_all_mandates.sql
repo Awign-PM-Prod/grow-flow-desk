@@ -43,3 +43,5 @@ CREATE POLICY "Users can view their own mandates or all if KAM/Manager"
 
 
 
+
+

@@ -896,13 +896,61 @@ export default function Dashboard() {
       setAccountMcvTierMapState(accountMcvTierMap || {});
 
       // Fetch LoB Sales Performance data from mandates monthly records
-      // Apply status filter to only consider mandates with the selected status
+      // Respect the mandate type filter from the top
       let lobMandatesQuery = supabase
         .from("mandates")
-        .select("lob, monthly_data, type");
+        .select("id, lob, monthly_data, type, kam_id, account_id");
       lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus, filterType);
       lobMandatesQuery = applyKamFilter(lobMandatesQuery, filterKam, filterNso, filterType);
       const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
+
+      // Get mandate IDs for fetching targets
+      const mandateIds = lobMandatesData?.map((m: any) => m.id).filter(Boolean) || [];
+
+      // Fetch targets from monthly_targets table for these mandates
+      // Target type depends on the filter:
+      // - "Existing" → only existing targets
+      // - "All Cross Sell" → only new_cross_sell targets
+      // - "All Cross Sell + Existing" → both types
+      // - "All mandate types" → both types
+      // - "New Acquisitions" → no targets typically, but fetch anyway
+      const fyMonthNumbers = [
+        4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3  // April to March
+      ];
+      const fyYears = [fyDateRange.start.getFullYear(), fyDateRange.end.getFullYear()];
+      // financialYearString is already declared earlier in the function, reuse it
+
+      let targetsQuery = supabase
+        .from("monthly_targets")
+        .select("target, month, year, mandate_id, account_id, kam_id, target_type, mandates(lob, kam_id, type, account_id)")
+        .in("month", fyMonthNumbers)
+        .in("year", fyYears);
+      
+      if (financialYearString) {
+        targetsQuery = targetsQuery.eq("financial_year", financialYearString);
+      }
+      
+      // Apply target type filter based on mandate type filter
+      if (filterUpsellStatus === "Existing") {
+        targetsQuery = targetsQuery.eq("target_type", "existing");
+        if (mandateIds.length > 0) {
+          targetsQuery = targetsQuery.in("mandate_id", mandateIds);
+        } else {
+          targetsQuery = targetsQuery.eq("mandate_id", "00000000-0000-0000-0000-000000000000");
+        }
+      } else if (filterUpsellStatus === "All Cross Sell") {
+        targetsQuery = targetsQuery.eq("target_type", "new_cross_sell");
+        // For new_cross_sell, we need to match by KAM and account, not mandate_id
+        // We'll filter client-side based on the mandates we have
+      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+        targetsQuery = targetsQuery.in("target_type", ["existing", "new_cross_sell"]);
+        // For existing, filter by mandate_id; for new_cross_sell, filter client-side
+      } else {
+        // "All mandate types" or other - include both target types
+        targetsQuery = targetsQuery.in("target_type", ["existing", "new_cross_sell"]);
+      }
+
+      const { data: targetsData, error: lobTargetsError } = await targetsQuery;
 
       // Initialize all LoBs from the mandate form with 0 values
       // Always show all 8 LoBs from the mandate form, regardless of database records
@@ -911,21 +959,106 @@ export default function Dashboard() {
         lobData[lob] = { targetMpv: 0, achievedMpv: 0 };
       });
 
+      // Process targets from monthly_targets table
+      if (!lobTargetsError && targetsData && targetsData.length > 0) {
+        // Create a map of mandate IDs to their LoB for quick lookup
+        const mandateLobMap: Record<string, string> = {};
+        lobMandatesData?.forEach((m: any) => {
+          if (m.id && m.lob) {
+            mandateLobMap[m.id] = m.lob;
+          }
+        });
+
+        // Create a map of KAM+Account combinations to their mandates' LoBs
+        // For new_cross_sell targets, we need to find which mandates match the KAM+account
+        const kamAccountMandatesMap: Record<string, string[]> = {}; // "kamId_accountId" -> [lob1, lob2, ...]
+        lobMandatesData?.forEach((m: any) => {
+          if (m.kam_id && m.lob) {
+            // For new_cross_sell, we need to match by account_id from mandates
+            // But mandates don't directly have account_id in the query, so we'll use a different approach
+            // Actually, for new_cross_sell targets, we need to get account_id from the target itself
+          }
+        });
+
+        targetsData.forEach((target: any) => {
+          const monthDate = new Date(target.year, target.month - 1, 1);
+          if (monthDate < fyDateRange.start || monthDate > fyDateRange.end) {
+            return; // Skip if outside FY range
+          }
+
+          const targetValue = parseFloat(target.target?.toString() || "0") || 0;
+          if (targetValue <= 0) return;
+
+          if (target.target_type === "existing" && target.mandate_id) {
+            // Existing target: get LoB from mandate
+            const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
+            if (mandate && mandate.lob && lobData[mandate.lob]) {
+              lobData[mandate.lob].targetMpv += targetValue;
+            } else {
+              // Fallback: use mandateLobMap
+              const lob = mandateLobMap[target.mandate_id];
+              if (lob && lobData[lob]) {
+                lobData[lob].targetMpv += targetValue;
+              }
+            }
+          } else if (target.target_type === "new_cross_sell" && target.kam_id && target.account_id) {
+            // New cross sell target: find mandates with matching KAM and account_id
+            const matchingMandates = lobMandatesData?.filter((m: any) => 
+              m.kam_id === target.kam_id && m.account_id === target.account_id
+            ) || [];
+            
+            if (matchingMandates.length > 0) {
+              // Distribute target across matching mandates' LoBs
+              // If multiple mandates with same LoB, sum them; if different LoBs, distribute evenly
+              const lobCounts: Record<string, number> = {};
+              matchingMandates.forEach((m: any) => {
+                if (m.lob) {
+                  lobCounts[m.lob] = (lobCounts[m.lob] || 0) + 1;
+                }
+              });
+              
+              // Distribute target value evenly across unique LoBs
+              const uniqueLobs = Object.keys(lobCounts);
+              if (uniqueLobs.length > 0) {
+                const valuePerLob = targetValue / uniqueLobs.length;
+                uniqueLobs.forEach((lob) => {
+                  if (lobData[lob]) {
+                    lobData[lob].targetMpv += valuePerLob;
+                  }
+                });
+              }
+            }
+          }
+        });
+      }
+
+      // Process achieved values from monthly_data (new format: just a number, not an array)
       if (!lobMandatesError && lobMandatesData && lobMandatesData.length > 0) {
-        // Process monthly records from each mandate
         lobMandatesData.forEach((mandate: any) => {
           const lob = mandate.lob;
           if (lob && lob.trim() !== "" && lobData[lob]) {
             // monthly_data is a JSONB object where:
             // Key: month_year (format: "YYYY-MM", e.g., "2025-01")
-            // Value: Array [plannedMcv, achievedMcv]
+            // Value: achievedMcv (number) - new format after migration
             const monthlyData = mandate.monthly_data;
             
             // Check if monthly_data exists and is an object
             if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
               // Sum up all monthly records for this mandate within selected FY
-              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+              Object.entries(monthlyData).forEach(([monthYear, achievedMcv]: [string, any]) => {
+                // New format: value is just a number (achieved MCV)
+                // Old format (for backward compatibility): value is an array [plannedMcv, achievedMcv]
+                let achievedValue = 0;
+                
+                if (Array.isArray(achievedMcv) && achievedMcv.length >= 2) {
+                  // Old format: extract achieved MCV from array
+                  achievedValue = parseFloat(achievedMcv[1]?.toString() || "0") || 0;
+                } else if (typeof achievedMcv === 'number') {
+                  // New format: value is directly the achieved MCV
+                  achievedValue = parseFloat(achievedMcv.toString()) || 0;
+                }
+                
+                if (achievedValue > 0) {
                   // Check if this month falls within the selected financial year
                   const [yearStr, monthStr] = monthYear.split('-');
                   const year = parseInt(yearStr);
@@ -934,14 +1067,7 @@ export default function Dashboard() {
                   
                   // Only include if within selected FY date range
                   if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
-                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                    
-                    // Target MPV is sum of planned MCV
-                    lobData[lob].targetMpv += plannedMcv;
-                    
-                    // Achieved MPV is sum of achieved MCV
-                    lobData[lob].achievedMpv += achievedMcv;
+                    lobData[lob].achievedMpv += achievedValue;
                   }
                 }
               });
@@ -963,13 +1089,74 @@ export default function Dashboard() {
       setLobSalesPerformance(formattedLobData);
 
       // Fetch KAM Sales Performance data from mandates monthly records
-      // Apply status filter to only consider mandates with the selected status
+      // Respect the mandate type filter from the top
       let kamMandatesQuery = supabase
         .from("mandates")
-        .select("kam_id, monthly_data, type");
+        .select("id, kam_id, monthly_data, type, account_id");
       kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus, filterType);
       kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam, filterNso, filterType);
       const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
+
+      // Get mandate IDs for fetching targets
+      const kamMandateIds = kamMandatesData?.map((m: any) => m.id).filter(Boolean) || [];
+
+      // Fetch targets from monthly_targets table for these mandates
+      // Target type depends on the filter (same logic as LoB section)
+      let kamTargetsQuery = supabase
+        .from("monthly_targets")
+        .select("target, month, year, mandate_id, account_id, kam_id, target_type")
+        .in("month", fyMonthNumbers)
+        .in("year", fyYears);
+      
+      if (financialYearString) {
+        kamTargetsQuery = kamTargetsQuery.eq("financial_year", financialYearString);
+      }
+      
+      // Apply target type filter based on mandate type filter
+      if (filterUpsellStatus === "Existing") {
+        kamTargetsQuery = kamTargetsQuery.eq("target_type", "existing");
+        // Filter by mandate_id to only get targets for mandates we care about
+        if (kamMandateIds.length > 0) {
+          kamTargetsQuery = kamTargetsQuery.in("mandate_id", kamMandateIds);
+        } else {
+          // If no mandates match, return empty result
+          kamTargetsQuery = kamTargetsQuery.eq("mandate_id", "00000000-0000-0000-0000-000000000000");
+        }
+      } else if (filterUpsellStatus === "All Cross Sell") {
+        kamTargetsQuery = kamTargetsQuery.eq("target_type", "new_cross_sell");
+        // For new_cross_sell, filter by kam_id from the mandates we have
+        const kamIdsFromMandates = [...new Set(kamMandatesData?.map((m: any) => m.kam_id).filter(Boolean) || [])];
+        if (kamIdsFromMandates.length > 0) {
+          kamTargetsQuery = kamTargetsQuery.in("kam_id", kamIdsFromMandates);
+        } else {
+          kamTargetsQuery = kamTargetsQuery.eq("kam_id", "00000000-0000-0000-0000-000000000000");
+        }
+      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+        kamTargetsQuery = kamTargetsQuery.in("target_type", ["existing", "new_cross_sell"]);
+      } else {
+        // "All mandate types" or other - include both target types
+        kamTargetsQuery = kamTargetsQuery.in("target_type", ["existing", "new_cross_sell"]);
+      }
+
+      const { data: kamTargetsData, error: kamTargetsError } = await kamTargetsQuery;
+      
+      console.log("KAM Targets Query Details:", {
+        filter: filterUpsellStatus,
+        mandateIdsCount: kamMandateIds.length,
+        mandateIds: kamMandateIds.slice(0, 5), // First 5 for debugging
+        financialYear: financialYearString,
+        months: fyMonthNumbers,
+        years: fyYears,
+        targetsFetched: kamTargetsData?.length || 0,
+        error: kamTargetsError
+      });
+      
+      if (kamTargetsData && kamTargetsData.length > 0) {
+        console.log("Sample KAM target:", kamTargetsData[0]);
+      }
+
+      console.log("KAM Targets Query - Filter:", filterUpsellStatus, "Mandate IDs:", kamMandateIds.length);
+      console.log("KAM Targets Data:", kamTargetsData?.length || 0, "Error:", kamTargetsError);
 
       // Fetch all KAMs to get their names (only profiles with role = 'kam')
       const { data: allKamsData, error: allKamsError } = await supabase
@@ -995,8 +1182,87 @@ export default function Dashboard() {
         kamData[kamId] = { targetMpv: 0, achievedMpv: 0 };
       });
 
+      // Process targets from monthly_targets table
+      if (!kamTargetsError && kamTargetsData && kamTargetsData.length > 0) {
+        console.log("Processing KAM targets, count:", kamTargetsData.length);
+        // Create a map of mandate IDs to their KAM for quick lookup
+        const mandateKamMap: Record<string, string> = {};
+        kamMandatesData?.forEach((m: any) => {
+          if (m.id && m.kam_id) {
+            mandateKamMap[m.id] = m.kam_id;
+          }
+        });
+        
+        console.log("Mandate-KAM Map created:", {
+          totalMandates: kamMandatesData?.length || 0,
+          mandatesWithKAM: Object.keys(mandateKamMap).length,
+          sampleEntries: Object.entries(mandateKamMap).slice(0, 3)
+        });
+
+        kamTargetsData.forEach((target: any) => {
+          const monthDate = new Date(target.year, target.month - 1, 1);
+          if (monthDate < fyDateRange.start || monthDate > fyDateRange.end) {
+            return; // Skip if outside FY range
+          }
+
+          const targetValue = parseFloat(target.target?.toString() || "0") || 0;
+          if (targetValue <= 0) return;
+
+          if (target.target_type === "existing" && target.mandate_id) {
+            // Existing target: get KAM from mandate
+            // First check if this mandate is in our filtered mandate list
+            const mandateInList = kamMandateIds.includes(target.mandate_id);
+            if (!mandateInList) {
+              // Skip targets for mandates not in our filtered list
+              return;
+            }
+            
+            // Get KAM ID from our mandate map (we already fetched mandates with their KAM IDs)
+            const kamId = mandateKamMap[target.mandate_id];
+            
+            if (!kamId) {
+              console.warn("KAM target - No KAM found for mandate_id:", target.mandate_id, "target:", target);
+              return;
+            }
+            
+            if (kamData[kamId]) {
+              kamData[kamId].targetMpv += targetValue;
+              console.log(`Added target ${targetValue} to KAM ${kamId} (${kamMap[kamId]}) from mandate ${target.mandate_id}`);
+            } else {
+              console.warn("KAM target - KAM not in kamData:", kamId, "target:", target);
+            }
+          } else if (target.target_type === "new_cross_sell" && target.kam_id) {
+            // New cross sell target: use kam_id directly from target
+            // Also verify it matches a mandate we have (by matching account_id if available)
+            if (target.account_id) {
+              const matchingMandate = kamMandatesData?.find((m: any) => 
+                m.kam_id === target.kam_id && m.account_id === target.account_id
+              );
+              if (matchingMandate && kamData[target.kam_id]) {
+                kamData[target.kam_id].targetMpv += targetValue;
+                console.log(`Added new_cross_sell target ${targetValue} to KAM ${target.kam_id} (${kamMap[target.kam_id]})`);
+              } else {
+                console.warn("KAM target - No matching mandate for new_cross_sell:", target);
+              }
+            } else {
+              // If no account_id match required, just use kam_id
+              if (kamData[target.kam_id]) {
+                kamData[target.kam_id].targetMpv += targetValue;
+                console.log(`Added new_cross_sell target ${targetValue} to KAM ${target.kam_id} (${kamMap[target.kam_id]}) - no account_id`);
+              } else {
+                console.warn("KAM target - KAM not in kamData for new_cross_sell:", target.kam_id, "target:", target);
+              }
+            }
+          } else {
+            console.warn("KAM target - Unknown target type or missing fields:", target);
+          }
+        });
+        
+        console.log("KAM Target Data after processing:", kamData);
+      }
+
+      // Process achieved values from monthly_data (new format: just a number, not an array)
       if (!kamMandatesError && kamMandatesData && kamMandatesData.length > 0) {
-        // Process monthly records from each mandate grouped by KAM
         kamMandatesData.forEach((mandate: any) => {
           const kamId = mandate.kam_id;
           if (kamId && kamData[kamId]) {
@@ -1005,8 +1271,20 @@ export default function Dashboard() {
             // Check if monthly_data exists and is an object
             if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
               // Sum up all monthly records for this mandate within selected FY
-              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+              Object.entries(monthlyData).forEach(([monthYear, achievedMcv]: [string, any]) => {
+                // New format: value is just a number (achieved MCV)
+                // Old format (for backward compatibility): value is an array [plannedMcv, achievedMcv]
+                let achievedValue = 0;
+                
+                if (Array.isArray(achievedMcv) && achievedMcv.length >= 2) {
+                  // Old format: extract achieved MCV from array
+                  achievedValue = parseFloat(achievedMcv[1]?.toString() || "0") || 0;
+                } else if (typeof achievedMcv === 'number') {
+                  // New format: value is directly the achieved MCV
+                  achievedValue = parseFloat(achievedMcv.toString()) || 0;
+                }
+                
+                if (achievedValue > 0) {
                   // Check if this month falls within the selected financial year
                   const [yearStr, monthStr] = monthYear.split('-');
                   const year = parseInt(yearStr);
@@ -1015,14 +1293,7 @@ export default function Dashboard() {
                   
                   // Only include if within selected FY date range
                   if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
-                    const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
-                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                    
-                    // Target MPV is sum of planned MCV
-                    kamData[kamId].targetMpv += plannedMcv;
-                    
-                    // Achieved MPV is sum of achieved MCV
-                    kamData[kamId].achievedMpv += achievedMcv;
+                    kamData[kamId].achievedMpv += achievedValue;
                   }
                 }
               });
@@ -1886,14 +2157,14 @@ export default function Dashboard() {
       ];
       
       // Fetch targets for all FY months
-      const fyMonthNumbers = fyMonths.map(m => m.month);
-      const fyYears = [fyStartYear, fyEndYear];
+      const fyTargetMonthNumbers = fyMonths.map(m => m.month);
+      const fyTargetYears = [fyStartYear, fyEndYear];
       
       let fyTargetsQuery = supabase
         .from("monthly_targets")
         .select("target, month, year, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
-        .in("month", fyMonthNumbers)
-        .in("year", fyYears);
+        .in("month", fyTargetMonthNumbers)
+        .in("year", fyTargetYears);
       
       // Filter by financial_year if available
       if (financialYearString) {
@@ -3677,13 +3948,7 @@ export default function Dashboard() {
             ) : (
               <ResponsiveContainer width="100%" height={300}>
               <BarChart 
-                data={lobSalesPerformance.map((item) => {
-                  // Use achieved MPV only
-                  return {
-                    ...item,
-                    achievedMpv: ensureMinimumBarLengthForBoth(item.achievedMpv, item.achievedMpv),
-                  };
-                })}
+                data={lobSalesPerformance}
                 margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
                 barCategoryGap="20%"
                 barGap={0}
@@ -3711,10 +3976,11 @@ export default function Dashboard() {
                       return (
                         <div className="bg-white p-3 border border-gray-200 rounded shadow-lg">
                           {payload.map((entry: any, index: number) => {
-                            // Only show achieved values
-                            if (entry.name === "Achieved") {
+                            // Show both Target and Achieved values
+                            if (entry.name === "Target" || entry.name === "Achieved") {
+                              const color = entry.name === "Target" ? "#E0E0E0" : "#4169E1";
                               return (
-                                <p key={index} style={{ color: "#4169E1" }}>
+                                <p key={index} style={{ color }}>
                                   {entry.name}: {entry.value >= 10000000
                                     ? `₹${(entry.value / 10000000).toFixed(2)}Cr`
                                     : entry.value >= 100000
@@ -3733,6 +3999,16 @@ export default function Dashboard() {
                   cursor={false}
                 />
                 <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
+                {/* Target bar (grey) */}
+                <Bar 
+                  dataKey="targetMpv" 
+                  fill="#E0E0E0" 
+                  name="Target" 
+                  barSize={30}
+                  radius={[4, 4, 0, 0]}
+                  activeBar={false}
+                  isAnimationActive={false}
+                />
                 {/* Achieved bar (blue) */}
                 <Bar 
                   dataKey="achievedMpv" 

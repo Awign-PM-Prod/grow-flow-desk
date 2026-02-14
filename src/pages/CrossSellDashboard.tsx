@@ -9,8 +9,25 @@ import { Loader2, BookOpen } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { formatNumber } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+
+// All LoB options
+const lobOptions = [
+  "Diligence & Audit",
+  "New Business Development",
+  "Digital Gigs",
+  "Awign Expert",
+  "Last Mile Operations",
+  "Invigilation & Proctoring",
+  "Staffing",
+  "Others",
+];
 
 export default function CrossSellDashboard() {
+  const { user, hasRole } = useAuth();
+  const isKAM = hasRole("kam");
+  const isAdmin = hasRole("superadmin") || hasRole("leadership") || hasRole("manager");
+  
   const [loading, setLoading] = useState(true);
   const [conversionTableData, setConversionTableData] = useState<Array<{
     status: string;
@@ -50,6 +67,21 @@ export default function CrossSellDashboard() {
   const [meetingsDoneThisWeek, setMeetingsDoneThisWeek] = useState<number>(0);
   const [proposalMadeLastWeek, setProposalMadeLastWeek] = useState<number>(0);
   const [proposalMadeThisWeek, setProposalMadeThisWeek] = useState<number>(0);
+  
+  // LoB Existing Sales Performance
+  const [lobSalesPerformance, setLobSalesPerformance] = useState<Array<{
+    lob: string;
+    targetMpv: number;
+    achievedMpv: number;
+  }>>([]);
+  
+  // FY Annual Sales Target - Individual (KAM Performance)
+  const [kamSalesPerformance, setKamSalesPerformance] = useState<Array<{
+    kamId: string;
+    kamName: string;
+    targetMpv: number;
+    achievedMpv: number;
+  }>>([]);
   
   // Filter states
   const [performanceDashboardFY, setPerformanceDashboardFY] = useState<string>(() => {
@@ -799,11 +831,237 @@ export default function CrossSellDashboard() {
     fetchKams();
   }, []);
 
+  const fetchLobSalesPerformance = async () => {
+    try {
+      console.log("Fetching LoB Sales Performance...", { isKAM, isAdmin, userId: user?.id, filterKam });
+      const fyDateRange = getFinancialYearDateRange(performanceDashboardFY);
+      const currentIsKAM = hasRole("kam");
+      const currentIsAdmin = hasRole("superadmin") || hasRole("leadership") || hasRole("manager");
+      
+      // Fetch LoB Sales Performance data from mandates monthly records
+      // Only consider mandates with type = "Existing"
+      let lobMandatesQuery = supabase
+        .from("mandates")
+        .select("lob, monthly_data, type, kam_id")
+        .eq("type", "Existing");
+      
+      // Apply role-based filtering: KAM sees only their data, admin sees all
+      if (currentIsKAM && user?.id) {
+        lobMandatesQuery = lobMandatesQuery.eq("kam_id", user.id);
+        console.log("Filtering by KAM user ID:", user.id);
+      } else if (filterKam && currentIsAdmin) {
+        // Only apply KAM filter if user is admin
+        lobMandatesQuery = lobMandatesQuery.eq("kam_id", filterKam);
+        console.log("Filtering by selected KAM:", filterKam);
+      } else {
+        console.log("No KAM filter applied - showing all data");
+      }
+      
+      const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
+      
+      if (lobMandatesError) {
+        console.error("Error fetching LoB mandates:", lobMandatesError);
+      } else {
+        console.log("LoB mandates fetched:", lobMandatesData?.length || 0);
+      }
+
+      // Initialize all LoBs from the mandate form with 0 values
+      const lobData: Record<string, { targetMpv: number; achievedMpv: number }> = {};
+      lobOptions.forEach((lob) => {
+        lobData[lob] = { targetMpv: 0, achievedMpv: 0 };
+      });
+
+      if (!lobMandatesError && lobMandatesData && lobMandatesData.length > 0) {
+        // Process monthly records from each mandate
+        lobMandatesData.forEach((mandate: any) => {
+          const lob = mandate.lob;
+          if (lob && lob.trim() !== "" && lobData[lob]) {
+            const monthlyData = mandate.monthly_data;
+            
+            // Check if monthly_data exists and is an object
+            if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+              // Sum up all monthly records for this mandate within selected FY
+              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                  // Check if this month falls within the selected financial year
+                  const [yearStr, monthStr] = monthYear.split('-');
+                  const year = parseInt(yearStr);
+                  const month = parseInt(monthStr);
+                  const monthDate = new Date(year, month - 1, 1);
+                  
+                  // Only include if within selected FY date range
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Target MPV is sum of planned MCV
+                    lobData[lob].targetMpv += plannedMcv;
+                    
+                    // Achieved MPV is sum of achieved MCV
+                    lobData[lob].achievedMpv += achievedMcv;
+                  }
+                }
+              });
+            }
+          }
+        });
+      }
+
+      // Convert to array with all 8 LoBs from the mandate form, maintaining the exact order
+      const formattedLobData = lobOptions.map((lob) => ({
+        lob,
+        targetMpv: lobData[lob]?.targetMpv || 0,
+        achievedMpv: lobData[lob]?.achievedMpv || 0,
+      }));
+
+      console.log("LoB Sales Performance data:", formattedLobData);
+      setLobSalesPerformance(formattedLobData);
+    } catch (error) {
+      console.error("Error fetching LoB sales performance:", error);
+      // Initialize with all LoBs with 0 values even on error
+      const emptyLobData = lobOptions.map((lob) => ({
+        lob,
+        targetMpv: 0,
+        achievedMpv: 0,
+      }));
+      setLobSalesPerformance(emptyLobData);
+    }
+  };
+
+  const fetchKamSalesPerformance = async () => {
+    try {
+      console.log("Fetching KAM Sales Performance...", { isKAM, isAdmin, userId: user?.id, filterKam });
+      const fyDateRange = getFinancialYearDateRange(performanceDashboardFY);
+      const currentIsKAM = hasRole("kam");
+      const currentIsAdmin = hasRole("superadmin") || hasRole("leadership") || hasRole("manager");
+      
+      // Fetch KAM Sales Performance data from mandates monthly records
+      // Only consider mandates with type = "Existing"
+      let kamMandatesQuery = supabase
+        .from("mandates")
+        .select("kam_id, monthly_data, type")
+        .eq("type", "Existing");
+      
+      // Apply role-based filtering: KAM sees only their data, admin sees all
+      if (currentIsKAM && user?.id) {
+        kamMandatesQuery = kamMandatesQuery.eq("kam_id", user.id);
+        console.log("Filtering by KAM user ID:", user.id);
+      } else if (filterKam && currentIsAdmin) {
+        // Only apply KAM filter if user is admin
+        kamMandatesQuery = kamMandatesQuery.eq("kam_id", filterKam);
+        console.log("Filtering by selected KAM:", filterKam);
+      } else {
+        console.log("No KAM filter applied - showing all data");
+      }
+      
+      const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
+      
+      if (kamMandatesError) {
+        console.error("Error fetching KAM mandates:", kamMandatesError);
+      } else {
+        console.log("KAM mandates fetched:", kamMandatesData?.length || 0);
+      }
+
+      // Fetch all KAMs to get their names (only profiles with role = 'kam')
+      const { data: allKamsData, error: allKamsError } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .not("full_name", "is", null)
+        .order("full_name", { ascending: true });
+
+      // Create KAM map
+      const kamMap: Record<string, string> = {};
+      if (allKamsData) {
+        allKamsData.forEach((kam: any) => {
+          if (kam.full_name) {
+            kamMap[kam.id] = kam.full_name;
+          }
+        });
+      }
+
+      // Initialize all KAMs with 0 values
+      const kamData: Record<string, { targetMpv: number; achievedMpv: number }> = {};
+      Object.keys(kamMap).forEach((kamId) => {
+        kamData[kamId] = { targetMpv: 0, achievedMpv: 0 };
+      });
+
+      if (!kamMandatesError && kamMandatesData && kamMandatesData.length > 0) {
+        // Process monthly records from each mandate grouped by KAM
+        kamMandatesData.forEach((mandate: any) => {
+          const kamId = mandate.kam_id;
+          if (kamId && kamData[kamId]) {
+            const monthlyData = mandate.monthly_data;
+            
+            // Check if monthly_data exists and is an object
+            if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+              // Sum up all monthly records for this mandate within selected FY
+              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
+                  // Check if this month falls within the selected financial year
+                  const [yearStr, monthStr] = monthYear.split('-');
+                  const year = parseInt(yearStr);
+                  const month = parseInt(monthStr);
+                  const monthDate = new Date(year, month - 1, 1);
+                  
+                  // Only include if within selected FY date range
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
+                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
+                    
+                    // Target MPV is sum of planned MCV
+                    kamData[kamId].targetMpv += plannedMcv;
+                    
+                    // Achieved MPV is sum of achieved MCV
+                    kamData[kamId].achievedMpv += achievedMcv;
+                  }
+                }
+              });
+            }
+          }
+        });
+      }
+
+      // Convert to array with all KAMs, sorted by name
+      // Filter to only show KAMs that have data or if user is admin (show all)
+      const formattedKamData = Object.keys(kamMap)
+        .filter((kamId) => {
+          // If KAM user, only show their own data
+          if (isKAM && user?.id) {
+            return kamId === user.id;
+          }
+          // If admin, show all KAMs (even with 0 data)
+          const currentIsAdmin = hasRole("superadmin") || hasRole("leadership") || hasRole("manager");
+          if (currentIsAdmin) {
+            return true;
+          }
+          // Otherwise, only show KAMs with data
+          return (kamData[kamId]?.targetMpv || 0) > 0 || (kamData[kamId]?.achievedMpv || 0) > 0;
+        })
+        .map((kamId) => ({
+          kamId,
+          kamName: kamMap[kamId],
+          targetMpv: kamData[kamId]?.targetMpv || 0,
+          achievedMpv: kamData[kamId]?.achievedMpv || 0,
+        }))
+        .sort((a, b) => a.kamName.localeCompare(b.kamName));
+
+      console.log("KAM Sales Performance data:", formattedKamData);
+      setKamSalesPerformance(formattedKamData);
+    } catch (error) {
+      console.error("Error fetching KAM sales performance:", error);
+      setKamSalesPerformance([]);
+    }
+  };
+
   useEffect(() => {
     fetchFunnelData();
     fetchConversionTableData();
     fetchMeetingsAndProposalsData();
-  }, [performanceDashboardFY, filterKam, filterExpectedContractSignMonth]);
+    fetchLobSalesPerformance();
+    fetchKamSalesPerformance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [performanceDashboardFY, filterKam, filterExpectedContractSignMonth, user?.id]);
 
   // Prepare data for Stage Count Graph (normal bar graph with separate bars)
   // Use the same values as Funnel Stage Count of Sales Module section
@@ -1393,6 +1651,210 @@ export default function CrossSellDashboard() {
                 );
               })()}
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* LoB Existing Sales Performance and FY Annual Sales Target - Side by Side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* LoB Existing Sales Performance */}
+        <Card>
+          <CardHeader>
+            <CardTitle>LoB Existing Sales Performance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart 
+                  data={lobSalesPerformance}
+                  margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
+                  barCategoryGap="20%"
+                  barGap={0}
+                >
+                  <XAxis 
+                    dataKey="lob" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                    interval={0}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis hide />
+                  <Tooltip 
+                    formatter={(value: number, name: string) => {
+                      const formattedValue = value >= 10000000
+                          ? `₹${(value / 10000000).toFixed(2)}Cr`
+                          : value >= 100000
+                          ? `₹${(value / 100000).toFixed(1)}L`
+                          : `₹${formatNumber(value)}`;
+                      return formattedValue;
+                    }}
+                    cursor={false}
+                  />
+                  <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
+                  {/* Target bar (grey) */}
+                  <Bar 
+                    dataKey="targetMpv" 
+                    fill="#E0E0E0" 
+                    name="Target" 
+                    barSize={30}
+                    radius={[4, 4, 0, 0]}
+                    activeBar={false}
+                    isAnimationActive={false}
+                  />
+                  {/* Achieved bar (blue) */}
+                  <Bar 
+                    dataKey="achievedMpv" 
+                    fill="#4169E1" 
+                    name="Achieved" 
+                    barSize={30}
+                    radius={[4, 4, 0, 0]}
+                    activeBar={false}
+                    isAnimationActive={false}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* FY Annual Sales Target - Individual */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{performanceDashboardFY} Annual Sales Target - Individual</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">Compare target vs achieved sales for individual staff members.</p>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center h-[400px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart
+                  data={kamSalesPerformance.map((item) => {
+                    const isAchievedGreater = item.achievedMpv > item.targetMpv;
+                    const smallerValue = isAchievedGreater ? item.targetMpv : item.achievedMpv;
+                    const biggerValue = isAchievedGreater ? item.achievedMpv : item.targetMpv;
+                    const difference = biggerValue - smallerValue;
+                    
+                    return {
+                      ...item,
+                      base: smallerValue, // Smaller value as base (starts from X-axis)
+                      overlay: difference, // Difference stacked on top (bigger - smaller)
+                      baseColor: isAchievedGreater ? "#E0E0E0" : "#4169E1", // Grey if Achieved > Target, Blue if Target > Achieved
+                      overlayColor: isAchievedGreater ? "#4169E1" : "#E0E0E0", // Blue if Achieved > Target, Grey if Target > Achieved
+                      baseName: isAchievedGreater ? "Target" : "Achieved",
+                      overlayName: isAchievedGreater ? "Achieved" : "Target",
+                    };
+                  })}
+                  margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
+                  barCategoryGap="20%"
+                  barGap={0}
+                >
+                  <XAxis 
+                    dataKey="kamName" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                    interval={0}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis hide />
+                  <Tooltip 
+                    formatter={(value: any, name: string, props: any) => {
+                      const payload = props.payload;
+                      // Convert Base/Overlay to Target/Achieved based on the data
+                      let displayName = name;
+                      let originalValue = 0;
+                      
+                      if (name === 'Base' || name === 'Overlay') {
+                        // Determine which field this represents based on the data
+                        const isAchievedGreater = payload.achievedMpv > payload.targetMpv;
+                        if (name === 'Base') {
+                          displayName = isAchievedGreater ? 'Target' : 'Achieved';
+                          originalValue = isAchievedGreater ? payload.targetMpv : payload.achievedMpv;
+                        } else { // Overlay
+                          displayName = isAchievedGreater ? 'Achieved' : 'Target';
+                          originalValue = isAchievedGreater ? payload.achievedMpv : payload.targetMpv;
+                        }
+                      } else if (name === 'Target' || name === 'Achieved') {
+                        originalValue = name === 'Target' ? payload.targetMpv : payload.achievedMpv;
+                      } else {
+                        // Fallback
+                        originalValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+                      }
+                      
+                      // Format the value
+                      if (originalValue >= 10000000) {
+                        return [`₹${(originalValue / 10000000).toFixed(2)}Cr`, displayName];
+                      } else if (originalValue >= 100000) {
+                        return [`₹${(originalValue / 100000).toFixed(1)}L`, displayName];
+                      } else {
+                        return [`₹${formatNumber(originalValue)}`, displayName];
+                      }
+                    }}
+                    cursor={false}
+                  />
+                  <Legend 
+                    align="right" 
+                    verticalAlign="top" 
+                    wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }}
+                    content={({ payload }) => {
+                      if (!payload || payload.length === 0) return null;
+                      return (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', paddingBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <div style={{ width: '12px', height: '12px', backgroundColor: '#4169E1', borderRadius: '2px' }}></div>
+                            <span style={{ fontSize: '11px' }}>Achieved</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <div style={{ width: '12px', height: '12px', backgroundColor: '#E0E0E0', borderRadius: '2px' }}></div>
+                            <span style={{ fontSize: '11px' }}>Target</span>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  {/* Base bar - smaller value, conditional color */}
+                  <Bar 
+                    dataKey="base" 
+                    name="Base"
+                    stackId="kam"
+                    barSize={30}
+                    radius={[4, 4, 0, 0]}
+                    activeBar={false}
+                    isAnimationActive={false}
+                  >
+                    {kamSalesPerformance.map((item, index) => {
+                      const isAchievedGreater = item.achievedMpv > item.targetMpv;
+                      const fillColor = isAchievedGreater ? "#E0E0E0" : "#4169E1";
+                      return <Cell key={`base-${index}`} fill={fillColor} />;
+                    })}
+                  </Bar>
+                  {/* Overlay bar - difference, conditional color */}
+                  <Bar 
+                    dataKey="overlay" 
+                    name="Overlay"
+                    stackId="kam"
+                    barSize={30}
+                    radius={[4, 4, 0, 0]}
+                    activeBar={false}
+                    isAnimationActive={false}
+                  >
+                    {kamSalesPerformance.map((item, index) => {
+                      const isAchievedGreater = item.achievedMpv > item.targetMpv;
+                      const fillColor = isAchievedGreater ? "#4169E1" : "#E0E0E0";
+                      return <Cell key={`overlay-${index}`} fill={fillColor} />;
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
