@@ -49,6 +49,7 @@ export default function Dashboard() {
   const [ffmAchieved, setFfmAchieved] = useState<number>(0);
   const [ffmAchievedFyPercentage, setFfmAchievedFyPercentage] = useState<number>(0);
   const [mcvThisQuarter, setMcvThisQuarter] = useState<number>(0);
+  const [mcvLastMonth, setMcvLastMonth] = useState<number>(0);
   const [targetMcvNextQuarter, setTargetMcvNextQuarter] = useState<number>(0);
   const [annualAchieved, setAnnualAchieved] = useState<number>(0);
   const [annualTarget, setAnnualTarget] = useState<number>(0);
@@ -1927,6 +1928,137 @@ export default function Dashboard() {
       setFfmAchievedFyPercentage(ffmPercentage);
       setMcvThisQuarter(totalMcvThisQuarter);
 
+      // Calculate MCV Achieved Last Month (sum of achieved MCV for previous month)
+      const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+      const prevMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+      const prevMonthYearStr = `${prevMonthYear}-${String(prevMonth).padStart(2, '0')}`;
+      
+      let totalMcvLastMonth = 0;
+
+      // Calculate sum of achieved MCV for previous month using the same filter logic
+      // If filtering by NSO or all NSOs, process New Acquisition mandates
+      if (filterType === "nso" || filterType === "all_nsos") {
+        // For NSO filter, only process New Acquisition mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            if (mandate.type === "New Acquisition") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (monthYear === prevMonthYearStr) {
+                    const achievedMcv = getAchievedMcv(monthRecord);
+                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvLastMonth += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell") {
+        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            if (mandate.type === "New Cross Sell") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (monthYear === prevMonthYearStr) {
+                    const achievedMcv = getAchievedMcv(monthRecord);
+                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvLastMonth += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "Existing") {
+        // For "Existing" status, calculate from mandates with type = 'Existing'
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            if (mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (monthYear === prevMonthYearStr) {
+                    const achievedMcv = getAchievedMcv(monthRecord);
+                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvLastMonth += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
+        // For "All Cross Sell + Existing", calculate from mandates with type = 'New Cross Sell' OR 'Existing'
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            if (mandate.type === "New Cross Sell" || mandate.type === "Existing") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (monthYear === prevMonthYearStr) {
+                    const achievedMcv = getAchievedMcv(monthRecord);
+                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvLastMonth += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else if (filterUpsellStatus === "New Acquisitions") {
+        // For "New Acquisitions", calculate from mandates with type = 'New Acquisition'
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            if (mandate.type === "New Acquisition") {
+              const monthlyData = mandate.monthly_data;
+              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                  if (monthYear === prevMonthYearStr) {
+                    const achievedMcv = getAchievedMcv(monthRecord);
+                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
+                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      totalMcvLastMonth += achievedMcv;
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+      } else {
+        // For other statuses (including "All mandate types"), use all mandates
+        if (!mcvError && allMandatesForMcv) {
+          allMandatesForMcv.forEach((mandate: any) => {
+            const monthlyData = mandate.monthly_data;
+            if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
+              Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
+                if (monthYear === prevMonthYearStr) {
+                  const achievedMcv = getAchievedMcv(monthRecord);
+                  const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
+                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    totalMcvLastMonth += achievedMcv;
+                  }
+                }
+              });
+            }
+          });
+        }
+      }
+
+      setMcvLastMonth(totalMcvLastMonth);
+
       // Calculate Target MCV Next Quarter
       // Determine next quarter months
       let nextQuarterMonths: number[] = [];
@@ -3144,9 +3276,7 @@ export default function Dashboard() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="All mandate types">All Mandate Types</SelectItem>
-            <SelectItem value="Existing">Existing</SelectItem>
-            <SelectItem value="All Cross Sell">All Cross Sell</SelectItem>
-            <SelectItem value="All Cross Sell + Existing">All Cross Sell + Existing</SelectItem>
+            <SelectItem value="All Cross Sell + Existing">Existing</SelectItem>
             <SelectItem value="New Acquisitions">New Acquisitions</SelectItem>
           </SelectContent>
         </Select>
@@ -3373,6 +3503,33 @@ export default function Dashboard() {
                     const quarterMonthNames = quarterMonths.map(m => monthNames[m - 1]).join(', ');
                     
                     return `${fyString} (${fyStartYear}-${fyStartYear + 1}) - ${quarterMonthNames}`;
+                  })()}
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* MCV Achieved Last Month */}
+        <Card>
+          <CardContent className="pt-6">
+            {loading ? (
+              <div className="flex items-center justify-center h-20">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <p className="text-base font-bold mb-2">MCV Achieved Last Month</p>
+                <div className="text-3xl font-bold">{formatCurrency(mcvLastMonth)}</div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {(() => {
+                    const now = new Date();
+                    const currentYear = now.getFullYear();
+                    const currentMonth = now.getMonth() + 1;
+                    const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+                    const prevMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    return `${monthNames[prevMonth - 1]} ${prevMonthYear}`;
                   })()}
                 </p>
               </>
