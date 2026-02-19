@@ -431,6 +431,36 @@ export type Database = {
           },
         ]
       }
+      manager_targets: {
+        Row: {
+          id: string
+          month: number
+          year: number
+          existing_target: number
+          new_ac_target: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          month: number
+          year: number
+          existing_target?: number
+          new_ac_target?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          month?: number
+          year?: number
+          existing_target?: number
+          new_ac_target?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pipeline_deals: {
         Row: {
           account_id: string | null

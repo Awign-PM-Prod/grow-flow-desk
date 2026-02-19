@@ -1315,248 +1315,39 @@ export default function Dashboard() {
 
       setKamSalesPerformance(formattedKamData);
 
-      // Calculate MCV Planned from monthly_targets table for current month
+      // Calculate MCV Planned from manager_targets table for current month
       const currentMonth = now.getMonth() + 1; // 1-12
       const currentYear = now.getFullYear();
       const currentMonthYear = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
       let totalMcvPlanned = 0;
       let totalFfmAchieved = 0;
 
-      // Fetch MCV Planned from monthly_targets table for current month within selected FY
-      // Sum all targets for the current month (there may be multiple targets with different types)
-      // For KAM filtering: new_cross_sell targets have kam_id directly, existing targets have kam_id via mandate
-      // We also need to filter by mandate type to ensure targets match the selected mandate type filter
-      let query = supabase
-        .from("monthly_targets")
-        .select("target, month, year, financial_year, target_type, kam_id, mandate_id, nso_mail_id, mandates(kam_id, type, new_sales_owner)")
+      // Fetch MCV Planned from manager_targets table for current month
+      // All types → existing_target + new_ac_target; Existing → existing_target only; New Acquisitions → new_ac_target only
+      const { data: managerTargetRow } = await supabase
+        .from("manager_targets")
+        .select("existing_target, new_ac_target")
         .eq("month", currentMonth)
-        .eq("year", currentYear);
-      
-      // Filter by financial_year if available - this is REQUIRED to avoid showing wrong targets
-      if (financialYearString) {
-        query = query.eq("financial_year", financialYearString);
-      } else {
-        // If no financial year is selected, don't show any targets to avoid confusion
-        // Set query to return no results
-        query = query.eq("financial_year", "nonexistent_fy_to_return_no_results");
-      }
-      
-      // Don't apply target_type filter at query level - we'll filter by both target_type AND mandate.type client-side
-      // This ensures we only show targets for mandates with the correct type
-      // query = applyTargetTypeFilter(query, filterUpsellStatus);
-      
-      const { data: allTargets, error: targetsError } = await query;
-      
-      // Apply mandate type filter and KAM filter client-side
-      // We filter by both target_type AND mandate.type to ensure correct filtering
-      let currentMonthTargets = allTargets;
-      if (allTargets) {
-        currentMonthTargets = allTargets.filter((target: any) => {
-          // Get mandate object (handle both array and single object)
-          const mandate = target.mandate_id 
-            ? (Array.isArray(target.mandates) ? target.mandates[0] : target.mandates)
-            : null;
-          
-          // Debug: Log target details for troubleshooting
-          const targetType = target.target_type;
-          const mandateType = mandate?.type;
-          
-          // Filter by mandate type based on filterUpsellStatus
-          let shouldInclude = false;
-          
-          if (filterUpsellStatus === "Existing") {
-            // Only include targets for mandates with type = 'Existing'
-            // Must be target_type='existing' AND mandate.type='Existing'
-            if (targetType === 'existing' && target.mandate_id && mandate) {
-              if (mandateType === 'Existing') {
-                shouldInclude = true;
-              }
-            }
-          } else if (filterUpsellStatus === "All Cross Sell") {
-            // Include:
-            // 1. Targets with target_type = 'new_cross_sell' (account-based targets) - must have account_id and kam_id
-            // 2. Targets with target_type = 'existing' linked to mandates with type = 'New Cross Sell'
-            if (targetType === 'new_cross_sell') {
-              // Only include cross-sell targets that have both account_id and kam_id
-              if (target.account_id && target.kam_id) {
-                shouldInclude = true;
-              }
-            } else if (targetType === 'existing' && target.mandate_id && mandate) {
-              if (mandateType === 'New Cross Sell') {
-                shouldInclude = true;
-              }
-            }
-          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-            // Include:
-            // 1. Targets with target_type = 'new_cross_sell' (account-based targets) - must have account_id and kam_id
-            // 2. Targets with target_type = 'existing' linked to mandates with type = 'Existing'
-            // 3. Targets with target_type = 'existing' linked to mandates with type = 'New Cross Sell'
-            if (targetType === 'new_cross_sell') {
-              // Only include cross-sell targets that have both account_id and kam_id
-              if (target.account_id && target.kam_id) {
-                shouldInclude = true;
-              }
-            } else if (targetType === 'existing' && target.mandate_id && mandate) {
-              if (mandateType === 'Existing' || mandateType === 'New Cross Sell') {
-                shouldInclude = true;
-              }
-            }
-          } else if (filterUpsellStatus === "New Acquisitions") {
-            // New Acquisitions typically don't have targets
-            // Only include if target_type='existing' AND mandate.type='New Acquisition'
-            if (targetType === 'existing' && target.mandate_id && mandate) {
-              if (mandateType === 'New Acquisition') {
-                shouldInclude = true;
-              }
-            }
-          } else {
-            // For other status filters (like "All mandate types"), include all targets
-            // BUT only if they are properly linked (have mandate_id for existing, or account_id+kam_id for cross-sell)
-            if (targetType === 'existing') {
-              // Only include existing targets that have a mandate_id
-              if (target.mandate_id && mandate) {
-                shouldInclude = true;
-              }
-            } else if (targetType === 'new_cross_sell') {
-              // Only include cross-sell targets that have both account_id and kam_id
-              if (target.account_id && target.kam_id) {
-                shouldInclude = true;
-              }
-            }
-            // If target_type is null or doesn't match, exclude it
-          }
-          
-          if (!shouldInclude) {
-            return false;
-          }
-          
-          // Apply KAM/NSO filter
-          if (filterType === "all") {
-            // When "All KAMs and NSOs" is selected, include all targets
-            // No additional filtering needed - mandates are already unique
-            return true;
-          } else if (filterType === "all_kams") {
-            // When "All KAMs" is selected, include targets that have a KAM
-            if (targetType === 'new_cross_sell') {
-              if (target.kam_id) {
-                return true;
-              }
-            } else if (targetType === 'existing' && target.mandate_id && mandate) {
-              if (mandate.kam_id) {
-                return true;
-              }
-            }
-            return false;
-          } else if (filterType === "all_nsos") {
-            // When "All NSOs" is selected, include targets that have an NSO (New Acquisition mandates)
-            if (targetType === 'existing') {
-              if (target.nso_mail_id) {
-                return true;
-              }
-              if (target.mandate_id && mandate) {
-                if (mandate.type === "New Acquisition" && mandate.new_sales_owner) {
-                  return true;
-                }
-              }
-            }
-            return false;
-          } else if (filterType === "kam" && filterKam && filterKam !== "") {
-            // For new_cross_sell targets: check monthly_targets.kam_id directly
-            if (targetType === 'new_cross_sell') {
-              if (target.kam_id === filterKam) {
-                return true;
-              } else {
-                return false;
-              }
-            }
-            // For existing targets: check mandate's kam_id
-            if (targetType === 'existing' && target.mandate_id && mandate) {
-              if (mandate.kam_id === filterKam) {
-                return true;
-              } else {
-                return false;
-              }
-            }
-            return false; // KAM doesn't match
-          } else if (filterType === "nso" && filterNso && filterNso !== "") {
-            // For NSO filter: check nso_mail_id directly first (for existing targets)
-            if (targetType === 'existing') {
-              if (target.nso_mail_id === filterNso) {
-                return true;
-              }
-              // Also check mandate's new_sales_owner for backward compatibility
-              if (target.mandate_id && mandate) {
-                if (mandate.type === "New Acquisition" && mandate.new_sales_owner === filterNso) {
-                  return true;
-                }
-              }
-            }
-            return false; // NSO doesn't match or not applicable
-          }
-          
-          return true; // No filter, include this target
-        });
-      }
+        .eq("year", currentYear)
+        .maybeSingle();
 
-      if (targetsError) {
-        console.error("Error fetching monthly targets for MCV Planned:", targetsError);
-      }
-
-      console.log(`MCV Planned Query: Looking for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'NONE SELECTED'}, statusFilter=${filterUpsellStatus}, filterType=${filterType}, kamFilter=${filterKam || 'NONE'}, nsoFilter=${filterNso || 'NONE'}`);
-      console.log(`MCV Planned - All targets from query (before client-side filter):`, allTargets);
-      console.log(`MCV Planned - Filtered targets (after client-side filter):`, currentMonthTargets);
-      console.log(`MCV Planned - Filter details:`, {
-        filterUpsellStatus,
-        allTargetsCount: allTargets?.length || 0,
-        filteredTargetsCount: currentMonthTargets?.length || 0,
-        targetTypes: allTargets?.map((t: any) => {
-          const m = t.mandate_id ? (Array.isArray(t.mandates) ? t.mandates[0] : t.mandates) : null;
-          return {
-            target_type: t.target_type,
-            target_value: t.target,
-            mandate_id: t.mandate_id,
-            mandate_type: m?.type,
-            kam_id: t.kam_id,
-            mandate_kam_id: m?.kam_id
-          };
-        }),
-        filteredTargets: currentMonthTargets?.map((t: any) => {
-          const m = t.mandate_id ? (Array.isArray(t.mandates) ? t.mandates[0] : t.mandates) : null;
-          return {
-            target_type: t.target_type,
-            target_value: t.target,
-            mandate_id: t.mandate_id,
-            mandate_type: m?.type
-          };
-        })
-      });
-      
-      // Debug: Also fetch all targets for current month to see what's in the DB (for debugging only)
-      const { data: allCurrentMonthTargets } = await supabase
-        .from("monthly_targets")
-        .select("target, month, year, financial_year, target_type, mandate_id, account_id, kam_id, nso_mail_id")
-        .eq("month", currentMonth)
-        .eq("year", currentYear);
-      console.log(`[DEBUG] All targets for current month (${currentMonth}/${currentYear}) in database:`, allCurrentMonthTargets);
-      if (allCurrentMonthTargets && allCurrentMonthTargets.length > 0) {
-        console.log(`[DEBUG] Found ${allCurrentMonthTargets.length} target(s) in DB for current month. Financial years:`, 
-          allCurrentMonthTargets.map(t => t.financial_year));
-      }
-
-      if (!targetsError && currentMonthTargets && currentMonthTargets.length > 0) {
-        totalMcvPlanned = currentMonthTargets.reduce((sum, targetRecord) => {
-          const targetValue = parseFloat(targetRecord.target?.toString() || "0") || 0;
-          return sum + targetValue;
-        }, 0);
-        console.log(`MCV Planned for ${currentMonth}/${currentYear} (${filterFinancialYear}):`, totalMcvPlanned, "from", currentMonthTargets.length, "target(s)");
-        console.log(`[DEBUG] Target details:`, currentMonthTargets.map(t => ({
-          target: t.target,
-          financial_year: t.financial_year,
-          target_type: t.target_type
-        })));
-      } else {
-        console.log(`No targets found for month=${currentMonth}, year=${currentYear}, financial_year=${financialYearString || 'NONE SELECTED'}, statusFilter=${filterUpsellStatus}`);
-        totalMcvPlanned = 0;
+      if (managerTargetRow) {
+        const existing = parseFloat(String(managerTargetRow.existing_target ?? 0)) || 0;
+        const newAc = parseFloat(String(managerTargetRow.new_ac_target ?? 0)) || 0;
+        if (filterUpsellStatus === "All Cross Sell + Existing") {
+          // When "Existing" is selected in dropdown, it sets value to "All Cross Sell + Existing"
+          // Show only existing_target for this filter
+          totalMcvPlanned = existing;
+        } else if (filterUpsellStatus === "New Acquisitions") {
+          totalMcvPlanned = newAc;
+        } else if (filterUpsellStatus === "All mandate types" || filterUpsellStatus === "all") {
+          // Only "All mandate types" shows the sum
+          totalMcvPlanned = existing + newAc;
+        } else {
+          // For other filters (All Cross Sell, Existing, etc.), show 0
+          // since manager_targets table doesn't have cross-sell specific targets
+          totalMcvPlanned = 0;
+        }
       }
 
       // Fetch all mandates with monthly_data to calculate FFM Achieved for current month within selected FY
@@ -2567,64 +2358,26 @@ export default function Dashboard() {
         }
       }
       
-      // Calculate Current Month Target: Get target for current month from monthly_targets table within selected FY
-      // Sum all targets for the current month (there may be multiple targets with different types)
-      let currentMonthTargetQuery = supabase
-        .from("monthly_targets")
-        .select("target, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
-        .eq("month", currentMonth)
-        .eq("year", currentYear);
-      
-      // Filter by financial_year if available
-      if (financialYearString) {
-        currentMonthTargetQuery = currentMonthTargetQuery.eq("financial_year", financialYearString);
-      }
-      
-      // Don't apply target_type filter - we'll filter by mandate type client-side
-      const { data: allCurrentMonthTargetsData, error: currentMonthTargetError } = await currentMonthTargetQuery;
-
-      // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
-      let currentMonthTargetsData = filterTargetsByKamNso(allCurrentMonthTargetsData || []);
-
-      // Filter by mandate type based on filterUpsellStatus
-      // Only include targets that are linked to mandates (target_type = 'existing' with mandate_id)
-      if (currentMonthTargetsData && currentMonthTargetsData.length > 0) {
-        currentMonthTargetsData = currentMonthTargetsData.filter((target: any) => {
-          // Only include targets linked to mandates
-          if (target.target_type !== 'existing' || !target.mandate_id) {
-            return false;
-          }
-          
-          // Get mandate object (handle both array and single object)
-          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
-          if (!mandate) {
-            return false;
-          }
-          
-          const mandateType = mandate.type;
-          
-          // Filter by mandate type based on filterUpsellStatus
-          if (filterUpsellStatus === "Existing") {
-            return mandateType === 'Existing';
-          } else if (filterUpsellStatus === "All Cross Sell") {
-            return mandateType === 'New Cross Sell';
-          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-            return mandateType === 'Existing' || mandateType === 'New Cross Sell';
-          } else if (filterUpsellStatus === "New Acquisitions") {
-            return mandateType === 'New Acquisition';
-          } else {
-            // For "All mandate types" or other status filters, include all targets linked to mandates
-            return true;
-          }
-        });
-      }
-
+      // Calculate Current Month Target: Dashboard uses manager_targets table (not monthly_targets)
+      // Reuse managerTargetRow from above (already fetched for MCV Planned)
       let totalCurrentMonthTarget = 0;
-      if (!currentMonthTargetError && currentMonthTargetsData && currentMonthTargetsData.length > 0) {
-        totalCurrentMonthTarget = currentMonthTargetsData.reduce((sum, targetRecord) => {
-          const targetValue = parseFloat(targetRecord.target?.toString() || "0") || 0;
-          return sum + targetValue;
-        }, 0);
+      if (managerTargetRow) {
+        const existing = parseFloat(String(managerTargetRow.existing_target ?? 0)) || 0;
+        const newAc = parseFloat(String(managerTargetRow.new_ac_target ?? 0)) || 0;
+        if (filterUpsellStatus === "All Cross Sell + Existing") {
+          // When "Existing" is selected in dropdown, it sets value to "All Cross Sell + Existing"
+          // Show only existing_target for this filter
+          totalCurrentMonthTarget = existing;
+        } else if (filterUpsellStatus === "New Acquisitions") {
+          totalCurrentMonthTarget = newAc;
+        } else if (filterUpsellStatus === "All mandate types" || filterUpsellStatus === "all") {
+          // Only "All mandate types" shows the sum
+          totalCurrentMonthTarget = existing + newAc;
+        } else {
+          // For other filters (All Cross Sell, Existing, etc.), show 0
+          // since manager_targets table doesn't have cross-sell specific targets
+          totalCurrentMonthTarget = 0;
+        }
       }
 
       setCurrentMonthAchieved(totalCurrentMonthAchieved);
@@ -3276,7 +3029,7 @@ export default function Dashboard() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="All mandate types">All Mandate Types</SelectItem>
-            <SelectItem value="All Cross Sell + Existing">Existing</SelectItem>
+            <SelectItem value="All Cross Sell + Existing">Existing Mandates</SelectItem>
             <SelectItem value="New Acquisitions">New Acquisitions</SelectItem>
           </SelectContent>
         </Select>

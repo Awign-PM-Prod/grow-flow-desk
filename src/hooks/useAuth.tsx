@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -11,37 +11,7 @@ export function useAuth() {
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          setTimeout(() => {
-            fetchUserRoles(session.user.id);
-          }, 0);
-        } else {
-          setUserRoles([]);
-        }
-      }
-    );
-
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-      
-      if (session?.user) {
-        fetchUserRoles(session.user.id);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+  const isInitializedRef = useRef(false);
 
   const fetchUserRoles = async (userId: string) => {
     try {
@@ -49,7 +19,7 @@ export function useAuth() {
         .from("profiles")
         .select("role")
         .eq("id", userId)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       
@@ -64,6 +34,58 @@ export function useAuth() {
       setUserRoles([]);
     }
   };
+
+  useEffect(() => {
+    // Set up auth state listener first - INITIAL_SESSION will fire immediately
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        // Handle INITIAL_SESSION event - this fires when listener is set up
+        // Use this for initial state instead of getSession() to avoid duplicate token refresh calls
+        if (event === 'INITIAL_SESSION') {
+          if (!isInitializedRef.current) {
+            setSession(session);
+            setUser(session?.user ?? null);
+            setLoading(false);
+            isInitializedRef.current = true;
+            
+            if (session?.user) {
+              fetchUserRoles(session.user.id);
+            }
+          }
+          return;
+        }
+
+        // Ignore TOKEN_REFRESHED events to prevent excessive token refresh requests
+        // The session is already valid, we don't need to update state or fetch roles again
+        // This prevents rate limiting (429 errors) from frequent token refresh attempts
+        if (event === 'TOKEN_REFRESHED') {
+          // Silently update session reference without triggering state updates
+          // This prevents unnecessary re-renders and role fetches
+          setSession(session);
+          return;
+        }
+
+        // Only process other auth state changes after initial session check is complete
+        // This prevents race conditions where the listener fires and clears user before initialization
+        if (!isInitializedRef.current) {
+          return;
+        }
+
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          setTimeout(() => {
+            fetchUserRoles(session.user.id);
+          }, 0);
+        } else {
+          setUserRoles([]);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const signOut = async () => {
     try {
