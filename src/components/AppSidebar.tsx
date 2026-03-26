@@ -16,9 +16,69 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
+import type { UserRole } from "@/hooks/useAuth";
+
+function roleLabel(role: UserRole | undefined): string {
+  switch (role) {
+    case "kam":
+      return "KAM";
+    case "manager":
+      return "Manager";
+    case "leadership":
+      return "Leadership";
+    case "superadmin":
+      return "Super Admin";
+    case "nso":
+      return "NSO";
+    default:
+      return "—";
+  }
+}
+
+const APP_ROLES: UserRole[] = ["kam", "manager", "leadership", "superadmin", "nso"];
+
+function coerceAppRole(value: unknown): UserRole | undefined {
+  if (typeof value !== "string") return undefined;
+  const r = value.toLowerCase().trim();
+  return APP_ROLES.includes(r as UserRole) ? (r as UserRole) : undefined;
+}
+
+/** Readable placeholder when profiles.full_name is empty */
+function displayNameFromEmail(email: string | undefined): string {
+  if (!email) return "—";
+  const local = email.split("@")[0] ?? "";
+  const base = (local.split("+")[0] ?? local).trim();
+  const parts = base.split(/[._-]+/).filter(Boolean);
+  if (parts.length === 0) return "—";
+  return parts
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join(" ");
+}
 
 export function AppSidebar() {
-  const { isKAM, isManager, isLeadership, isSuperAdmin, signOut, user } = useAuth();
+  const {
+    isKAM,
+    isManager,
+    isLeadership,
+    isSuperAdmin,
+    signOut,
+    user,
+    userRoles,
+    fullName,
+  } = useAuth();
+
+  const nameLine =
+    fullName?.trim() ||
+    (typeof user?.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name.trim()
+      : "") ||
+    "—";
+
+  const metadataRole =
+    coerceAppRole(user?.app_metadata?.role) ??
+    coerceAppRole((user?.user_metadata as { role?: string } | undefined)?.role);
+  const resolvedRole = userRoles[0] ?? metadataRole;
+
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
 
   const mainMenuItems = [
@@ -26,37 +86,37 @@ export function AppSidebar() {
       title: "Dashboard",
       url: "/dashboard",
       icon: LayoutDashboard,
-      roles: ["kam", "manager", "leadership", "superadmin"],
+      roles: ["kam", "manager", "leadership", "superadmin", "nso"],
     },
     {
       title: "Cross Sell Pipeline Dashboard",
       url: "/cross-sell-dashboard",
       icon: BarChart3,
-      roles: ["kam", "manager", "leadership", "superadmin"],
+      roles: ["kam", "manager", "leadership", "superadmin", "nso"],
     },
     {
       title: "Accounts",
       url: "/accounts",
       icon: Building2,
-      roles: ["kam", "manager", "leadership", "superadmin"],
+      roles: ["kam", "manager", "leadership", "superadmin", "nso"],
     },
     {
       title: "Contacts",
       url: "/contacts",
       icon: Users,
-      roles: ["kam", "manager", "leadership", "superadmin"],
+      roles: ["kam", "manager", "leadership", "superadmin", "nso"],
     },
     {
       title: "Mandates",
       url: "/mandates",
       icon: FileText,
-      roles: ["kam", "manager", "leadership", "superadmin"],
+      roles: ["kam", "manager", "leadership", "superadmin", "nso"],
     },
     {
       title: "Cross-sell Pipeline",
       url: "/pipeline",
       icon: TrendingUp,
-      roles: ["kam", "manager", "leadership", "superadmin"],
+      roles: ["kam", "manager", "leadership", "superadmin", "nso"],
     },
     {
       title: "Targets",
@@ -77,6 +137,7 @@ export function AppSidebar() {
 
   const canAccessItem = (itemRoles: string[]) => {
     if (isSuperAdmin) return true;
+    if (resolvedRole === "nso" && itemRoles.includes("nso")) return true;
     if (isLeadership && itemRoles.includes("leadership")) return true;
     if (isManager && itemRoles.includes("manager")) return true;
     if (isKAM && itemRoles.includes("kam")) return true;
@@ -163,8 +224,34 @@ export function AppSidebar() {
 
       <SidebarFooter className="border-t border-sidebar-border p-4">
         <div className="space-y-2">
-          <div className="text-sm text-sidebar-foreground">
-            <p className="font-medium">{user?.email}</p>
+          {/* Sidebar tokens only — avoids low-contrast card on dark sidebar; labels always visible */}
+          <div className="rounded-md border border-sidebar-border bg-sidebar-accent p-3">
+            <div className="space-y-3">
+              <div className="min-h-[2.75rem]">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/65">
+                  Full name
+                </p>
+                <p className="mt-1 break-words text-sm font-semibold leading-snug text-sidebar-foreground">
+                  {nameLine}
+                </p>
+              </div>
+              <div className="min-h-[2.75rem]">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/65">
+                  Role
+                </p>
+                <p className="mt-1 text-sm font-semibold leading-snug text-sidebar-foreground">
+                  {roleLabel(resolvedRole)}
+                </p>
+              </div>
+              <div className="min-h-[2.75rem]">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/65">
+                  Email
+                </p>
+                <p className="mt-1 break-all text-sm font-semibold leading-snug text-sidebar-foreground">
+                  {user?.email ?? "—"}
+                </p>
+              </div>
+            </div>
           </div>
           <Button
             variant="outline"

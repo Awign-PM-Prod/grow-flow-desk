@@ -13,7 +13,7 @@ const corsHeaders = {
 interface InviteUserRequest {
   email: string;
   full_name: string;
-  role: "kam" | "manager" | "leadership" | "superadmin";
+  role: "kam" | "manager" | "leadership" | "superadmin" | "nso";
   password: string;
 }
 
@@ -73,7 +73,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Password must be at least 8 characters");
     }
 
-    const validRoles = ["kam", "manager", "leadership", "superadmin"];
+    const validRoles = ["kam", "manager", "leadership", "superadmin", "nso"];
     if (!validRoles.includes(role)) {
       throw new Error("Invalid role");
     }
@@ -116,7 +116,13 @@ const handler = async (req: Request): Promise<Response> => {
       console.error("Error assigning role:", roleUpdateError);
       // Clean up: delete the user if role assignment fails
       await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
-      throw new Error("Failed to assign role to user");
+      const hint =
+        role === "nso"
+          ? " If the NSO role was added recently, apply the migration that runs ALTER TYPE app_role ADD VALUE 'nso' before using it."
+          : "";
+      throw new Error(
+        `Failed to assign role to user: ${roleUpdateError.message}${hint}`
+      );
     }
 
     console.log("Role assigned successfully");
@@ -130,11 +136,12 @@ const handler = async (req: Request): Promise<Response> => {
     console.log("Verify URL:", verifyUrl);
 
     // Send invitation email
-    const roleLabels = {
+    const roleLabels: Record<InviteUserRequest["role"], string> = {
       kam: "Key Account Manager",
       manager: "Manager",
       leadership: "Leadership",
       superadmin: "Super Admin",
+      nso: "New Sales Officer",
     };
 
     const emailResponse = await resend.emails.send({
@@ -245,20 +252,19 @@ const handler = async (req: Request): Promise<Response> => {
         },
       }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in invite-user function:", error);
-    return new Response(
-      JSON.stringify({ 
-        error: error.message || "An error occurred while inviting the user" 
-      }),
-      {
-        status: 400,
-        headers: { 
-          "Content-Type": "application/json",
-          ...corsHeaders,
-        },
-      }
-    );
+    const message =
+      error instanceof Error
+        ? error.message
+        : "An error occurred while inviting the user";
+    return new Response(JSON.stringify({ error: message }), {
+      status: 400,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    });
   }
 };
 

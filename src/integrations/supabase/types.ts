@@ -422,13 +422,6 @@ export type Database = {
             referencedRelation: "mandates"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "monthly_targets_nso_mail_id_fkey"
-            columns: ["nso_mail_id"]
-            isOneToOne: false
-            referencedRelation: "new_sales_officers"
-            referencedColumns: ["mail_id"]
-          },
         ]
       }
       manager_targets: {
@@ -649,7 +642,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "kam" | "manager" | "leadership" | "superadmin"
+      app_role: "kam" | "manager" | "leadership" | "superadmin" | "nso"
       awign_share_percent: "Below 70%" | "70% & Above"
       client_budget_trend: "Increase" | "Same" | "Decrease"
       company_size_tier: "Tier 1" | "Tier 2"
@@ -855,7 +848,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["kam", "manager", "leadership", "superadmin"],
+      app_role: ["kam", "manager", "leadership", "superadmin", "nso"],
       awign_share_percent: ["Below 70%", "70% & Above"],
       client_budget_trend: ["Increase", "Same", "Decrease"],
       company_size_tier: ["Tier 1", "Tier 2"],

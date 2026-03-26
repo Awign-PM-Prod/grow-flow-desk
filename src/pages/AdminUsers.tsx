@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ interface UserData {
 
 export default function AdminUsers() {
   const navigate = useNavigate();
+  const { isSuperAdmin, loading: authLoading } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,8 +76,21 @@ export default function AdminUsers() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!isSuperAdmin) {
+      navigate("/dashboard", { replace: true });
+      return;
+    }
     fetchUsers();
-  }, []);
+  }, [authLoading, isSuperAdmin, navigate]);
+
+  if (authLoading || !isSuperAdmin) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const filteredUsers = users.filter((user) =>
     user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -88,6 +103,7 @@ export default function AdminUsers() {
       leadership: { label: "Leadership", variant: "secondary" },
       manager: { label: "Manager", variant: "outline" },
       kam: { label: "KAM", variant: "outline" },
+      nso: { label: "NSO", variant: "secondary" },
     };
     
     const roleConfig = variants[role] || { label: role, variant: "destructive" };
@@ -149,7 +165,7 @@ export default function AdminUsers() {
             onClick={() => navigate("/admin/nso")}
           >
             <Users className="h-4 w-4" />
-            Manage NSO
+            NSO users
           </Button>
           <InviteUserDialog onUserInvited={fetchUsers} />
         </div>

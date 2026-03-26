@@ -240,13 +240,13 @@ const extractYearFromFinancialYear = (financialYear: string): number => {
 };
 
 export default function Mandates() {
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, canMutatePortal } = useAuth();
   const isKAM = hasRole("kam");
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [kams, setKams] = useState<{ id: string; full_name: string }[]>([]);
-  const [nsos, setNsos] = useState<{ id: string; first_name: string; last_name: string; mail_id: string }[]>([]);
+  const [nsos, setNsos] = useState<{ id: string; email: string; full_name: string | null }[]>([]);
   const [formData, setFormData] = useState<MandateFormData>({
     projectCode: "",
     projectName: "",
@@ -368,18 +368,18 @@ export default function Mandates() {
           }
         }
 
-        // Fetch New Sales Officers
         const { data: nsoData, error: nsoError } = await supabase
-          .from("new_sales_officers")
-          .select("id, first_name, last_name, mail_id")
-          .order("first_name");
+          .from("profiles")
+          .select("id, email, full_name")
+          .eq("role", "nso")
+          .order("full_name", { ascending: true, nullsFirst: false });
 
         if (nsoData && !nsoError) {
           setNsos(nsoData);
         } else {
           setNsos([]);
           if (nsoError) {
-            console.warn("Error fetching New Sales Officers:", nsoError.message);
+            console.warn("Error fetching NSO profiles:", nsoError.message);
           }
         }
       } catch (error) {
@@ -2625,21 +2625,27 @@ export default function Mandates() {
             <Download className="mr-2 h-4 w-4" />
             {hasActiveFilters ? "Download Filtered Mandates" : "Export Mandates"}
           </Button>
+          {canMutatePortal && (
           <Button
             variant="outline"
             onClick={() => setBulkUpdateMcvDialogOpen(true)}
           >
             Bulk Update MCV
           </Button>
+          )}
+          {canMutatePortal && (
           <Button
             variant="outline"
             onClick={() => setBulkUploadCasesDialogOpen(true)}
           >
             Bulk Upload Mandates
           </Button>
+          )}
+          {canMutatePortal && (
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Mandate
           </Button>
+          )}
           </div>
         </div>
       </div>
@@ -2965,10 +2971,10 @@ export default function Mandates() {
                               {formData.newSalesOwner
                                 ? (() => {
                                     const selected = nsos.find(
-                                      (nso) => nso.mail_id === formData.newSalesOwner
+                                      (nso) => nso.email === formData.newSalesOwner
                                     );
                                     return selected
-                                      ? `${selected.first_name} ${selected.last_name} (${selected.mail_id})`
+                                      ? `${(selected.full_name?.trim() || selected.email)} (${selected.email})`
                                       : formData.newSalesOwner;
                                   })()
                                 : "Select New Sales Officer"}
@@ -2993,16 +2999,16 @@ export default function Mandates() {
                                 {nsos.map((nso) => (
                                   <CommandItem
                                     key={nso.id}
-                                    value={`${nso.first_name} ${nso.last_name} ${nso.mail_id}`}
+                                    value={`${(nso.full_name || "").trim()} ${nso.email}`}
                                     onSelect={() => {
-                                      handleInputChange("newSalesOwner", nso.mail_id);
+                                      handleInputChange("newSalesOwner", nso.email);
                                       setNsoSelectOpen(false);
                                     }}
                                   >
                                     <div className="flex flex-col">
-                                      <span>{`${nso.first_name} ${nso.last_name}`}</span>
+                                      <span>{(nso.full_name?.trim() || nso.email)}</span>
                                       <span className="text-xs text-muted-foreground">
-                                        {nso.mail_id}
+                                        {nso.email}
                                       </span>
                                     </div>
                                   </CommandItem>
@@ -3642,6 +3648,7 @@ export default function Mandates() {
                               >
                                 View Details
                               </Button>
+                              {canMutatePortal && (
                               <Button 
                                 size="sm"
                                 onClick={() => {
@@ -3652,6 +3659,8 @@ export default function Mandates() {
                               >
                                 Update
                               </Button>
+                              )}
+                              {canMutatePortal && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -3663,6 +3672,7 @@ export default function Mandates() {
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
+                              )}
                             </div>
                           </TableCell>
                 </TableRow>
@@ -3690,9 +3700,11 @@ export default function Mandates() {
           </DialogHeader>
           <div className="flex items-center justify-end gap-2 mb-4">
             {!isEditMode ? (
+              canMutatePortal && (
               <Button variant="outline" onClick={() => setIsEditMode(true)}>
                 Edit
               </Button>
+              )
             ) : (
               <>
                 <Button variant="outline" onClick={() => {
@@ -4026,10 +4038,10 @@ export default function Mandates() {
                                 {editMandateData.newSalesOwner
                                   ? (() => {
                                       const selected = nsos.find(
-                                        (nso) => nso.mail_id === editMandateData.newSalesOwner
+                                        (nso) => nso.email === editMandateData.newSalesOwner
                                       );
                                       return selected
-                                        ? `${selected.first_name} ${selected.last_name} (${selected.mail_id})`
+                                        ? `${(selected.full_name?.trim() || selected.email)} (${selected.email})`
                                         : editMandateData.newSalesOwner;
                                     })()
                                   : "Select New Sales Officer"}
@@ -4054,19 +4066,19 @@ export default function Mandates() {
                                   {nsos.map((nso) => (
                                     <CommandItem
                                       key={nso.id}
-                                      value={`${nso.first_name} ${nso.last_name} ${nso.mail_id}`}
+                                      value={`${(nso.full_name || "").trim()} ${nso.email}`}
                                       onSelect={() => {
                                         setEditMandateData({
                                           ...editMandateData,
-                                          newSalesOwner: nso.mail_id,
+                                          newSalesOwner: nso.email,
                                         });
                                         setEditNsoSelectOpen(false);
                                       }}
                                     >
                                       <div className="flex flex-col">
-                                        <span>{`${nso.first_name} ${nso.last_name}`}</span>
+                                        <span>{(nso.full_name?.trim() || nso.email)}</span>
                                         <span className="text-xs text-muted-foreground">
-                                          {nso.mail_id}
+                                          {nso.email}
                                         </span>
                                       </div>
                                     </CommandItem>

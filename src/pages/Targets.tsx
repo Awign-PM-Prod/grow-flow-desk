@@ -189,7 +189,7 @@ interface KAM {
 }
 
 export default function Targets() {
-  const { hasRole, loading, userRoles, user } = useAuth();
+  const { hasRole, loading, userRoles, user, canMutatePortal } = useAuth();
   const isKAM = hasRole("kam");
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -331,15 +331,18 @@ export default function Targets() {
       
       if (nsoMailIds.length > 0) {
         const { data: nsoData } = await supabase
-          .from("new_sales_officers")
-          .select("mail_id, first_name, last_name")
-          .in("mail_id", nsoMailIds);
-        
+          .from("profiles")
+          .select("email, full_name")
+          .eq("role", "nso")
+          .in("email", nsoMailIds);
+
         if (nsoData) {
-          nsoData.forEach((nso) => {
-            nsoMap[nso.mail_id] = {
-              first_name: nso.first_name,
-              last_name: nso.last_name,
+          nsoData.forEach((row) => {
+            const name = row.full_name?.trim() || "";
+            const parts = name.split(/\s+/).filter(Boolean);
+            nsoMap[row.email] = {
+              first_name: parts[0] || row.email,
+              last_name: parts.slice(1).join(" "),
             };
           });
         }
@@ -1738,6 +1741,8 @@ export default function Targets() {
             </SelectContent>
           </Select>
           
+          {canMutatePortal && (
+          <>
           {/* Bulk Upload Targets Button */}
           <Dialog open={bulkUploadDialogOpen} onOpenChange={(open) => {
             setBulkUploadDialogOpen(open);
@@ -2098,6 +2103,8 @@ export default function Targets() {
             </form>
           </DialogContent>
         </Dialog>
+          </>
+          )}
         </div>
       </div>
 

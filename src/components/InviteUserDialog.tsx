@@ -26,7 +26,7 @@ import { z } from "zod";
 const inviteSchema = z.object({
   email: z.string().trim().email("Invalid email address").max(255, "Email must be less than 255 characters"),
   fullName: z.string().trim().min(1, "Name is required").max(100, "Name must be less than 100 characters"),
-  role: z.enum(["kam", "manager", "leadership", "superadmin"], {
+  role: z.enum(["kam", "manager", "leadership", "superadmin", "nso"], {
     errorMap: () => ({ message: "Please select a valid role" }),
   }),
   password: z.string().min(8, "Password must be at least 8 characters"),
@@ -86,11 +86,35 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
       });
 
       if (error) {
-        throw error;
+        const fromData =
+          data &&
+          typeof data === "object" &&
+          "error" in data &&
+          typeof (data as { error: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : undefined;
+
+        let fromContext: string | undefined;
+        const ctx = (error as { context?: { body?: string } }).context;
+        if (ctx?.body) {
+          try {
+            const parsed = JSON.parse(ctx.body) as { error?: string };
+            if (typeof parsed.error === "string") fromContext = parsed.error;
+          } catch {
+            /* ignore */
+          }
+        }
+
+        throw new Error(fromData || fromContext || error.message || "Failed to invite user");
       }
 
-      if (data.error) {
-        throw new Error(data.error);
+      if (
+        data &&
+        typeof data === "object" &&
+        "error" in data &&
+        typeof (data as { error: unknown }).error === "string"
+      ) {
+        throw new Error((data as { error: string }).error);
       }
 
       toast({
@@ -169,6 +193,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
                   <SelectItem value="manager">Manager</SelectItem>
                   <SelectItem value="leadership">Leadership</SelectItem>
                   <SelectItem value="superadmin">Super Admin</SelectItem>
+                  <SelectItem value="nso">New Sales Officer (NSO)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -176,6 +201,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
                 {role === "manager" && "Can view and manage team performance"}
                 {role === "leadership" && "Can view organization-wide metrics"}
                 {role === "superadmin" && "Full access including user management"}
+                {role === "nso" && "Read-only access to mandates and related data where they are assigned as NSO"}
               </p>
             </div>
             <div className="grid gap-2">

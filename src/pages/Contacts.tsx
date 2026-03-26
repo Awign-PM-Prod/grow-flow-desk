@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText, BookOpen } from "lucide-react";
@@ -56,6 +57,7 @@ interface ContactFormData {
 }
 
 export default function Contacts() {
+  const { canMutatePortal } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
@@ -1051,6 +1053,7 @@ export default function Contacts() {
             <Download className="mr-2 h-4 w-4" />
             {hasActiveFilters ? "Download Filtered Contacts" : "Export Contacts"}
           </Button>
+          {canMutatePortal && (
           <Button
             variant="outline"
             onClick={handleDownloadContactTemplate}
@@ -1058,6 +1061,8 @@ export default function Contacts() {
             <FileText className="mr-2 h-4 w-4" />
             Download Template
           </Button>
+          )}
+          {canMutatePortal && (
           <label>
             <input
               type="file"
@@ -1082,9 +1087,12 @@ export default function Contacts() {
               </span>
             </Button>
           </label>
+          )}
+          {canMutatePortal && (
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Contact
           </Button>
+          )}
           </div>
         </div>
       </div>
@@ -1610,6 +1618,7 @@ export default function Contacts() {
                             >
                               View Details
                             </Button>
+                            {canMutatePortal && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -1621,6 +1630,7 @@ export default function Contacts() {
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1651,9 +1661,11 @@ export default function Contacts() {
           </DialogHeader>
           <div className="flex items-center justify-end gap-2 mb-4">
             {!isEditMode ? (
+              canMutatePortal && (
               <Button variant="outline" onClick={() => setIsEditMode(true)}>
                 Edit
               </Button>
+              )
             ) : (
               <>
                 <Button variant="outline" onClick={() => {

@@ -12,6 +12,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText, Globe, BookOpen } from "lucide-react";
@@ -74,6 +75,7 @@ const industrySubCategories: Record<string, string[]> = {
 };
 
 export default function Accounts() {
+  const { canMutatePortal } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -1209,6 +1211,7 @@ export default function Accounts() {
             <Download className="mr-2 h-4 w-4" />
             {hasActiveFilters ? "Download Filtered Accounts" : "Export Accounts"}
           </Button>
+          {canMutatePortal && (
           <Button
             variant="outline"
             onClick={handleDownloadAccountTemplate}
@@ -1216,6 +1219,8 @@ export default function Accounts() {
             <FileText className="mr-2 h-4 w-4" />
             Download Template
           </Button>
+          )}
+          {canMutatePortal && (
           <label>
             <input
               type="file"
@@ -1241,9 +1246,12 @@ export default function Accounts() {
               </span>
             </Button>
           </label>
+          )}
+          {canMutatePortal && (
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Account
           </Button>
+          )}
           </div>
         </div>
       </div>
@@ -1733,6 +1741,7 @@ export default function Accounts() {
                               >
                                 View Details
                               </Button>
+                              {canMutatePortal && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1744,6 +1753,7 @@ export default function Accounts() {
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1772,9 +1782,11 @@ export default function Accounts() {
           </DialogHeader>
           <div className="flex items-center justify-end gap-2 mb-4">
             {!isEditMode ? (
+              canMutatePortal && (
               <Button variant="outline" onClick={() => setIsEditMode(true)}>
                 Edit
               </Button>
+              )
             ) : (
               <>
                 <Button variant="outline" onClick={() => {

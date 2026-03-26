@@ -1,135 +1,232 @@
-import { useEffect, useState, useRef } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 
-export type UserRole = "kam" | "manager" | "leadership" | "superadmin";
+export type UserRole = "kam" | "manager" | "leadership" | "superadmin" | "nso";
 
-export function useAuth() {
+/** Map profiles.role (or JWT metadata) to a canonical app role. */
+function normalizeProfileRole(raw: unknown): UserRole | null {
+  if (raw === null || raw === undefined) return null;
+  const compact = String(raw)
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_-]+/g, "");
+  if (compact === "kam") return "kam";
+  if (compact === "manager") return "manager";
+  if (compact === "leadership") return "leadership";
+  if (compact === "superadmin") return "superadmin";
+  if (compact === "nso") return "nso";
+  return null;
+}
+
+function roleFromSessionUser(user: User | null | undefined): UserRole | null {
+  if (!user) return null;
+  const app = user.app_metadata?.role;
+  const um = (user.user_metadata as { role?: unknown } | undefined)?.role;
+  if (typeof app === "string") return normalizeProfileRole(app);
+  return normalizeProfileRole(um);
+}
+
+export type AuthContextValue = {
+  user: User | null;
+  session: Session | null;
+  userRoles: UserRole[];
+  fullName: string | null;
+  loading: boolean;
+  signOut: () => Promise<void>;
+  hasRole: (role: UserRole) => boolean;
+  isSuperAdmin: boolean;
+  isLeadership: boolean;
+  isManager: boolean;
+  isKAM: boolean;
+  /** True for leadership or NSO: portal data is read-only at the UI. */
+  isReadOnlyLeadership: boolean;
+  isNSO: boolean;
+  canMutatePortal: boolean;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
+  const [fullName, setFullName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const isInitializedRef = useRef(false);
 
-  const fetchUserRoles = async (userId: string) => {
+  const fetchUserRoles = useCallback(async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("role")
+        .select("role, full_name")
         .eq("id", userId)
         .maybeSingle();
 
       if (error) throw error;
-      
-      if (data && data.role) {
-        // Since role is now a single value instead of an array, we convert it to an array for compatibility
-        setUserRoles([data.role as UserRole]);
+
+      const trimmedName = data?.full_name?.trim() || null;
+      setFullName(trimmedName);
+
+      const roleNorm = normalizeProfileRole(data?.role);
+      if (roleNorm) {
+        setUserRoles([roleNorm]);
       } else {
         setUserRoles([]);
       }
     } catch (error) {
       console.error("Error fetching user roles:", error);
       setUserRoles([]);
+      setFullName(null);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    // Set up auth state listener first - INITIAL_SESSION will fire immediately
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        // Handle INITIAL_SESSION event - this fires when listener is set up
-        // Use this for initial state instead of getSession() to avoid duplicate token refresh calls
-        if (event === 'INITIAL_SESSION') {
+        if (event === "INITIAL_SESSION") {
           if (!isInitializedRef.current) {
             setSession(session);
             setUser(session?.user ?? null);
-            setLoading(false);
             isInitializedRef.current = true;
-            
+
             if (session?.user) {
-              fetchUserRoles(session.user.id);
+              void fetchUserRoles(session.user.id).finally(() => {
+                setLoading(false);
+              });
+            } else {
+              setUserRoles([]);
+              setFullName(null);
+              setLoading(false);
             }
           }
           return;
         }
 
-        // Ignore TOKEN_REFRESHED events to prevent excessive token refresh requests
-        // The session is already valid, we don't need to update state or fetch roles again
-        // This prevents rate limiting (429 errors) from frequent token refresh attempts
-        if (event === 'TOKEN_REFRESHED') {
-          // Silently update session reference without triggering state updates
-          // This prevents unnecessary re-renders and role fetches
+        if (event === "TOKEN_REFRESHED") {
           setSession(session);
           return;
         }
 
-        // Only process other auth state changes after initial session check is complete
-        // This prevents race conditions where the listener fires and clears user before initialization
         if (!isInitializedRef.current) {
           return;
         }
 
         setSession(session);
         setUser(session?.user ?? null);
-        
+
         if (session?.user) {
+          setLoading(true);
           setTimeout(() => {
-            fetchUserRoles(session.user.id);
+            void fetchUserRoles(session.user.id).finally(() => {
+              setLoading(false);
+            });
           }, 0);
         } else {
           setUserRoles([]);
+          setFullName(null);
+          setLoading(false);
         }
       }
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchUserRoles]);
 
-  const signOut = async () => {
+  // Refetch profile whenever auth user is set (login, refresh, first paint with session).
+  // Supplements INITIAL_SESSION so role/full_name are not stuck empty on some navigations.
+  useEffect(() => {
+    if (!user?.id) return;
+    void fetchUserRoles(user.id);
+  }, [user?.id, fetchUserRoles]);
+
+  const signOut = useCallback(async () => {
+    setLoading(true);
     try {
-      // Attempt to sign out from Supabase
       const { error } = await supabase.auth.signOut();
-      
-      // If we get a 403 error, it's often due to session mismatch - we can ignore it
-      // and proceed to clear local session data
       if (error) {
-        // 403 errors are common when session is already invalidated - we can safely ignore
-        if (error.status !== 403) {
-          console.error("Sign out error:", error);
+        // Fallback to local sign-out so client session is always cleared.
+        const { error: localError } = await supabase.auth.signOut({ scope: "local" });
+        if (localError) {
+          console.error("Sign out error:", localError);
         }
       }
-    } catch (error: any) {
-      // Handle 403 or other errors gracefully
-      // 403 errors during signOut are often harmless (session already invalidated)
-      if (error?.status !== 403) {
-        console.error("Sign out error:", error);
+    } catch (error: unknown) {
+      // Network/API failure should not block local logout.
+      const { error: localError } = await supabase.auth.signOut({ scope: "local" });
+      if (localError) {
+        console.error("Sign out error:", localError);
+      } else {
+        console.error("Sign out fallback used after error:", error);
       }
     } finally {
-      // Always navigate to auth page, even if signOut API call fails
-      // Supabase client will clear local storage automatically
-      navigate("/auth");
+      setSession(null);
+      setUser(null);
+      setUserRoles([]);
+      setFullName(null);
+      setLoading(false);
+      navigate("/auth", { replace: true });
     }
-  };
+  }, [navigate]);
 
-  const hasRole = (role: UserRole) => userRoles.includes(role);
-  
-  const isSuperAdmin = hasRole("superadmin");
-  const isLeadership = hasRole("leadership") || isSuperAdmin;
-  const isManager = hasRole("manager") || isLeadership;
-  const isKAM = hasRole("kam") || isManager;
+  const hasRole = useCallback(
+    (role: UserRole) =>
+      userRoles.some((r) => String(r).toLowerCase() === role),
+    [userRoles]
+  );
 
-  return {
-    user,
-    session,
-    userRoles,
-    loading,
-    signOut,
-    hasRole,
-    isSuperAdmin,
-    isLeadership,
-    isManager,
-    isKAM,
-  };
+  const value = useMemo((): AuthContextValue => {
+    const isSuperAdmin = hasRole("superadmin");
+    const sessionRole = roleFromSessionUser(user);
+    const readOnlyFromSession =
+      userRoles.length === 0 &&
+      (sessionRole === "leadership" || sessionRole === "nso");
+    const isNSO = hasRole("nso");
+    const isReadOnlyLeadership =
+      !isSuperAdmin &&
+      (hasRole("leadership") || isNSO || readOnlyFromSession);
+    return {
+      user,
+      session,
+      userRoles,
+      fullName,
+      loading,
+      signOut,
+      hasRole,
+      isSuperAdmin,
+      isLeadership: hasRole("leadership") || isSuperAdmin,
+      isManager: hasRole("manager") || hasRole("leadership") || isSuperAdmin,
+      isKAM:
+        hasRole("kam") ||
+        hasRole("manager") ||
+        hasRole("leadership") ||
+        isSuperAdmin,
+      isReadOnlyLeadership,
+      isNSO,
+      canMutatePortal: !loading && !isReadOnlyLeadership,
+    };
+  }, [user, session, userRoles, fullName, loading, signOut, hasRole]);
+
+  return (
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  );
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return ctx;
 }

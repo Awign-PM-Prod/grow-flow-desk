@@ -37,7 +37,7 @@ const getAchievedMcv = (monthRecord: any): number => {
 };
 
 export default function Dashboard() {
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, isNSO } = useAuth();
   const isKAM = hasRole("kam");
   const [loading, setLoading] = useState(true);
   const [totalMandates, setTotalMandates] = useState(0);
@@ -66,7 +66,8 @@ export default function Dashboard() {
     category: string;
     tier: string;
     rowType: string;
-    [key: string]: string | number;
+    lastQuarter?: string | number;
+    [key: string]: string | number | undefined;
   }>>([]);
   const [tierMonthColumns, setTierMonthColumns] = useState<Array<{
     month: number;
@@ -143,13 +144,23 @@ export default function Dashboard() {
     }
   }, [isKAM, user?.id]);
 
+  // NSO users: no NSO dimension in the dashboard filter (RLS already scopes data); avoid nso / all_nsos modes
+  useEffect(() => {
+    if (!isNSO) return;
+    setFilterNso("");
+    setFilterType((t) => (t === "nso" || t === "all_nsos" ? "all" : t));
+  }, [isNSO]);
+
   useEffect(() => {
     fetchDashboardData();
-    if (!isKAM) {
+    if (isKAM) return;
+    if (isNSO) {
       fetchKams();
-      fetchNsos();
+      return;
     }
-  }, [filterFinancialYear, filterUpsellStatus, filterKam, filterNso, filterType, isKAM]);
+    fetchKams();
+    fetchNsos();
+  }, [filterFinancialYear, filterUpsellStatus, filterKam, filterNso, filterType, isKAM, isNSO]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -647,9 +658,10 @@ export default function Dashboard() {
   const fetchNsos = async () => {
     try {
       const { data, error } = await supabase
-        .from("new_sales_officers")
-        .select("mail_id, first_name, last_name")
-        .order("first_name", { ascending: true });
+        .from("profiles")
+        .select("email, full_name")
+        .eq("role", "nso")
+        .order("full_name", { ascending: true, nullsFirst: false });
 
       if (error) {
         console.error("Error fetching NSOs:", error);
@@ -657,7 +669,17 @@ export default function Dashboard() {
       }
 
       if (data) {
-        setNsos(data);
+        setNsos(
+          data.map((p) => {
+            const name = p.full_name?.trim() || "";
+            const parts = name.split(/\s+/).filter(Boolean);
+            return {
+              mail_id: p.email,
+              first_name: parts[0] || p.email,
+              last_name: parts.slice(1).join(" "),
+            };
+          })
+        );
       }
     } catch (error) {
       console.error("Error fetching NSOs:", error);
@@ -2765,12 +2787,16 @@ export default function Dashboard() {
         });
       });
 
+      // Last 3 month columns → "Last 3 months" totals (sum of last 3 columns per row)
+      const lqCols = monthColumns.slice(-3);
+
       // Convert to array format for display - 4 rows per tier
       const formattedTierData: Array<{
         category: string;
         tier: string;
         rowType: string;
-        [key: string]: string | number;
+        lastQuarter?: string | number;
+        [key: string]: string | number | undefined;
       }> = [];
 
       // For each tier, create 4 rows
@@ -2783,6 +2809,9 @@ export default function Dashboard() {
           category: "MCV Tier",
           tier: tier,
           rowType: "Target",
+          lastQuarter: formatCurrency(
+            lqCols.reduce((s, c) => s + (tierTargetData[tierKey][c.key] || 0), 0)
+          ),
           ...monthColumns.reduce((acc, col) => {
             const value = tierTargetData[tierKey][col.key] || 0;
             acc[col.key] = formatCurrency(value);
@@ -2796,6 +2825,9 @@ export default function Dashboard() {
           category: "",
           tier: "",
           rowType: "Actual",
+          lastQuarter: formatCurrency(
+            lqCols.reduce((s, c) => s + (monthlyTierData[tierKey][c.key] || 0), 0)
+          ),
           ...monthColumns.reduce((acc, col) => {
             // Use monthlyTierData for non-cumulative actual values
             const value = monthlyTierData[tierKey][col.key] || 0;
@@ -2810,6 +2842,12 @@ export default function Dashboard() {
           category: "",
           tier: "",
           rowType: "Achievement",
+          lastQuarter: (() => {
+            const lqT = lqCols.reduce((s, c) => s + (tierTargetData[tierKey][c.key] || 0), 0);
+            const lqA = lqCols.reduce((s, c) => s + (monthlyTierData[tierKey][c.key] || 0), 0);
+            const pct = lqT > 0 ? (lqA / lqT) * 100 : 0;
+            return `${pct.toFixed(1)}%`;
+          })(),
           ...monthColumns.reduce((acc, col) => {
             const target = tierTargetData[tierKey][col.key] || 0;
             const actual = monthlyTierData[tierKey][col.key] || 0;
@@ -2826,6 +2864,11 @@ export default function Dashboard() {
           category: "",
           tier: "",
           rowType: "Balance",
+          lastQuarter: lqCols.reduce((s, c) => {
+            const target = tierTargetData[tierKey][c.key] || 0;
+            const actual = monthlyTierData[tierKey][c.key] || 0;
+            return s + (target - actual);
+          }, 0),
           ...monthColumns.reduce((acc, col) => {
             const target = tierTargetData[tierKey][col.key] || 0;
             const actual = monthlyTierData[tierKey][col.key] || 0;
@@ -2835,6 +2878,92 @@ export default function Dashboard() {
             return acc;
           }, {} as Record<string, number | string>),
         });
+      });
+
+      // Total: Tier 1 + Tier 2 — same 4 rows, month-wise sums
+      const tier1Key = "MCV Tier_Tier 1";
+      const tier2Key = "MCV Tier_Tier 2";
+      formattedTierData.push({
+        category: "Total",
+        tier: "Tier 1 + Tier 2",
+        rowType: "Target",
+        lastQuarter: formatCurrency(
+          lqCols.reduce((s, c) => {
+            const t1 = tierTargetData[tier1Key][c.key] || 0;
+            const t2 = tierTargetData[tier2Key][c.key] || 0;
+            return s + t1 + t2;
+          }, 0)
+        ),
+        ...monthColumns.reduce((acc, col) => {
+          const t1 = tierTargetData[tier1Key][col.key] || 0;
+          const t2 = tierTargetData[tier2Key][col.key] || 0;
+          acc[col.key] = formatCurrency(t1 + t2);
+          return acc;
+        }, {} as Record<string, string>),
+      });
+      formattedTierData.push({
+        category: "",
+        tier: "",
+        rowType: "Actual",
+        lastQuarter: formatCurrency(
+          lqCols.reduce((s, c) => {
+            const a1 = monthlyTierData[tier1Key][c.key] || 0;
+            const a2 = monthlyTierData[tier2Key][c.key] || 0;
+            return s + a1 + a2;
+          }, 0)
+        ),
+        ...monthColumns.reduce((acc, col) => {
+          const a1 = monthlyTierData[tier1Key][col.key] || 0;
+          const a2 = monthlyTierData[tier2Key][col.key] || 0;
+          acc[col.key] = formatCurrency(a1 + a2);
+          return acc;
+        }, {} as Record<string, string>),
+      });
+      formattedTierData.push({
+        category: "",
+        tier: "",
+        rowType: "Achievement",
+        lastQuarter: (() => {
+          const lqT = lqCols.reduce((s, c) => {
+            return (
+              s +
+              (tierTargetData[tier1Key][c.key] || 0) +
+              (tierTargetData[tier2Key][c.key] || 0)
+            );
+          }, 0);
+          const lqA = lqCols.reduce((s, c) => {
+            return (
+              s +
+              (monthlyTierData[tier1Key][c.key] || 0) +
+              (monthlyTierData[tier2Key][c.key] || 0)
+            );
+          }, 0);
+          const pct = lqT > 0 ? (lqA / lqT) * 100 : 0;
+          return `${pct.toFixed(1)}%`;
+        })(),
+        ...monthColumns.reduce((acc, col) => {
+          const totalTarget = (tierTargetData[tier1Key][col.key] || 0) + (tierTargetData[tier2Key][col.key] || 0);
+          const totalActual = (monthlyTierData[tier1Key][col.key] || 0) + (monthlyTierData[tier2Key][col.key] || 0);
+          const percentage = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
+          acc[col.key] = `${percentage.toFixed(1)}%`;
+          return acc;
+        }, {} as Record<string, string>),
+      });
+      formattedTierData.push({
+        category: "",
+        tier: "",
+        rowType: "Balance",
+        lastQuarter: lqCols.reduce((s, c) => {
+          const totalTarget = (tierTargetData[tier1Key][c.key] || 0) + (tierTargetData[tier2Key][c.key] || 0);
+          const totalActual = (monthlyTierData[tier1Key][c.key] || 0) + (monthlyTierData[tier2Key][c.key] || 0);
+          return s + (totalTarget - totalActual);
+        }, 0),
+        ...monthColumns.reduce((acc, col) => {
+          const totalTarget = (tierTargetData[tier1Key][col.key] || 0) + (tierTargetData[tier2Key][col.key] || 0);
+          const totalActual = (monthlyTierData[tier1Key][col.key] || 0) + (monthlyTierData[tier2Key][col.key] || 0);
+          acc[col.key] = totalTarget - totalActual;
+          return acc;
+        }, {} as Record<string, number | string>),
       });
 
       setMcvTierData(formattedTierData);
@@ -3034,8 +3163,71 @@ export default function Dashboard() {
           </SelectContent>
         </Select>
 
-        {/* KAM/NSO Filter with Two-Level Selection - Hidden for KAM users */}
-        {!isKAM && (
+        {/* KAM/NSO filter — hidden for KAM users; NSO users only see KAM-scoped options (no NSO filter) */}
+        {!isKAM && isNSO && (
+          <Select
+            value={
+              filterType === "kam" && filterKam
+                ? `kam_${filterKam}`
+                : filterType === "all_kams"
+                  ? "all_kams"
+                  : "all"
+            }
+            onValueChange={(value) => {
+              if (value === "all") {
+                setFilterType("all");
+                setFilterKam("");
+                setFilterNso("");
+              } else if (value === "all_kams") {
+                setFilterType("all_kams");
+                setFilterKam("");
+                setFilterNso("");
+              } else if (value.startsWith("kam_")) {
+                const kamId = value.replace("kam_", "");
+                setFilterType("kam");
+                setFilterKam(kamId);
+                setFilterNso("");
+              }
+            }}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Filter by KAM">
+                {filterType === "all" && "All"}
+                {filterType === "all_kams" && "All KAMs"}
+                {filterType === "kam" && filterKam && kams.find((k) => k.id === filterKam)?.full_name}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="all_kams">All KAMs</SelectItem>
+              <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">
+                KAM
+              </div>
+              <div className="px-2 pb-2">
+                <Input
+                  placeholder="Search KAM..."
+                  value={kamSearch}
+                  onChange={(e) => setKamSearch(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="h-8"
+                />
+              </div>
+              {kams
+                .filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase()))
+                .map((kam) => (
+                  <SelectItem key={kam.id} value={`kam_${kam.id}`}>
+                    {kam.full_name}
+                  </SelectItem>
+                ))}
+              {kams.filter((kam) => kam.full_name?.toLowerCase().includes(kamSearch.toLowerCase()))
+                .length === 0 && (
+                <div className="px-2 py-1.5 text-sm text-muted-foreground">No KAMs found</div>
+              )}
+            </SelectContent>
+          </Select>
+        )}
+        {!isKAM && !isNSO && (
           <Select 
             value={filterType === "all" ? "all" : filterType === "all_kams" ? "all_kams" : filterType === "all_nsos" ? "all_nsos" : filterType === "kam" ? `kam_${filterKam}` : `nso_${filterNso}`}
             onValueChange={(value) => {
@@ -4087,74 +4279,103 @@ export default function Dashboard() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Tier</TableHead>
-                  <TableHead>Type</TableHead>
-                  {tierMonthColumns.map((col) => (
-                    <TableHead key={col.key}>{col.label}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(() => {
-                  if (mcvTierData.length === 0) {
-                    return (
-                      <TableRow>
-                        <TableCell colSpan={tierMonthColumns.length + 3} className="text-center text-muted-foreground py-8">
-                          No data available
-                        </TableCell>
-                      </TableRow>
-                    );
-                  }
-                  
-                  return mcvTierData.map((row, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell>{row.category}</TableCell>
-                      <TableCell>{row.tier}</TableCell>
-                      <TableCell>{row.rowType}</TableCell>
-                      {tierMonthColumns.map((col) => {
-                        const cellValue = row[col.key];
-                        
-                        // Special handling for Balance row: color code based on sign
-                        if (row.rowType === "Balance") {
-                          const balanceValue = typeof cellValue === 'number' ? cellValue : parseFloat(cellValue?.toString() || "0") || 0;
-                          const isNegative = balanceValue < 0;
-                          const isPositive = balanceValue > 0;
-                          const displayValue = Math.abs(balanceValue);
-                          const formattedValue = formatCurrency(displayValue);
-                          
-                          // Apply color: green for negative (surplus), red for positive (deficit), default for zero
-                          const colorClass = isNegative 
-                            ? "text-green-600 font-medium" 
-                            : isPositive 
-                            ? "text-red-600 font-medium" 
-                            : "";
-                          
-                          return (
-                            <TableCell 
-                              key={col.key}
-                              className={colorClass}
-                            >
-                              {formattedValue}
-                            </TableCell>
-                          );
-                        }
-                        
-                        // Default display for other rows
-                        return (
-                          <TableCell key={col.key}>
-                            {cellValue || (row.rowType === "Achievement" ? "0.0%" : "₹0")}
+            <div className="relative w-full overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Category</TableHead>
+                    <TableHead className="min-w-[168px] whitespace-nowrap">Tier</TableHead>
+                    <TableHead>Type</TableHead>
+                    {tierMonthColumns.map((col) => (
+                      <TableHead key={col.key} className="min-w-[100px] whitespace-nowrap">
+                        {col.label}
+                      </TableHead>
+                    ))}
+                    <TableHead className="sticky right-0 z-20 min-w-[130px] bg-background border-l text-right shadow-[-6px_0_12px_-4px_rgba(0,0,0,0.15)]">
+                      Last 3 months
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(() => {
+                    if (mcvTierData.length === 0) {
+                      return (
+                        <TableRow>
+                          <TableCell
+                            colSpan={tierMonthColumns.length + 4}
+                            className="text-center text-muted-foreground py-8"
+                          >
+                            No data available
                           </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  ));
-                })()}
-              </TableBody>
-            </Table>
+                        </TableRow>
+                      );
+                    }
+
+                    return mcvTierData.map((row, idx) => {
+                      const lqBalance =
+                        row.rowType === "Balance" && typeof row.lastQuarter === "number"
+                          ? row.lastQuarter
+                          : null;
+                      let lqBalanceClass = "";
+                      if (lqBalance !== null) {
+                        if (lqBalance < 0) lqBalanceClass = "text-green-600 font-medium";
+                        else if (lqBalance > 0) lqBalanceClass = "text-red-600 font-medium";
+                      }
+
+                      return (
+                        <TableRow key={idx}>
+                          <TableCell>{row.category}</TableCell>
+                          <TableCell className="min-w-[168px] whitespace-nowrap">
+                            {row.tier}
+                          </TableCell>
+                          <TableCell>{row.rowType}</TableCell>
+                          {tierMonthColumns.map((col) => {
+                            const cellValue = row[col.key];
+
+                            if (row.rowType === "Balance") {
+                              const balanceValue =
+                                typeof cellValue === "number"
+                                  ? cellValue
+                                  : parseFloat(cellValue?.toString() || "0") || 0;
+                              const isNegative = balanceValue < 0;
+                              const isPositive = balanceValue > 0;
+                              const displayValue = Math.abs(balanceValue);
+                              const formattedValue = formatCurrency(displayValue);
+
+                              const colorClass = isNegative
+                                ? "text-green-600 font-medium"
+                                : isPositive
+                                  ? "text-red-600 font-medium"
+                                  : "";
+
+                              return (
+                                <TableCell key={col.key} className={`min-w-[100px] ${colorClass}`}>
+                                  {formattedValue}
+                                </TableCell>
+                              );
+                            }
+
+                            return (
+                              <TableCell key={col.key} className="min-w-[100px] whitespace-nowrap">
+                                {cellValue || (row.rowType === "Achievement" ? "0.0%" : "₹0")}
+                              </TableCell>
+                            );
+                          })}
+                          <TableCell
+                            className={`sticky right-0 z-10 min-w-[130px] border-l bg-background text-right font-medium shadow-[-6px_0_12px_-4px_rgba(0,0,0,0.15)] ${lqBalanceClass}`}
+                          >
+                            {row.rowType === "Balance" && typeof row.lastQuarter === "number"
+                              ? formatCurrency(Math.abs(row.lastQuarter))
+                              : (row.lastQuarter as string | undefined) ??
+                                (row.rowType === "Achievement" ? "0.0%" : "₹0")}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    });
+                  })()}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

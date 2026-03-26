@@ -54,7 +54,7 @@ export function EditUserDialog({ user, open, onOpenChange, onUserUpdated }: Edit
       const { error: updateError } = await supabase
         .from("profiles")
         .update({
-          role: role as "kam" | "manager" | "leadership" | "superadmin",
+          role: role as "kam" | "manager" | "leadership" | "superadmin" | "nso",
         })
         .eq("id", user.id);
 
@@ -109,6 +109,7 @@ export function EditUserDialog({ user, open, onOpenChange, onUserUpdated }: Edit
                   <SelectItem value="manager">Manager</SelectItem>
                   <SelectItem value="leadership">Leadership</SelectItem>
                   <SelectItem value="superadmin">Super Admin</SelectItem>
+                  <SelectItem value="nso">New Sales Officer (NSO)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

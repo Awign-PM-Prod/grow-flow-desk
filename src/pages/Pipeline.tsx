@@ -15,6 +15,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText, Calendar as CalendarIcon, BookOpen } from "lucide-react";
 import { format } from "date-fns";
@@ -261,6 +262,7 @@ const getStatusBadgeStyle = (status: string): { variant: "default" | "secondary"
 };
 
 export default function Pipeline() {
+  const { canMutatePortal } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -2263,6 +2265,7 @@ export default function Pipeline() {
             <Download className="mr-2 h-4 w-4" />
             {hasActiveFilters ? "Download Filtered Deals" : "Export Deals"}
           </Button>
+          {canMutatePortal && (
           <Button
             variant="outline"
             onClick={handleDownloadDealTemplate}
@@ -2270,6 +2273,8 @@ export default function Pipeline() {
             <FileText className="mr-2 h-4 w-4" />
             Download Template
           </Button>
+          )}
+          {canMutatePortal && (
           <label>
             <input
               type="file"
@@ -2294,9 +2299,12 @@ export default function Pipeline() {
               </span>
             </Button>
           </label>
+          )}
+          {canMutatePortal && (
           <Button onClick={() => setFormDialogOpen(true)}>
             Add Deal
           </Button>
+          )}
           </div>
         </div>
       </div>
@@ -3315,6 +3323,7 @@ export default function Pipeline() {
                             >
                               View Details
                             </Button>
+                            {canMutatePortal && (
                             <Button 
                               variant="ghost" 
                               size="sm"
@@ -3322,6 +3331,8 @@ export default function Pipeline() {
                             >
                               Update Status
                             </Button>
+                            )}
+                            {canMutatePortal && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -3333,6 +3344,7 @@ export default function Pipeline() {
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -3358,6 +3370,7 @@ export default function Pipeline() {
                 <DialogTitle>
                   {selectedDealForView?.sales_module_name || "Deal Details"}
                 </DialogTitle>
+                {canMutatePortal && (
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
@@ -3372,6 +3385,7 @@ export default function Pipeline() {
                     Edit
                   </Button>
                 </div>
+                )}
               </div>
           </DialogHeader>
           {selectedDealForView && (
