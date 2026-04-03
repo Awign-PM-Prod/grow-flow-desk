@@ -4,12 +4,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { formatNumber } from "@/lib/utils";
+import { getFinancialYearMonths } from "./targets/financialYearUtils";
 
 // All LoB options
 const lobOptions = [
@@ -110,6 +111,8 @@ export default function Dashboard() {
     achievedMpv: number;
   }>>([]);
   // Filter states
+  /** "all" = full FY; otherwise month key e.g. "2025-04" from getFinancialYearMonths */
+  const [filterDashboardMonth, setFilterDashboardMonth] = useState<string>("all");
   const [filterFinancialYear, setFilterFinancialYear] = useState<string>(() => {
     // Calculate current financial year on component mount
     const now = new Date();
@@ -136,6 +139,9 @@ export default function Dashboard() {
   const [nsoSearch, setNsoSearch] = useState("");
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
 
+  /** Mandates with lifecycle_status = Inactive — their monthly_targets rows are excluded from rollups. */
+  const inactiveMandateIdsRef = useRef<Set<string>>(new Set());
+
   // Set filterKam to current user's ID when they're a KAM
   useEffect(() => {
     if (isKAM && user?.id) {
@@ -143,6 +149,10 @@ export default function Dashboard() {
       setFilterType("kam");
     }
   }, [isKAM, user?.id]);
+
+  useEffect(() => {
+    setFilterDashboardMonth("all");
+  }, [filterFinancialYear]);
 
   // NSO users: no NSO dimension in the dashboard filter (RLS already scopes data); avoid nso / all_nsos modes
   useEffect(() => {
@@ -160,7 +170,7 @@ export default function Dashboard() {
     }
     fetchKams();
     fetchNsos();
-  }, [filterFinancialYear, filterUpsellStatus, filterKam, filterNso, filterType, isKAM, isNSO]);
+  }, [filterFinancialYear, filterDashboardMonth, filterUpsellStatus, filterKam, filterNso, filterType, isKAM, isNSO]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -196,6 +206,24 @@ export default function Dashboard() {
     
     return `FY ${startYear}-${endYear}`;
   };
+
+  const dashboardMonthOptions = useMemo(
+    () => getFinancialYearMonths(filterFinancialYear),
+    [filterFinancialYear]
+  );
+
+  /** FY quarter label for charts (uses selected month when month filter is set, else today). */
+  const dashboardQuarterLabel = useMemo(() => {
+    const m =
+      filterDashboardMonth === "all"
+        ? new Date().getMonth() + 1
+        : dashboardMonthOptions.find((c) => c.key === filterDashboardMonth)?.month ??
+          new Date().getMonth() + 1;
+    if (m >= 4 && m <= 6) return "Q1";
+    if (m >= 7 && m <= 9) return "Q2";
+    if (m >= 10 && m <= 12) return "Q3";
+    return "Q4";
+  }, [filterDashboardMonth, dashboardMonthOptions]);
 
   // Helper function to convert FY string to date range
   const getFinancialYearDateRange = (fyString: string): { start: Date; end: Date } => {
@@ -284,14 +312,19 @@ export default function Dashboard() {
   // Helper function to filter targets by KAM/NSO client-side
   const filterTargetsByKamNso = (targets: any[]): any[] => {
     if (!targets || targets.length === 0) return targets;
+
+    const inactive = inactiveMandateIdsRef.current;
+    let filteredByLifecycle = targets.filter(
+      (t: any) => !t.mandate_id || !inactive.has(t.mandate_id as string)
+    );
     
     if (filterType === "all") {
       // When "All KAMs and NSOs" is selected, include all targets
       // No additional filtering needed - mandates are already unique
-      return targets;
+      return filteredByLifecycle;
     } else if (filterType === "all_kams") {
       // When "All KAMs" is selected, include targets that have a KAM
-      return targets.filter((target: any) => {
+      return filteredByLifecycle.filter((target: any) => {
         // For new_cross_sell targets: check monthly_targets.kam_id directly
         if (target.kam_id) {
           return true;
@@ -305,7 +338,7 @@ export default function Dashboard() {
       });
     } else if (filterType === "all_nsos") {
       // When "All NSOs" is selected, include targets that have an NSO (New Acquisition mandates)
-      return targets.filter((target: any) => {
+      return filteredByLifecycle.filter((target: any) => {
         // Check nso_mail_id directly first
         if (target.nso_mail_id) {
           return true;
@@ -320,7 +353,7 @@ export default function Dashboard() {
         return false;
       });
     } else if (filterType === "kam" && filterKam && filterKam !== "") {
-      return targets.filter((target: any) => {
+      return filteredByLifecycle.filter((target: any) => {
         // For new_cross_sell targets: check monthly_targets.kam_id directly
         if (target.kam_id === filterKam) {
           return true;
@@ -333,7 +366,7 @@ export default function Dashboard() {
         return false;
       });
     } else if (filterType === "nso" && filterNso && filterNso !== "") {
-      const filtered = targets.filter((target: any) => {
+      const filtered = filteredByLifecycle.filter((target: any) => {
         // For NSO filter: check nso_mail_id directly first (for existing targets)
         if (target.nso_mail_id === filterNso) {
           return true;
@@ -357,7 +390,7 @@ export default function Dashboard() {
       return filtered;
     }
     
-    return targets; // No filter, return all
+    return filteredByLifecycle;
   };
 
   // Helper function to filter mandates by account MCV Tier
@@ -469,12 +502,29 @@ export default function Dashboard() {
   const processedUpsellPerformance = useMemo(() => {
     const filteredAllMandates = filterMandatesByMcvTier(rawAllMandates, accountMcvTierMapState);
     
-    // Get current month and previous month dates
+    const fyCols = getFinancialYearMonths(filterFinancialYear);
+    const scoped =
+      filterDashboardMonth !== "all"
+        ? fyCols.find((c) => c.key === filterDashboardMonth)
+        : undefined;
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    let startOfMonth: Date;
+    let endOfMonth: Date;
+    let prevMonthStart: Date;
+    let prevMonthEnd: Date;
+    if (scoped) {
+      startOfMonth = new Date(scoped.year, scoped.month - 1, 1);
+      endOfMonth = new Date(scoped.year, scoped.month, 0, 23, 59, 59, 999);
+      const pm = scoped.month === 1 ? 12 : scoped.month - 1;
+      const py = scoped.month === 1 ? scoped.year - 1 : scoped.year;
+      prevMonthStart = new Date(py, pm - 1, 1);
+      prevMonthEnd = new Date(py, pm, 0, 23, 59, 59, 999);
+    } else {
+      startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    }
 
     // Get unique retention types (include null as "Not Set")
     const retentionTypes = [...new Set((filteredAllMandates || []).map((m: any) => m.retention_type || "Not Set"))].sort();
@@ -585,7 +635,13 @@ export default function Dashboard() {
         accDiff: formatDiff(totalCurrAccSet.size, totalPrevAccSet.size),
       },
     ];
-  }, [rawAllMandates, accountMcvTierMapState, upsellMcvTierFilter]);
+  }, [
+    rawAllMandates,
+    accountMcvTierMapState,
+    upsellMcvTierFilter,
+    filterFinancialYear,
+    filterDashboardMonth,
+  ]);
 
   // Update state when processed data changes
   useEffect(() => {
@@ -593,23 +649,6 @@ export default function Dashboard() {
     setUpsellGroupC(processedUpsellGroupC);
     setUpsellPerformance(processedUpsellPerformance);
   }, [processedUpsellGroupB, processedUpsellGroupC, processedUpsellPerformance]);
-
-  // Helper function to get current financial year quarter
-  const getCurrentFinancialYearQuarter = (): string => {
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1; // 1-12
-    
-    // Financial year quarters: Q1 (Apr-Jun), Q2 (Jul-Sep), Q3 (Oct-Dec), Q4 (Jan-Mar)
-    if (currentMonth >= 4 && currentMonth <= 6) {
-      return "Q1";
-    } else if (currentMonth >= 7 && currentMonth <= 9) {
-      return "Q2";
-    } else if (currentMonth >= 10 && currentMonth <= 12) {
-      return "Q3";
-    } else {
-      return "Q4";
-    }
-  };
 
   // Helper function to apply target type filter to a Supabase query
   // Note: For each month/year combination, there can be maximum 2 targets:
@@ -705,17 +744,55 @@ export default function Dashboard() {
             return `${startYear}-${endYearDigits}`;
           })()
         : null;
-      
-      // Get current month start and end dates
+
+      const fyMonthsList = getFinancialYearMonths(filterFinancialYear);
+      const scopedMonthPair =
+        filterDashboardMonth !== "all"
+          ? fyMonthsList.find((m) => m.key === filterDashboardMonth) ?? null
+          : null;
+      const isMonthScoped = scopedMonthPair !== null;
+
+      const mandateDateRangeStart = isMonthScoped
+        ? new Date(scopedMonthPair!.year, scopedMonthPair!.month - 1, 1)
+        : fyDateRange.start;
+      const mandateDateRangeEnd = isMonthScoped
+        ? new Date(scopedMonthPair!.year, scopedMonthPair!.month, 0, 23, 59, 59, 999)
+        : fyDateRange.end;
+
+      const includeInDashboardPeriod = (
+        monthDate: Date,
+        monthYearKey: string
+      ): boolean => {
+        if (isMonthScoped && scopedMonthPair) {
+          return monthYearKey === scopedMonthPair.key;
+        }
+        return monthDate >= fyDateRange.start && monthDate <= fyDateRange.end;
+      };
+
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const calendarMonth = now.getMonth() + 1;
+      const calendarYear = now.getFullYear();
+      const refMonth = isMonthScoped ? scopedMonthPair!.month : calendarMonth;
+      const refYear = isMonthScoped ? scopedMonthPair!.year : calendarYear;
+      const currentMonthYear = `${refYear}-${String(refMonth).padStart(2, "0")}`;
+
+      const startOfMonth = new Date(refYear, refMonth - 1, 1);
+      const endOfMonth = new Date(refYear, refMonth, 0, 23, 59, 59, 999);
+      const prevCalendarMonth = refMonth === 1 ? 12 : refMonth - 1;
+      const prevCalendarYear = refMonth === 1 ? refYear - 1 : refYear;
+      const prevMonthStart = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
+      const prevMonthEnd = new Date(prevCalendarYear, prevCalendarMonth, 0, 23, 59, 59, 999);
+      const prevMonthYearStr = `${prevCalendarYear}-${String(prevCalendarMonth).padStart(2, "0")}`;
+
+      const { data: inactiveLifecycleRows } = await supabase
+        .from("mandates")
+        .select("id")
+        .eq("lifecycle_status", "Inactive");
+      inactiveMandateIdsRef.current = new Set(
+        (inactiveLifecycleRows || []).map((r: { id: string }) => r.id)
+      );
       
-      // Get previous month start and end dates
-      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-      
-      // Fetch total mandates count filtered by status and financial year
+      // Total mandates: all rows in scope (status/KAM filters), not limited by financial year
       let mandatesCountQuery = supabase
         .from("mandates")
         .select("*", { count: "exact", head: true });
@@ -725,11 +802,6 @@ export default function Dashboard() {
       
       // Apply KAM/NSO filter
       mandatesCountQuery = applyKamFilter(mandatesCountQuery, filterKam, filterNso, filterType);
-      
-      // Filter by created_at within selected financial year
-      mandatesCountQuery = mandatesCountQuery
-        .gte("created_at", fyDateRange.start.toISOString())
-        .lte("created_at", fyDateRange.end.toISOString());
       
       const { count: totalCount, error: totalError } = await mandatesCountQuery;
 
@@ -749,8 +821,7 @@ export default function Dashboard() {
 
       if (monthError) throw monthError;
 
-      // Fetch accounts count filtered by KAM and status filters
-      // Get unique account IDs from mandates that match the filters
+      // Unique accounts from mandates in scope (status/KAM filters), not limited by financial year
       let accountsQuery = supabase
         .from("mandates")
         .select("account_id");
@@ -761,11 +832,7 @@ export default function Dashboard() {
       // Apply KAM/NSO filter
       accountsQuery = applyKamFilter(accountsQuery, filterKam, filterNso, filterType);
       
-      // Filter by created_at within selected financial year
-      accountsQuery = accountsQuery
-        .gte("created_at", fyDateRange.start.toISOString())
-        .lte("created_at", fyDateRange.end.toISOString())
-        .not("account_id", "is", null);
+      accountsQuery = accountsQuery.not("account_id", "is", null);
       
       const { data: mandatesForAccounts, error: accountsError } = await accountsQuery;
 
@@ -859,8 +926,8 @@ export default function Dashboard() {
       
       // Apply FY filter
       groupBMandatesQuery = groupBMandatesQuery
-        .gte("created_at", fyDateRange.start.toISOString())
-        .lte("created_at", fyDateRange.end.toISOString());
+        .gte("created_at", mandateDateRangeStart.toISOString())
+        .lte("created_at", mandateDateRangeEnd.toISOString());
       
       const { data: groupBMandates, error: groupBError } = await groupBMandatesQuery;
 
@@ -883,8 +950,8 @@ export default function Dashboard() {
       
       // Apply FY filter
       groupCMandatesQuery = groupCMandatesQuery
-        .gte("created_at", fyDateRange.start.toISOString())
-        .lte("created_at", fyDateRange.end.toISOString());
+        .gte("created_at", mandateDateRangeStart.toISOString())
+        .lte("created_at", mandateDateRangeEnd.toISOString());
       
       const { data: groupCMandates, error: groupCError } = await groupCMandatesQuery;
 
@@ -907,8 +974,8 @@ export default function Dashboard() {
       
       // Apply FY filter
       allMandatesQuery = allMandatesQuery
-        .gte("created_at", fyDateRange.start.toISOString())
-        .lte("created_at", fyDateRange.end.toISOString());
+        .gte("created_at", mandateDateRangeStart.toISOString())
+        .lte("created_at", mandateDateRangeEnd.toISOString());
       
       const { data: allMandates, error: allMandatesError } = await allMandatesQuery;
 
@@ -922,7 +989,8 @@ export default function Dashboard() {
       // Respect the mandate type filter from the top
       let lobMandatesQuery = supabase
         .from("mandates")
-        .select("id, lob, monthly_data, type, kam_id, account_id");
+        .select("id, lob, monthly_data, type, kam_id, account_id")
+        .eq("lifecycle_status", "Active");
       lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus, filterType);
       lobMandatesQuery = applyKamFilter(lobMandatesQuery, filterKam, filterNso, filterType);
       const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
@@ -937,10 +1005,12 @@ export default function Dashboard() {
       // - "All Cross Sell + Existing" → both types
       // - "All mandate types" → both types
       // - "New Acquisitions" → no targets typically, but fetch anyway
-      const fyMonthNumbers = [
-        4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3  // April to March
-      ];
-      const fyYears = [fyDateRange.start.getFullYear(), fyDateRange.end.getFullYear()];
+      const fyMonthNumbers = isMonthScoped
+        ? [scopedMonthPair!.month]
+        : [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
+      const fyYears = isMonthScoped
+        ? [scopedMonthPair!.year]
+        : [fyDateRange.start.getFullYear(), fyDateRange.end.getFullYear()];
       // financialYearString is already declared earlier in the function, reuse it
 
       let targetsQuery = supabase
@@ -1004,9 +1074,20 @@ export default function Dashboard() {
         });
 
         targetsData.forEach((target: any) => {
+          if (
+            target.mandate_id &&
+            inactiveMandateIdsRef.current.has(target.mandate_id as string)
+          ) {
+            return;
+          }
           const monthDate = new Date(target.year, target.month - 1, 1);
-          if (monthDate < fyDateRange.start || monthDate > fyDateRange.end) {
-            return; // Skip if outside FY range
+          if (
+            !includeInDashboardPeriod(
+              monthDate,
+              `${target.year}-${String(target.month).padStart(2, "0")}`
+            )
+          ) {
+            return;
           }
 
           const targetValue = parseFloat(target.target?.toString() || "0") || 0;
@@ -1089,7 +1170,7 @@ export default function Dashboard() {
                   const monthDate = new Date(year, month - 1, 1);
                   
                   // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  if (includeInDashboardPeriod(monthDate, monthYear)) {
                     lobData[lob].achievedMpv += achievedValue;
                   }
                 }
@@ -1115,7 +1196,8 @@ export default function Dashboard() {
       // Respect the mandate type filter from the top
       let kamMandatesQuery = supabase
         .from("mandates")
-        .select("id, kam_id, monthly_data, type, account_id");
+        .select("id, kam_id, monthly_data, type, account_id")
+        .eq("lifecycle_status", "Active");
       kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus, filterType);
       kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam, filterNso, filterType);
       const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
@@ -1223,9 +1305,20 @@ export default function Dashboard() {
         });
 
         kamTargetsData.forEach((target: any) => {
+          if (
+            target.mandate_id &&
+            inactiveMandateIdsRef.current.has(target.mandate_id as string)
+          ) {
+            return;
+          }
           const monthDate = new Date(target.year, target.month - 1, 1);
-          if (monthDate < fyDateRange.start || monthDate > fyDateRange.end) {
-            return; // Skip if outside FY range
+          if (
+            !includeInDashboardPeriod(
+              monthDate,
+              `${target.year}-${String(target.month).padStart(2, "0")}`
+            )
+          ) {
+            return;
           }
 
           const targetValue = parseFloat(target.target?.toString() || "0") || 0;
@@ -1315,7 +1408,7 @@ export default function Dashboard() {
                   const monthDate = new Date(year, month - 1, 1);
                   
                   // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  if (includeInDashboardPeriod(monthDate, monthYear)) {
                     kamData[kamId].achievedMpv += achievedValue;
                   }
                 }
@@ -1337,10 +1430,7 @@ export default function Dashboard() {
 
       setKamSalesPerformance(formattedKamData);
 
-      // Calculate MCV Planned from manager_targets table for current month
-      const currentMonth = now.getMonth() + 1; // 1-12
-      const currentYear = now.getFullYear();
-      const currentMonthYear = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+      // Calculate MCV Planned from manager_targets table for reference month (selected FY month or today)
       let totalMcvPlanned = 0;
       let totalFfmAchieved = 0;
 
@@ -1349,8 +1439,8 @@ export default function Dashboard() {
       const { data: managerTargetRow } = await supabase
         .from("manager_targets")
         .select("existing_target, new_ac_target")
-        .eq("month", currentMonth)
-        .eq("year", currentYear)
+        .eq("month", refMonth)
+        .eq("year", refYear)
         .maybeSingle();
 
       if (managerTargetRow) {
@@ -1376,7 +1466,8 @@ export default function Dashboard() {
       // Apply status filter based on filterUpsellStatus
       let mandatesQuery = supabase
         .from("mandates")
-        .select("monthly_data, type, new_sales_owner");
+        .select("monthly_data, type, new_sales_owner")
+        .eq("lifecycle_status", "Active");
       mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus, filterType);
       mandatesQuery = applyKamFilter(mandatesQuery, filterKam, filterNso, filterType);
       const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
@@ -1410,7 +1501,7 @@ export default function Dashboard() {
                     const monthDate = new Date(year, month - 1, 1);
                     
                     // Only include if within selected FY date range and current month
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
                       const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                     }
@@ -1437,7 +1528,7 @@ export default function Dashboard() {
                     const monthDate = new Date(year, month - 1, 1);
                     
                     // Only include if within selected FY date range and current month
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                   }
@@ -1463,7 +1554,7 @@ export default function Dashboard() {
                     const monthDate = new Date(year, month - 1, 1);
                     
                     // Only include if within selected FY date range and current month
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                   }
@@ -1489,7 +1580,7 @@ export default function Dashboard() {
                     const monthDate = new Date(year, month - 1, 1);
                     
                     // Only include if within selected FY date range and current month
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                   }
@@ -1515,7 +1606,7 @@ export default function Dashboard() {
                     const monthDate = new Date(year, month - 1, 1);
                     
                     // Only include if within selected FY date range and current month
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                   }
@@ -1539,7 +1630,7 @@ export default function Dashboard() {
                   const monthDate = new Date(year, month - 1, 1);
                   
                   // Only include if within selected FY date range and current month
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end && monthYear === currentMonthYear) {
+                  if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
                     const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
                     totalFfmAchieved += achievedMcv;
                   }
@@ -1557,26 +1648,24 @@ export default function Dashboard() {
 
       // Calculate MCV This Quarter (sum of achieved MCV for current quarter)
       // Financial year quarters: Q1 (Apr-Jun), Q2 (Jul-Sep), Q3 (Oct-Dec), Q4 (Jan-Mar)
-      // Reuse currentMonth and currentYear already declared above
       let quarterMonths: number[] = [];
-      let quarterYear: number; // The calendar year that contains the quarter months
-      
-      if (currentMonth >= 4 && currentMonth <= 6) {
-        // Q1: April, May, June - months are in current year
+      let quarterYear: number;
+
+      if (isMonthScoped) {
+        quarterMonths = [refMonth];
+        quarterYear = refYear;
+      } else if (refMonth >= 4 && refMonth <= 6) {
         quarterMonths = [4, 5, 6];
-        quarterYear = currentYear;
-      } else if (currentMonth >= 7 && currentMonth <= 9) {
-        // Q2: July, August, September - months are in current year
+        quarterYear = refYear;
+      } else if (refMonth >= 7 && refMonth <= 9) {
         quarterMonths = [7, 8, 9];
-        quarterYear = currentYear;
-      } else if (currentMonth >= 10 && currentMonth <= 12) {
-        // Q3: October, November, December - months are in current year
+        quarterYear = refYear;
+      } else if (refMonth >= 10 && refMonth <= 12) {
         quarterMonths = [10, 11, 12];
-        quarterYear = currentYear;
+        quarterYear = refYear;
       } else {
-        // Q4: January, February, March - months are in current year
         quarterMonths = [1, 2, 3];
-        quarterYear = currentYear;
+        quarterYear = refYear;
       }
 
       let totalMcvThisQuarter = 0;
@@ -1600,7 +1689,7 @@ export default function Dashboard() {
                   // Check if this month belongs to the current quarter and selected FY
                   const monthDate = new Date(yearNum, monthNum - 1, 1);
                   if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                      monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
                     totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1626,7 +1715,7 @@ export default function Dashboard() {
                     // Check if this month belongs to the current quarter and selected FY
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                     if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                        includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
                       totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1652,7 +1741,7 @@ export default function Dashboard() {
                     // Check if this month belongs to the current quarter and selected FY
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                     if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                        includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
                       totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1678,7 +1767,7 @@ export default function Dashboard() {
                     // Check if this month belongs to the current quarter and selected FY
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                     if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                        includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
                       totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1704,7 +1793,7 @@ export default function Dashboard() {
                     // Check if this month belongs to the current quarter and selected FY
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                     if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                        includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
                       totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1727,7 +1816,7 @@ export default function Dashboard() {
                 // Check if this month belongs to the current quarter and selected FY
                 const monthDate = new Date(yearNum, monthNum - 1, 1);
                 if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                    monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
                   totalMcvThisQuarter += achievedMcv;
                 }
               });
@@ -1741,11 +1830,7 @@ export default function Dashboard() {
       setFfmAchievedFyPercentage(ffmPercentage);
       setMcvThisQuarter(totalMcvThisQuarter);
 
-      // Calculate MCV Achieved Last Month (sum of achieved MCV for previous month)
-      const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-      const prevMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
-      const prevMonthYearStr = `${prevMonthYear}-${String(prevMonth).padStart(2, '0')}`;
-      
+      // Calculate MCV Achieved Last Month (calendar month before reference month)
       let totalMcvLastMonth = 0;
 
       // Calculate sum of achieved MCV for previous month using the same filter logic
@@ -1760,8 +1845,8 @@ export default function Dashboard() {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1780,8 +1865,8 @@ export default function Dashboard() {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1800,8 +1885,8 @@ export default function Dashboard() {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1820,8 +1905,8 @@ export default function Dashboard() {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1840,8 +1925,8 @@ export default function Dashboard() {
                 Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1859,8 +1944,8 @@ export default function Dashboard() {
               Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
                 if (monthYear === prevMonthYearStr) {
                   const achievedMcv = getAchievedMcv(monthRecord);
-                  const monthDate = new Date(prevMonthYear, prevMonth - 1, 1);
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
+                  if (includeInDashboardPeriod(monthDate, monthYear)) {
                     totalMcvLastMonth += achievedMcv;
                   }
                 }
@@ -1877,22 +1962,18 @@ export default function Dashboard() {
       let nextQuarterMonths: number[] = [];
       let nextQuarterYear: number;
       
-      if (currentMonth >= 4 && currentMonth <= 6) {
-        // Current is Q1, next is Q2: July, August, September
+      if (refMonth >= 4 && refMonth <= 6) {
         nextQuarterMonths = [7, 8, 9];
-        nextQuarterYear = currentYear;
-      } else if (currentMonth >= 7 && currentMonth <= 9) {
-        // Current is Q2, next is Q3: October, November, December
+        nextQuarterYear = refYear;
+      } else if (refMonth >= 7 && refMonth <= 9) {
         nextQuarterMonths = [10, 11, 12];
-        nextQuarterYear = currentYear;
-      } else if (currentMonth >= 10 && currentMonth <= 12) {
-        // Current is Q3, next is Q4: January, February, March (next year)
+        nextQuarterYear = refYear;
+      } else if (refMonth >= 10 && refMonth <= 12) {
         nextQuarterMonths = [1, 2, 3];
-        nextQuarterYear = currentYear + 1;
+        nextQuarterYear = refYear + 1;
       } else {
-        // Current is Q4, next is Q1: April, May, June (same year)
         nextQuarterMonths = [4, 5, 6];
-        nextQuarterYear = currentYear;
+        nextQuarterYear = refYear;
       }
 
       // Fetch targets for next quarter months within selected FY
@@ -1977,8 +2058,7 @@ export default function Dashboard() {
                   const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
                   
-                  // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  if (includeInDashboardPeriod(monthDate, monthYear)) {
                     totalAnnualAchieved += achievedMcv;
                   }
                 });
@@ -2002,8 +2082,7 @@ export default function Dashboard() {
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
                     
-                    // Only include if within selected FY date range
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       totalAnnualAchieved += achievedMcv;
                   }
                 });
@@ -2027,8 +2106,7 @@ export default function Dashboard() {
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
                     
-                    // Only include if within selected FY date range
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       totalAnnualAchieved += achievedMcv;
                   }
                 });
@@ -2052,8 +2130,7 @@ export default function Dashboard() {
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
                     
-                    // Only include if within selected FY date range
-                    if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       totalAnnualAchieved += achievedMcv;
                   }
                 });
@@ -2074,8 +2151,7 @@ export default function Dashboard() {
                 const monthDate = new Date(yearNum, monthNum - 1, 1);
                 const achievedMcv = getAchievedMcv(monthRecord);
                 
-                // Only include if within selected FY date range
-                if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                if (includeInDashboardPeriod(monthDate, monthYear)) {
                   totalAnnualAchieved += achievedMcv;
                 }
               });
@@ -2085,25 +2161,27 @@ export default function Dashboard() {
       }
       
       // Calculate Annual Target: Sum of targets for all months in selected FY from monthly_targets table
-      // Get all months in the FY: April to December of start year, and January to March of end year
-      const fyMonths = [
-        { month: 4, year: fyStartYear },
-        { month: 5, year: fyStartYear },
-        { month: 6, year: fyStartYear },
-        { month: 7, year: fyStartYear },
-        { month: 8, year: fyStartYear },
-        { month: 9, year: fyStartYear },
-        { month: 10, year: fyStartYear },
-        { month: 11, year: fyStartYear },
-        { month: 12, year: fyStartYear },
-        { month: 1, year: fyEndYear },
-        { month: 2, year: fyEndYear },
-        { month: 3, year: fyEndYear },
-      ];
-      
-      // Fetch targets for all FY months
-      const fyTargetMonthNumbers = fyMonths.map(m => m.month);
-      const fyTargetYears = [fyStartYear, fyEndYear];
+      const fyMonths = isMonthScoped
+        ? [{ month: scopedMonthPair!.month, year: scopedMonthPair!.year }]
+        : [
+            { month: 4, year: fyStartYear },
+            { month: 5, year: fyStartYear },
+            { month: 6, year: fyStartYear },
+            { month: 7, year: fyStartYear },
+            { month: 8, year: fyStartYear },
+            { month: 9, year: fyStartYear },
+            { month: 10, year: fyStartYear },
+            { month: 11, year: fyStartYear },
+            { month: 12, year: fyStartYear },
+            { month: 1, year: fyEndYear },
+            { month: 2, year: fyEndYear },
+            { month: 3, year: fyEndYear },
+          ];
+
+      const fyTargetMonthNumbers = fyMonths.map((m) => m.month);
+      const fyTargetYears = isMonthScoped
+        ? [scopedMonthPair!.year]
+        : [fyStartYear, fyEndYear];
       
       let fyTargetsQuery = supabase
         .from("monthly_targets")
@@ -2175,25 +2253,25 @@ export default function Dashboard() {
       setAnnualAchieved(totalAnnualAchieved);
       setAnnualTarget(totalAnnualTarget);
 
-      // Calculate Current Quarter Target
-      // Reuse currentMonth and currentYear from the mcvThisQuarter calculation above
-      // Financial year quarters: Q1 (Apr-Jun), Q2 (Jul-Sep), Q3 (Oct-Dec), Q4 (Jan-Mar)
-      // Note: currentMonth and currentYear are already declared above
+      // Calculate Current Quarter Target (same quarter window as mcvThisQuarter)
       let quarterMonthsForTarget: number[] = [];
       let quarterYearForTarget: number;
-      
-      if (currentMonth >= 4 && currentMonth <= 6) {
+
+      if (isMonthScoped) {
+        quarterMonthsForTarget = [refMonth];
+        quarterYearForTarget = refYear;
+      } else if (refMonth >= 4 && refMonth <= 6) {
         quarterMonthsForTarget = [4, 5, 6];
-        quarterYearForTarget = currentYear;
-      } else if (currentMonth >= 7 && currentMonth <= 9) {
+        quarterYearForTarget = refYear;
+      } else if (refMonth >= 7 && refMonth <= 9) {
         quarterMonthsForTarget = [7, 8, 9];
-        quarterYearForTarget = currentYear;
-      } else if (currentMonth >= 10 && currentMonth <= 12) {
+        quarterYearForTarget = refYear;
+      } else if (refMonth >= 10 && refMonth <= 12) {
         quarterMonthsForTarget = [10, 11, 12];
-        quarterYearForTarget = currentYear;
+        quarterYearForTarget = refYear;
       } else {
         quarterMonthsForTarget = [1, 2, 3];
-        quarterYearForTarget = currentYear;
+        quarterYearForTarget = refYear;
       }
 
       // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table within selected FY
@@ -2282,8 +2360,7 @@ export default function Dashboard() {
                       const month = parseInt(monthStr);
                       const monthDate = new Date(year, month - 1, 1);
                       
-                      // Only include if within selected FY date range
-                      if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      if (includeInDashboardPeriod(monthDate, monthYear)) {
                         const achievedMcv = getAchievedMcv(monthRecord);
                         totalCurrentMonthAchieved += achievedMcv;
                       }
@@ -2312,8 +2389,7 @@ export default function Dashboard() {
                       const month = parseInt(monthStr);
                       const monthDate = new Date(year, month - 1, 1);
                       
-                      // Only include if within selected FY date range
-                      if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      if (includeInDashboardPeriod(monthDate, monthYear)) {
                         const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
                         totalCurrentMonthAchieved += achievedMcv;
                       }
@@ -2342,8 +2418,7 @@ export default function Dashboard() {
                       const month = parseInt(monthStr);
                       const monthDate = new Date(year, month - 1, 1);
                       
-                      // Only include if within selected FY date range
-                      if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                      if (includeInDashboardPeriod(monthDate, monthYear)) {
                         const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
                         totalCurrentMonthAchieved += achievedMcv;
                       }
@@ -2368,8 +2443,7 @@ export default function Dashboard() {
                   const month = parseInt(monthStr);
                   const monthDate = new Date(year, month - 1, 1);
                   
-                  // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  if (includeInDashboardPeriod(monthDate, monthYear)) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                     totalCurrentMonthAchieved += achievedMcv;
                   }
@@ -2480,33 +2554,22 @@ export default function Dashboard() {
       setDroppedSalesData(droppedSalesChartData);
 
       // Calculate MCV Tier and Company Size Tier data
-      // Generate month columns from April to March of the selected financial year
-      // Show ALL months in the selected FY, including future months (to allow viewing historical data)
-      const fyStartMonth = 4; // April
-      const fyEndMonth = 3; // March
-      
-      const monthColumns: Array<{ month: number; year: number; key: string; label: string }> = [];
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      
-      // April to December of FY start year
-      for (let month = fyStartMonth; month <= 12; month++) {
-        monthColumns.push({
-          month,
-          year: fyStartYear,
-          key: `${fyStartYear}-${String(month).padStart(2, '0')}`,
-          label: `${monthNames[month - 1]} ${fyStartYear}`,
-        });
-      }
-      
-      // January to March of FY end year
-      for (let month = 1; month <= fyEndMonth; month++) {
-        monthColumns.push({
-          month,
-          year: fyEndYear,
-          key: `${fyEndYear}-${String(month).padStart(2, '0')}`,
-          label: `${monthNames[month - 1]} ${fyEndYear}`,
-        });
-      }
+      const monthColumns: Array<{ month: number; year: number; key: string; label: string }> =
+        isMonthScoped && scopedMonthPair
+          ? [
+              {
+                month: scopedMonthPair.month,
+                year: scopedMonthPair.year,
+                key: scopedMonthPair.key,
+                label: scopedMonthPair.label,
+              },
+            ]
+          : fyMonthsList.map((c) => ({
+              month: c.month,
+              year: c.year,
+              key: c.key,
+              label: c.label,
+            }));
 
       // Fetch all accounts (we need all accounts that have mandates to determine MCV Tier)
       const { data: accountsData, error: accountsTierError } = await supabase
@@ -2517,7 +2580,8 @@ export default function Dashboard() {
       // Apply status filter to only consider mandates with the selected status
       let mandatesTierQuery = supabase
         .from("mandates")
-        .select("id, account_id, monthly_data, type");
+        .select("id, account_id, monthly_data, type")
+        .eq("lifecycle_status", "Active");
       mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus, filterType);
       mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam, filterNso, filterType);
       const { data: mandatesTierData, error: mandatesTierError } = await mandatesTierQuery;
@@ -2539,8 +2603,7 @@ export default function Dashboard() {
                 const month = parseInt(monthStr);
                 const monthDate = new Date(year, month - 1, 1);
                 
-                // Only include if within selected FY date range
-                if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                if (includeInDashboardPeriod(monthDate, monthYear)) {
                 const achievedMcv = getAchievedMcv(monthRecord);
                   accountTotalMcv[accountId] = (accountTotalMcv[accountId] || 0) + achievedMcv;
               }
@@ -2614,7 +2677,7 @@ export default function Dashboard() {
               if (isNaN(year) || isNaN(month)) return;
               
               const monthDate = new Date(year, month - 1, 1);
-              const isInFYRange = monthDate >= fyDateRange.start && monthDate <= fyDateRange.end;
+              const isInFYRange = includeInDashboardPeriod(monthDate, monthYear);
               const isInMonthColumns = monthColumns.some((col) => col.key === monthYear);
               
               // Debug logging for months with data
@@ -2658,6 +2721,11 @@ export default function Dashboard() {
 
       if (tierFinancialYearString) {
         tierTargetsQuery = tierTargetsQuery.eq("financial_year", tierFinancialYearString);
+      }
+      if (isMonthScoped && scopedMonthPair) {
+        tierTargetsQuery = tierTargetsQuery
+          .eq("month", scopedMonthPair.month)
+          .eq("year", scopedMonthPair.year);
       }
 
       const { data: tierTargetsData, error: tierTargetsError } = await tierTargetsQuery;
@@ -2720,23 +2788,16 @@ export default function Dashboard() {
         "MCV Tier_Tier 2": {},
       };
 
-      // Get current date to determine which months are in the future
-      // Reuse the 'currentYear' and 'currentMonth' variables already declared earlier in the function (around line 877-878)
-
-      // Calculate cumulative values for each tier
-      // Process months in order and accumulate
-      // Only carry forward cumulative for past months. For current and future months without data, show 0
+      // Past vs current month for tier chart uses real calendar "today" (not the FY month filter)
       monthColumns.forEach((col, index) => {
         Object.keys(tierDataMap).forEach((tierKey) => {
           // Get current month's value
           const currentMonthValue = monthlyTierData[tierKey][col.key] || 0;
           
-          // Check if this month is in the past (already completed)
-          const isPastMonth = col.year < currentYear || 
-            (col.year === currentYear && col.month < currentMonth);
+          const isPastMonth = col.year < calendarYear || 
+            (col.year === calendarYear && col.month < calendarMonth);
           
-          // Check if this month is the current month
-          const isCurrentMonth = col.year === currentYear && col.month === currentMonth;
+          const isCurrentMonth = col.year === calendarYear && col.month === calendarMonth;
           
           // Get previous cumulative value (from previous month)
           const prevCumulative = index > 0 
@@ -3148,6 +3209,20 @@ export default function Dashboard() {
             <SelectItem value="FY26">{formatFYForDisplay("FY26")}</SelectItem>
             <SelectItem value="FY27">{formatFYForDisplay("FY27")}</SelectItem>
             <SelectItem value="FY28">{formatFYForDisplay("FY28")}</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={filterDashboardMonth} onValueChange={setFilterDashboardMonth}>
+          <SelectTrigger className="min-w-[200px] max-w-[240px]">
+            <SelectValue placeholder="Period" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Full financial year</SelectItem>
+            {dashboardMonthOptions.map((col) => (
+              <SelectItem key={col.key} value={col.key}>
+                {col.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -3656,7 +3731,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {`${formatFYForDisplay(filterFinancialYear)} Actual vs Target (${getCurrentFinancialYearQuarter()})`}
+              {`${formatFYForDisplay(filterFinancialYear)} Actual vs Target (${dashboardQuarterLabel})`}
             </CardTitle>
           </CardHeader>
           <CardContent>

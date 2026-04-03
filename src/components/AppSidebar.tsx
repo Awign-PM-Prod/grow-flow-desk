@@ -120,9 +120,9 @@ export function AppSidebar() {
     },
     {
       title: "Targets",
-      url: "/targets",
+      url: "/targets/mandate",
       icon: Target,
-      roles: ["kam", "leadership", "superadmin"],
+      roles: ["kam", "manager", "leadership", "superadmin"],
     },
   ];
 

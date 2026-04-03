@@ -11,11 +11,12 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown } from "lucide-react";
+import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown, History } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
@@ -25,7 +26,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +47,12 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  appendMandateLifecycleEntry,
+  mandateLifecycleLogCount,
+  parseMandateLifecycleLog,
+} from "@/lib/mandateLifecycleLog";
+import type { Json } from "@/integrations/supabase/types";
 
 type ViewMode = "form" | "view";
 
@@ -242,6 +251,8 @@ const extractYearFromFinancialYear = (financialYear: string): number => {
 export default function Mandates() {
   const { user, hasRole, canMutatePortal } = useAuth();
   const isKAM = hasRole("kam");
+  const canToggleMandateLifecycle =
+    hasRole("superadmin") || hasRole("manager");
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
@@ -301,6 +312,7 @@ export default function Mandates() {
   const [availableRetentionTypes, setAvailableRetentionTypes] = useState<string[]>([]);
   const [selectedMandate, setSelectedMandate] = useState<any | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [lifecycleHistoryOpen, setLifecycleHistoryOpen] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editMandateData, setEditMandateData] = useState<any>(null);
@@ -327,6 +339,7 @@ export default function Mandates() {
   const [bulkUploadCasesDialogOpen, setBulkUploadCasesDialogOpen] = useState(false);
   const [mcvCsvPreviewOpen, setMcvCsvPreviewOpen] = useState(false);
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
+  const [togglingLifecycleId, setTogglingLifecycleId] = useState<string | null>(null);
   const [mcvCsvPreviewRows, setMcvCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
   const [mcvCsvFileToUpload, setMcvCsvFileToUpload] = useState<File | null>(null);
 
@@ -1093,6 +1106,7 @@ export default function Mandates() {
         
         // Metadata
         created_by: user.id,
+        lifecycle_status: "Active",
       };
 
       const { error: insertError } = await supabase
@@ -1737,6 +1751,7 @@ export default function Mandates() {
           retention_type: retentionType,
           upsell_action_status: normalizeUpsellActionStatus(row["Upsell Action Status"]),
           created_by: user.id,
+          lifecycle_status: "Active",
         };
       });
 
@@ -2289,6 +2304,48 @@ export default function Mandates() {
       });
     } finally {
       setLoadingMandates(false);
+    }
+  };
+
+  const handleLifecycleToggle = async (
+    mandate: { id: string; lifecycle_status?: string; lifecycle_status_log?: unknown },
+    active: boolean,
+  ) => {
+    if (!mandate?.id) return;
+    setTogglingLifecycleId(mandate.id);
+    const nextLog = appendMandateLifecycleEntry(mandate.lifecycle_status_log as Json | null | undefined, active);
+    try {
+      const { error } = await supabase
+        .from("mandates")
+        .update({
+          lifecycle_status: active ? "Active" : "Inactive",
+          lifecycle_status_log: nextLog,
+        })
+        .eq("id", mandate.id);
+      if (error) throw error;
+      toast({
+        title: "Updated",
+        description: `Mandate is now ${active ? "Active" : "Inactive"}.`,
+      });
+      await fetchMandates();
+      setSelectedMandate((prev: any) =>
+        prev && prev.id === mandate.id
+          ? {
+              ...prev,
+              lifecycle_status: active ? "Active" : "Inactive",
+              lifecycle_status_log: nextLog,
+            }
+          : prev,
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Could not update status";
+      toast({
+        title: "Error",
+        description: msg,
+        variant: "destructive",
+      });
+    } finally {
+      setTogglingLifecycleId(null);
     }
   };
 
@@ -3573,13 +3630,14 @@ export default function Mandates() {
                       <TableHead>Mandate Health</TableHead>
                       <TableHead>Upsell Status</TableHead>
                       <TableHead>Retention Type</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
                       <TableHead className="text-center">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
                     {loadingMandates ? (
                       <TableRow>
-                        <TableCell colSpan={11} className="text-center py-8">
+                        <TableCell colSpan={12} className="text-center py-8">
                           <div className="flex items-center justify-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-muted-foreground">Loading mandates...</span>
@@ -3588,7 +3646,7 @@ export default function Mandates() {
                       </TableRow>
                     ) : filteredMandates.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                           No mandates found
                         </TableCell>
                       </TableRow>
@@ -3637,6 +3695,25 @@ export default function Mandates() {
                           </TableCell>
                           <TableCell>
                             <HighlightedText text={mandate.retentionType} searchTerm={searchTerm} />
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {canToggleMandateLifecycle ? (
+                              <div className="flex flex-col items-center gap-1 sm:flex-row sm:justify-center">
+                                <Switch
+                                  checked={(mandate.lifecycle_status ?? "Active") === "Active"}
+                                  disabled={togglingLifecycleId === mandate.id}
+                                  onCheckedChange={(v) => handleLifecycleToggle(mandate, v)}
+                                  aria-label="Toggle mandate active or inactive"
+                                />
+                                <span className="text-xs text-muted-foreground">
+                                  {(mandate.lifecycle_status ?? "Active") === "Active" ? "Active" : "Inactive"}
+                                </span>
+                              </div>
+                            ) : (
+                              <Badge variant={(mandate.lifecycle_status ?? "Active") === "Active" ? "secondary" : "outline"}>
+                                {(mandate.lifecycle_status ?? "Active") === "Active" ? "Active" : "Inactive"}
+                              </Badge>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
@@ -3692,67 +3769,83 @@ export default function Mandates() {
         if (!open) {
           setIsEditMode(false);
           setIsMandateCheckerEditMode(false);
+          setLifecycleHistoryOpen(false);
         }
       }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{selectedMandate?.project_name || "Mandate Details"}</DialogTitle>
-          </DialogHeader>
-          <div className="flex items-center justify-end gap-2 mb-4">
-            {!isEditMode ? (
-              canMutatePortal && (
-              <Button variant="outline" onClick={() => setIsEditMode(true)}>
-                Edit
-              </Button>
-              )
-            ) : (
-              <>
-                <Button variant="outline" onClick={() => {
-                  setIsEditMode(false);
-                  setEditMandateData({
-                    projectCode: selectedMandate.project_code || "",
-                    projectName: selectedMandate.project_name || "",
-                    accountId: selectedMandate.account_id || "",
-                    kamId: selectedMandate.kam_id || "",
-                    lob: selectedMandate.lob || "",
-                    newSalesOwner: selectedMandate.new_sales_owner || "",
-                    handoverMonthlyVolume: selectedMandate.handover_monthly_volume?.toString() || "",
-                    handoverCommercialPerHead: selectedMandate.handover_commercial_per_head?.toString() || "",
-                    handoverMcv: selectedMandate.handover_mcv?.toString() || "",
-                    prjDurationMonths: selectedMandate.prj_duration_months?.toString() || "",
-                    handoverAcv: selectedMandate.handover_acv?.toString() || "",
-                    handoverPrjType: selectedMandate.handover_prj_type || "",
-                    revenueMonthlyVolume: selectedMandate.revenue_monthly_volume?.toString() || "",
-                    revenueCommercialPerHead: selectedMandate.revenue_commercial_per_head?.toString() || "",
-                    revenueMcv: selectedMandate.revenue_mcv?.toString() || "",
-                    revenueAcv: selectedMandate.revenue_acv?.toString() || "",
-                    revenuePrjType: selectedMandate.revenue_prj_type || "",
-                    mandateHealth: selectedMandate.mandate_health || "",
-                    upsellConstraint: selectedMandate.upsell_constraint === "YES" ? "YES" : (selectedMandate.upsell_constraint === "NO" ? "NO" : ""),
-                    upsellConstraintType: selectedMandate.upsell_constraint_type || "",
-                    upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
-                    upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
-                    clientBudgetTrend: selectedMandate.client_budget_trend || "",
-                    awignSharePercent: selectedMandate.awign_share_percent || "",
-                    retentionType: selectedMandate.retention_type || "",
-                    upsellActionStatus: selectedMandate.upsell_action_status || "",
-                  });
-                }}>
-                  Cancel
-                </Button>
-                <Button onClick={handleUpdateMandate} disabled={updatingMandate}>
-                  {updatingMandate ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save Changes"
+          <DialogHeader className="mb-4 space-y-0">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <DialogTitle className="pr-8">{selectedMandate?.project_name || "Mandate Details"}</DialogTitle>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {!isEditMode &&
+                  selectedMandate &&
+                  mandateLifecycleLogCount(selectedMandate.lifecycle_status_log) >= 2 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLifecycleHistoryOpen(true)}
+                    >
+                      <History className="mr-2 h-4 w-4" />
+                      History
+                    </Button>
                   )}
-                </Button>
-              </>
-            )}
-          </div>
+                {!isEditMode ? (
+                  canMutatePortal && (
+                    <Button variant="outline" size="sm" onClick={() => setIsEditMode(true)}>
+                      Edit
+                    </Button>
+                  )
+                ) : (
+                  <>
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setIsEditMode(false);
+                      setEditMandateData({
+                        projectCode: selectedMandate.project_code || "",
+                        projectName: selectedMandate.project_name || "",
+                        accountId: selectedMandate.account_id || "",
+                        kamId: selectedMandate.kam_id || "",
+                        lob: selectedMandate.lob || "",
+                        newSalesOwner: selectedMandate.new_sales_owner || "",
+                        handoverMonthlyVolume: selectedMandate.handover_monthly_volume?.toString() || "",
+                        handoverCommercialPerHead: selectedMandate.handover_commercial_per_head?.toString() || "",
+                        handoverMcv: selectedMandate.handover_mcv?.toString() || "",
+                        prjDurationMonths: selectedMandate.prj_duration_months?.toString() || "",
+                        handoverAcv: selectedMandate.handover_acv?.toString() || "",
+                        handoverPrjType: selectedMandate.handover_prj_type || "",
+                        revenueMonthlyVolume: selectedMandate.revenue_monthly_volume?.toString() || "",
+                        revenueCommercialPerHead: selectedMandate.revenue_commercial_per_head?.toString() || "",
+                        revenueMcv: selectedMandate.revenue_mcv?.toString() || "",
+                        revenueAcv: selectedMandate.revenue_acv?.toString() || "",
+                        revenuePrjType: selectedMandate.revenue_prj_type || "",
+                        mandateHealth: selectedMandate.mandate_health || "",
+                        upsellConstraint: selectedMandate.upsell_constraint === "YES" ? "YES" : (selectedMandate.upsell_constraint === "NO" ? "NO" : ""),
+                        upsellConstraintType: selectedMandate.upsell_constraint_type || "",
+                        upsellConstraintSub: selectedMandate.upsell_constraint_sub || "",
+                        upsellConstraintSub2: selectedMandate.upsell_constraint_sub2 || "",
+                        clientBudgetTrend: selectedMandate.client_budget_trend || "",
+                        awignSharePercent: selectedMandate.awign_share_percent || "",
+                        retentionType: selectedMandate.retention_type || "",
+                        upsellActionStatus: selectedMandate.upsell_action_status || "",
+                      });
+                    }}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={handleUpdateMandate} disabled={updatingMandate}>
+                      {updatingMandate ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        "Save Changes"
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </DialogHeader>
           {selectedMandate && editMandateData && (
             <div className="space-y-6">
               {/* 1st Section: Project Info */}
@@ -4659,6 +4752,70 @@ export default function Mandates() {
               })()}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={lifecycleHistoryOpen} onOpenChange={setLifecycleHistoryOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Lifecycle history</DialogTitle>
+            <DialogDescription>
+              Times this mandate was activated or deactivated.
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[min(50vh,360px)] pr-4">
+            {selectedMandate &&
+              (() => {
+                const entries = Object.entries(
+                  parseMandateLifecycleLog(selectedMandate.lifecycle_status_log),
+                ).sort(([a], [b]) => a.localeCompare(b));
+                return (
+                  <div className="relative pr-1 pt-1">
+                    {/* Line centered on w-6 (24px) track: 12px − 1px = 11px */}
+                    {entries.length > 0 && (
+                      <div
+                        className="pointer-events-none absolute bottom-3 left-[11px] top-3 w-0.5 bg-border"
+                        aria-hidden
+                      />
+                    )}
+                    <ul className="m-0 list-none p-0">
+                      {entries.map(([ts, action]) => {
+                        const isActivated = action === "Activated";
+                        return (
+                          <li key={ts} className="relative flex gap-3 pb-6 last:pb-0">
+                            <div className="relative z-[1] flex w-6 shrink-0 justify-center pt-0.5">
+                              <span
+                                className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 border-background shadow-sm ${
+                                  isActivated ? "bg-primary" : "bg-muted-foreground"
+                                }`}
+                                aria-hidden
+                              />
+                            </div>
+                            <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                              <time
+                                dateTime={ts}
+                                className="text-sm font-medium text-foreground tabular-nums"
+                              >
+                                {new Date(ts).toLocaleString(undefined, {
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                })}
+                              </time>
+                              <Badge
+                                variant={isActivated ? "secondary" : "outline"}
+                                className="w-fit shrink-0"
+                              >
+                                {action}
+                              </Badge>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })()}
+          </ScrollArea>
         </DialogContent>
       </Dialog>
 

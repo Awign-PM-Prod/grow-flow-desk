@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
@@ -11,7 +11,9 @@ import Accounts from "./pages/Accounts";
 import Contacts from "./pages/Contacts";
 import Mandates from "./pages/Mandates";
 import Pipeline from "./pages/Pipeline";
-import Targets from "./pages/Targets";
+import { TargetsLayout } from "./pages/Targets";
+import { MonthlyTargetsTab } from "./pages/targets/MonthlyTargetsTab";
+import { OverallTargetsTab } from "./pages/targets/OverallTargetsTab";
 import AdminUsers from "./pages/AdminUsers";
 import AdminNSOs from "./pages/AdminNSOs";
 import NotFound from "./pages/NotFound";
@@ -19,7 +21,13 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
 import { AuthProvider } from "@/hooks/useAuth";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -96,11 +104,22 @@ const App = () => (
             element={
               <ProtectedRoute>
                 <AppLayout>
-                  <Targets />
+                  <TargetsLayout />
                 </AppLayout>
               </ProtectedRoute>
             }
-          />
+          >
+            <Route index element={<Navigate to="mandate" replace />} />
+            <Route
+              path="mandate"
+              element={<MonthlyTargetsTab mode="existing" />}
+            />
+            <Route
+              path="pipeline"
+              element={<MonthlyTargetsTab mode="new_cross_sell" />}
+            />
+            <Route path="overall" element={<OverallTargetsTab />} />
+          </Route>
           <Route
             path="/admin/users"
             element={

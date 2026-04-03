@@ -65,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const isInitializedRef = useRef(false);
+  /** Last user id we applied to state; avoids full-app "loading" on token refresh / duplicate auth events when tab regains focus. */
+  const lastUserIdRef = useRef<string | null>(null);
 
   const fetchUserRoles = useCallback(async (userId: string) => {
     try {
@@ -100,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setSession(session);
             setUser(session?.user ?? null);
             isInitializedRef.current = true;
+            lastUserIdRef.current = session?.user?.id ?? null;
 
             if (session?.user) {
               void fetchUserRoles(session.user.id).finally(() => {
@@ -123,10 +126,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        const prevUserId = lastUserIdRef.current;
+        const nextUserId = session?.user?.id ?? null;
+        const isSameUser =
+          prevUserId !== null &&
+          nextUserId !== null &&
+          nextUserId === prevUserId;
+
         setSession(session);
         setUser(session?.user ?? null);
+        lastUserIdRef.current = nextUserId;
 
         if (session?.user) {
+          if (isSameUser) {
+            void fetchUserRoles(session.user.id);
+            return;
+          }
           setLoading(true);
           setTimeout(() => {
             void fetchUserRoles(session.user.id).finally(() => {
@@ -171,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error("Sign out fallback used after error:", error);
       }
     } finally {
+      lastUserIdRef.current = null;
       setSession(null);
       setUser(null);
       setUserRoles([]);

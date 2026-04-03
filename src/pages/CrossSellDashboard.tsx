@@ -771,9 +771,17 @@ export default function CrossSellDashboard() {
       const perfFyMonthNumbers = perfFyMonths.map(m => m.month);
       const perfFyYears = [perfFyStartYear, perfFyEndYear];
 
+      const { data: inactiveMandateRows } = await supabase
+        .from("mandates")
+        .select("id")
+        .eq("lifecycle_status", "Inactive");
+      const inactiveMandateIdSet = new Set(
+        (inactiveMandateRows || []).map((r: { id: string }) => r.id)
+      );
+
       let crossSellTargetsQuery = supabase
         .from("monthly_targets")
-        .select("target, month, year")
+        .select("target, month, year, mandate_id")
         .eq("target_type", "new_cross_sell")
         .in("month", perfFyMonthNumbers)
         .in("year", perfFyYears);
@@ -789,6 +797,12 @@ export default function CrossSellDashboard() {
       if (!crossSellTargetsError && crossSellTargets) {
         // Filter to only include targets that match the FY months exactly
         crossSellTargets.forEach((target: any) => {
+          if (
+            target.mandate_id &&
+            inactiveMandateIdSet.has(target.mandate_id as string)
+          ) {
+            return;
+          }
           const matchesFyMonth = perfFyMonths.some(
             (fyMonth) => fyMonth.month === target.month && fyMonth.year === target.year
           );
@@ -843,7 +857,8 @@ export default function CrossSellDashboard() {
       let lobMandatesQuery = supabase
         .from("mandates")
         .select("lob, monthly_data, type, kam_id")
-        .eq("type", "Existing");
+        .eq("type", "Existing")
+        .eq("lifecycle_status", "Active");
       
       // Apply role-based filtering: KAM sees only their data, admin sees all
       if (currentIsKAM && user?.id) {
@@ -940,7 +955,8 @@ export default function CrossSellDashboard() {
       let kamMandatesQuery = supabase
         .from("mandates")
         .select("kam_id, monthly_data, type")
-        .eq("type", "Existing");
+        .eq("type", "Existing")
+        .eq("lifecycle_status", "Active");
       
       // Apply role-based filtering: KAM sees only their data, admin sees all
       if (currentIsKAM && user?.id) {

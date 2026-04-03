@@ -213,6 +213,8 @@ export type Database = {
           handover_prj_type: Database["public"]["Enums"]["prj_type"] | null
           id: string
           kam_id: string | null
+          lifecycle_status: Database["public"]["Enums"]["mandate_lifecycle_status"]
+          lifecycle_status_log: Json
           lob: Database["public"]["Enums"]["lob"]
           mandate_health: Database["public"]["Enums"]["mandate_health"] | null
           monthly_data: Json | null
@@ -261,6 +263,8 @@ export type Database = {
           handover_prj_type?: Database["public"]["Enums"]["prj_type"] | null
           id?: string
           kam_id?: string | null
+          lifecycle_status?: Database["public"]["Enums"]["mandate_lifecycle_status"]
+          lifecycle_status_log?: Json
           lob: Database["public"]["Enums"]["lob"]
           mandate_health?: Database["public"]["Enums"]["mandate_health"] | null
           monthly_data?: Json | null
@@ -309,6 +313,8 @@ export type Database = {
           handover_prj_type?: Database["public"]["Enums"]["prj_type"] | null
           id?: string
           kam_id?: string | null
+          lifecycle_status?: Database["public"]["Enums"]["mandate_lifecycle_status"]
+          lifecycle_status_log?: Json
           lob?: Database["public"]["Enums"]["lob"]
           mandate_health?: Database["public"]["Enums"]["mandate_health"] | null
           monthly_data?: Json | null
@@ -665,6 +671,7 @@ export type Database = {
         | "Exceeds Expectations"
         | "Meets Expectations"
         | "Need Improvement"
+      mandate_lifecycle_status: "Active" | "Inactive"
       mandate_type: "New Acquisition" | "New Cross Sell" | "Existing"
       mcv_tier: "Tier 1" | "Tier 2"
       pipeline_status:
@@ -874,6 +881,7 @@ export const Constants = {
         "Meets Expectations",
         "Need Improvement",
       ],
+      mandate_lifecycle_status: ["Active", "Inactive"],
       mandate_type: ["New Acquisition", "New Cross Sell", "Existing"],
       mcv_tier: ["Tier 1", "Tier 2"],
       pipeline_status: [
