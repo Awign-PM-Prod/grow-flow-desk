@@ -10,7 +10,12 @@ import { Loader2, BookOpen } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { formatNumber } from "@/lib/utils";
-import { getFinancialYearMonths } from "./targets/financialYearUtils";
+import {
+  getFinancialYearMonths,
+  getFYQuarterMonthYearPairs,
+  getNextFYQuarterMonthYearPairs,
+  formatMonthYearLong,
+} from "./targets/financialYearUtils";
 
 // All LoB options
 const lobOptions = [
@@ -223,6 +228,54 @@ export default function Dashboard() {
     if (m >= 7 && m <= 9) return "Q2";
     if (m >= 10 && m <= 12) return "Q3";
     return "Q4";
+  }, [filterDashboardMonth, dashboardMonthOptions]);
+
+  /** Card/chart subtitles aligned with month filter (matches fetchDashboardData ref logic). */
+  const dashboardPeriodLabels = useMemo(() => {
+    const today = new Date();
+    const calendarMonth = today.getMonth() + 1;
+    const calendarYear = today.getFullYear();
+    const scoped =
+      filterDashboardMonth !== "all"
+        ? dashboardMonthOptions.find((c) => c.key === filterDashboardMonth) ?? null
+        : null;
+    const isScoped = scoped !== null;
+    const refMonth = isScoped ? scoped.month : calendarMonth;
+    const refYear = isScoped ? scoped.year : calendarYear;
+    const monthNamesShort = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+
+    const targetMcvMonthFooter =
+      isScoped && scoped ? scoped.label : formatMonthYearLong(calendarMonth, calendarYear);
+
+    const quarterPairs = getFYQuarterMonthYearPairs(refMonth, refYear);
+    const quarterMonthsFooter = quarterPairs
+      .map((p) => `${monthNamesShort[p.month - 1]} ${p.year}`)
+      .join(", ");
+
+    const prevM = refMonth === 1 ? 12 : refMonth - 1;
+    const prevY = refMonth === 1 ? refYear - 1 : refYear;
+    const lastMonthFooter = formatMonthYearLong(prevM, prevY);
+
+    const nextQPairs = getNextFYQuarterMonthYearPairs(refMonth, refYear);
+    const nextQuarterFooter = nextQPairs
+      .map((p) => `${monthNamesShort[p.month - 1]} ${p.year}`)
+      .join(", ");
+
+    const currentMonthChartTitle = formatMonthYearLong(refMonth, refYear);
+
+    return {
+      isScoped,
+      targetMcvMonthFooter,
+      quarterMonthsFooter,
+      lastMonthFooter,
+      nextQuarterFooter,
+      currentMonthChartTitle,
+      annualChartSelectedHint:
+        isScoped && scoped ? `Selected: ${scoped.label}` : null,
+    };
   }, [filterDashboardMonth, dashboardMonthOptions]);
 
   // Helper function to convert FY string to date range
@@ -769,12 +822,17 @@ export default function Dashboard() {
         return monthDate >= fyDateRange.start && monthDate <= fyDateRange.end;
       };
 
+      /** Full selected FY window (annual rollups; quarter achieved when month filter is on). */
+      const monthInSelectedFY = (monthDate: Date): boolean =>
+        monthDate >= fyDateRange.start && monthDate <= fyDateRange.end;
+
       const now = new Date();
       const calendarMonth = now.getMonth() + 1;
       const calendarYear = now.getFullYear();
       const refMonth = isMonthScoped ? scopedMonthPair!.month : calendarMonth;
       const refYear = isMonthScoped ? scopedMonthPair!.year : calendarYear;
       const currentMonthYear = `${refYear}-${String(refMonth).padStart(2, "0")}`;
+      const quarterMonthYearPairs = getFYQuarterMonthYearPairs(refMonth, refYear);
 
       const startOfMonth = new Date(refYear, refMonth - 1, 1);
       const endOfMonth = new Date(refYear, refMonth, 0, 23, 59, 59, 999);
@@ -1646,28 +1704,7 @@ export default function Dashboard() {
         ? (totalFfmAchieved / totalMcvPlanned) * 100 
         : 0;
 
-      // Calculate MCV This Quarter (sum of achieved MCV for current quarter)
-      // Financial year quarters: Q1 (Apr-Jun), Q2 (Jul-Sep), Q3 (Oct-Dec), Q4 (Jan-Mar)
-      let quarterMonths: number[] = [];
-      let quarterYear: number;
-
-      if (isMonthScoped) {
-        quarterMonths = [refMonth];
-        quarterYear = refYear;
-      } else if (refMonth >= 4 && refMonth <= 6) {
-        quarterMonths = [4, 5, 6];
-        quarterYear = refYear;
-      } else if (refMonth >= 7 && refMonth <= 9) {
-        quarterMonths = [7, 8, 9];
-        quarterYear = refYear;
-      } else if (refMonth >= 10 && refMonth <= 12) {
-        quarterMonths = [10, 11, 12];
-        quarterYear = refYear;
-      } else {
-        quarterMonths = [1, 2, 3];
-        quarterYear = refYear;
-      }
-
+      // MCV This Quarter: full FY quarter containing ref (quarterMonthYearPairs set above)
       let totalMcvThisQuarter = 0;
 
       // Calculate sum of achieved MCV for current quarter months
@@ -1688,8 +1725,12 @@ export default function Dashboard() {
                   
                   // Check if this month belongs to the current quarter and selected FY
                   const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                      includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
+                  if (
+                    quarterMonthYearPairs.some(
+                      (p) => p.month === monthNum && p.year === yearNum
+                    ) &&
+                    monthInSelectedFY(monthDate)
+                  ) {
                     totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1714,8 +1755,12 @@ export default function Dashboard() {
                     
                     // Check if this month belongs to the current quarter and selected FY
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
-                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                        includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
+                    if (
+                      quarterMonthYearPairs.some(
+                        (p) => p.month === monthNum && p.year === yearNum
+                      ) &&
+                      monthInSelectedFY(monthDate)
+                    ) {
                       totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1740,8 +1785,12 @@ export default function Dashboard() {
                     
                     // Check if this month belongs to the current quarter and selected FY
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
-                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                        includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
+                    if (
+                      quarterMonthYearPairs.some(
+                        (p) => p.month === monthNum && p.year === yearNum
+                      ) &&
+                      monthInSelectedFY(monthDate)
+                    ) {
                       totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1766,8 +1815,12 @@ export default function Dashboard() {
                     
                     // Check if this month belongs to the current quarter and selected FY
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
-                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                        includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
+                    if (
+                      quarterMonthYearPairs.some(
+                        (p) => p.month === monthNum && p.year === yearNum
+                      ) &&
+                      monthInSelectedFY(monthDate)
+                    ) {
                       totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1792,8 +1845,12 @@ export default function Dashboard() {
                     
                     // Check if this month belongs to the current quarter and selected FY
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
-                    if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                        includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
+                    if (
+                      quarterMonthYearPairs.some(
+                        (p) => p.month === monthNum && p.year === yearNum
+                      ) &&
+                      monthInSelectedFY(monthDate)
+                    ) {
                       totalMcvThisQuarter += achievedMcv;
                   }
                 });
@@ -1815,8 +1872,12 @@ export default function Dashboard() {
                 
                 // Check if this month belongs to the current quarter and selected FY
                 const monthDate = new Date(yearNum, monthNum - 1, 1);
-                if (quarterMonths.includes(monthNum) && yearNum === quarterYear && 
-                    includeInDashboardPeriod(monthDate, `${yearNum}-${String(monthNum).padStart(2, "0")}`)) {
+                if (
+                  quarterMonthYearPairs.some(
+                    (p) => p.month === monthNum && p.year === yearNum
+                  ) &&
+                  monthInSelectedFY(monthDate)
+                ) {
                   totalMcvThisQuarter += achievedMcv;
                 }
               });
@@ -1846,7 +1907,7 @@ export default function Dashboard() {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                     const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
+                    if (monthInSelectedFY(monthDate)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1866,7 +1927,7 @@ export default function Dashboard() {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                     const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
+                    if (monthInSelectedFY(monthDate)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1886,7 +1947,7 @@ export default function Dashboard() {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                     const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
+                    if (monthInSelectedFY(monthDate)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1906,7 +1967,7 @@ export default function Dashboard() {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                     const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
+                    if (monthInSelectedFY(monthDate)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1926,7 +1987,7 @@ export default function Dashboard() {
                   if (monthYear === prevMonthYearStr) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                     const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
+                    if (monthInSelectedFY(monthDate)) {
                       totalMcvLastMonth += achievedMcv;
                     }
                   }
@@ -1945,7 +2006,7 @@ export default function Dashboard() {
                 if (monthYear === prevMonthYearStr) {
                   const achievedMcv = getAchievedMcv(monthRecord);
                   const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                  if (includeInDashboardPeriod(monthDate, monthYear)) {
+                  if (monthInSelectedFY(monthDate)) {
                     totalMcvLastMonth += achievedMcv;
                   }
                 }
@@ -1958,23 +2019,9 @@ export default function Dashboard() {
       setMcvLastMonth(totalMcvLastMonth);
 
       // Calculate Target MCV Next Quarter
-      // Determine next quarter months
-      let nextQuarterMonths: number[] = [];
-      let nextQuarterYear: number;
-      
-      if (refMonth >= 4 && refMonth <= 6) {
-        nextQuarterMonths = [7, 8, 9];
-        nextQuarterYear = refYear;
-      } else if (refMonth >= 7 && refMonth <= 9) {
-        nextQuarterMonths = [10, 11, 12];
-        nextQuarterYear = refYear;
-      } else if (refMonth >= 10 && refMonth <= 12) {
-        nextQuarterMonths = [1, 2, 3];
-        nextQuarterYear = refYear + 1;
-      } else {
-        nextQuarterMonths = [4, 5, 6];
-        nextQuarterYear = refYear;
-      }
+      const nextQuarterMonthYearPairs = getNextFYQuarterMonthYearPairs(refMonth, refYear);
+      const nextQuarterMonths = nextQuarterMonthYearPairs.map((p) => p.month);
+      const nextQuarterYear = nextQuarterMonthYearPairs[0].year;
 
       // Fetch targets for next quarter months within selected FY
       let nextQuarterQuery = supabase
@@ -2058,7 +2105,7 @@ export default function Dashboard() {
                   const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
                   
-                  if (includeInDashboardPeriod(monthDate, monthYear)) {
+                  if (monthInSelectedFY(monthDate)) {
                     totalAnnualAchieved += achievedMcv;
                   }
                 });
@@ -2082,7 +2129,7 @@ export default function Dashboard() {
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
                     
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
+                    if (monthInSelectedFY(monthDate)) {
                       totalAnnualAchieved += achievedMcv;
                   }
                 });
@@ -2106,7 +2153,7 @@ export default function Dashboard() {
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
                     
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
+                    if (monthInSelectedFY(monthDate)) {
                       totalAnnualAchieved += achievedMcv;
                   }
                 });
@@ -2130,7 +2177,7 @@ export default function Dashboard() {
                     const monthDate = new Date(yearNum, monthNum - 1, 1);
                   const achievedMcv = getAchievedMcv(monthRecord);
                     
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
+                    if (monthInSelectedFY(monthDate)) {
                       totalAnnualAchieved += achievedMcv;
                   }
                 });
@@ -2151,7 +2198,7 @@ export default function Dashboard() {
                 const monthDate = new Date(yearNum, monthNum - 1, 1);
                 const achievedMcv = getAchievedMcv(monthRecord);
                 
-                if (includeInDashboardPeriod(monthDate, monthYear)) {
+                if (monthInSelectedFY(monthDate)) {
                   totalAnnualAchieved += achievedMcv;
                 }
               });
@@ -2161,27 +2208,23 @@ export default function Dashboard() {
       }
       
       // Calculate Annual Target: Sum of targets for all months in selected FY from monthly_targets table
-      const fyMonths = isMonthScoped
-        ? [{ month: scopedMonthPair!.month, year: scopedMonthPair!.year }]
-        : [
-            { month: 4, year: fyStartYear },
-            { month: 5, year: fyStartYear },
-            { month: 6, year: fyStartYear },
-            { month: 7, year: fyStartYear },
-            { month: 8, year: fyStartYear },
-            { month: 9, year: fyStartYear },
-            { month: 10, year: fyStartYear },
-            { month: 11, year: fyStartYear },
-            { month: 12, year: fyStartYear },
-            { month: 1, year: fyEndYear },
-            { month: 2, year: fyEndYear },
-            { month: 3, year: fyEndYear },
-          ];
+      const fyMonths = [
+        { month: 4, year: fyStartYear },
+        { month: 5, year: fyStartYear },
+        { month: 6, year: fyStartYear },
+        { month: 7, year: fyStartYear },
+        { month: 8, year: fyStartYear },
+        { month: 9, year: fyStartYear },
+        { month: 10, year: fyStartYear },
+        { month: 11, year: fyStartYear },
+        { month: 12, year: fyStartYear },
+        { month: 1, year: fyEndYear },
+        { month: 2, year: fyEndYear },
+        { month: 3, year: fyEndYear },
+      ];
 
       const fyTargetMonthNumbers = fyMonths.map((m) => m.month);
-      const fyTargetYears = isMonthScoped
-        ? [scopedMonthPair!.year]
-        : [fyStartYear, fyEndYear];
+      const fyTargetYears = [fyStartYear, fyEndYear];
       
       let fyTargetsQuery = supabase
         .from("monthly_targets")
@@ -2254,25 +2297,8 @@ export default function Dashboard() {
       setAnnualTarget(totalAnnualTarget);
 
       // Calculate Current Quarter Target (same quarter window as mcvThisQuarter)
-      let quarterMonthsForTarget: number[] = [];
-      let quarterYearForTarget: number;
-
-      if (isMonthScoped) {
-        quarterMonthsForTarget = [refMonth];
-        quarterYearForTarget = refYear;
-      } else if (refMonth >= 4 && refMonth <= 6) {
-        quarterMonthsForTarget = [4, 5, 6];
-        quarterYearForTarget = refYear;
-      } else if (refMonth >= 7 && refMonth <= 9) {
-        quarterMonthsForTarget = [7, 8, 9];
-        quarterYearForTarget = refYear;
-      } else if (refMonth >= 10 && refMonth <= 12) {
-        quarterMonthsForTarget = [10, 11, 12];
-        quarterYearForTarget = refYear;
-      } else {
-        quarterMonthsForTarget = [1, 2, 3];
-        quarterYearForTarget = refYear;
-      }
+      const quarterMonthsForTarget = quarterMonthYearPairs.map((p) => p.month);
+      const quarterYearForTarget = quarterMonthYearPairs[0].year;
 
       // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table within selected FY
       let quarterTargetsQuery = supabase
@@ -3449,7 +3475,7 @@ export default function Dashboard() {
                 <p className="text-base font-bold mb-2">Target MCV</p>
                 <div className="text-3xl font-bold">{formatCurrency(mcvPlanned)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+                  {dashboardPeriodLabels.targetMcvMonthFooter}
                 </p>
               </>
             )}
@@ -3468,18 +3494,10 @@ export default function Dashboard() {
                 <p className="text-base font-bold mb-2">MCV Achieved</p>
                 <div className="text-3xl font-bold">{formatCurrency(ffmAchieved)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+                  {dashboardPeriodLabels.targetMcvMonthFooter}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {(() => {
-                    const now = new Date();
-                    const currentYear = now.getFullYear();
-                    const currentMonth = now.getMonth() + 1;
-                    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-                    const fyEndYear = (fyStartYear + 1).toString().slice(-2);
-                    const fyString = `FY${fyEndYear}`;
-                    return `${fyString} (${ffmAchievedFyPercentage.toFixed(1)}% of Target MCV)`;
-                  })()}
+                  {`${formatFYForDisplay(filterFinancialYear)} (${ffmAchievedFyPercentage.toFixed(1)}% of Target MCV)`}
                 </p>
               </>
             )}
@@ -3498,32 +3516,7 @@ export default function Dashboard() {
                 <p className="text-base font-bold mb-2">MCV Achieved This Quarter</p>
                 <div className="text-3xl font-bold">{formatCurrency(mcvThisQuarter)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {(() => {
-                    const now = new Date();
-                    const currentYear = now.getFullYear();
-                    const currentMonth = now.getMonth() + 1;
-                    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-                    const fyEndYear = (fyStartYear + 1).toString().slice(-2);
-                    const fyString = `FY${fyEndYear}`;
-                    
-                    // Determine quarter months
-                    let quarterMonths: number[] = [];
-                    if (currentMonth >= 4 && currentMonth <= 6) {
-                      quarterMonths = [4, 5, 6];
-                    } else if (currentMonth >= 7 && currentMonth <= 9) {
-                      quarterMonths = [7, 8, 9];
-                    } else if (currentMonth >= 10 && currentMonth <= 12) {
-                      quarterMonths = [10, 11, 12];
-                    } else {
-                      quarterMonths = [1, 2, 3];
-                    }
-                    
-                    // Format month names (abbreviated)
-                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                    const quarterMonthNames = quarterMonths.map(m => monthNames[m - 1]).join(', ');
-                    
-                    return `${fyString} (${fyStartYear}-${fyStartYear + 1}) - ${quarterMonthNames}`;
-                  })()}
+                  {`${formatFYForDisplay(filterFinancialYear)} (${dashboardQuarterLabel}) — ${dashboardPeriodLabels.quarterMonthsFooter}`}
                 </p>
               </>
             )}
@@ -3542,15 +3535,7 @@ export default function Dashboard() {
                 <p className="text-base font-bold mb-2">MCV Achieved Last Month</p>
                 <div className="text-3xl font-bold">{formatCurrency(mcvLastMonth)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {(() => {
-                    const now = new Date();
-                    const currentYear = now.getFullYear();
-                    const currentMonth = now.getMonth() + 1;
-                    const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-                    const prevMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
-                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                    return `${monthNames[prevMonth - 1]} ${prevMonthYear}`;
-                  })()}
+                  {dashboardPeriodLabels.lastMonthFooter}
                 </p>
               </>
             )}
@@ -3569,35 +3554,7 @@ export default function Dashboard() {
                 <p className="text-base font-bold mb-2">Target MCV Next Quarter</p>
                 <div className="text-3xl font-bold">{formatCurrency(targetMcvNextQuarter)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {(() => {
-                    const now = new Date();
-                    const currentYear = now.getFullYear();
-                    const currentMonth = now.getMonth() + 1;
-                    
-                    // Determine next quarter months and year
-                    let nextQuarterMonths: number[] = [];
-                    let nextQuarterYear: number;
-                    
-                    if (currentMonth >= 4 && currentMonth <= 6) {
-                      nextQuarterMonths = [7, 8, 9];
-                      nextQuarterYear = currentYear;
-                    } else if (currentMonth >= 7 && currentMonth <= 9) {
-                      nextQuarterMonths = [10, 11, 12];
-                      nextQuarterYear = currentYear;
-                    } else if (currentMonth >= 10 && currentMonth <= 12) {
-                      nextQuarterMonths = [1, 2, 3];
-                      nextQuarterYear = currentYear + 1;
-                    } else {
-                      nextQuarterMonths = [4, 5, 6];
-                      nextQuarterYear = currentYear;
-                    }
-                    
-                    // Format month names (abbreviated)
-                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                    const quarterMonthNames = nextQuarterMonths.map(m => monthNames[m - 1]).join(', ');
-                    
-                    return `${quarterMonthNames} ${nextQuarterYear}`;
-                  })()}
+                  {dashboardPeriodLabels.nextQuarterFooter}
                 </p>
               </>
             )}
@@ -3634,6 +3591,11 @@ export default function Dashboard() {
             <CardTitle>
               {`${formatFYForDisplay(filterFinancialYear)} Actual vs Target (Annual)`}
             </CardTitle>
+            {dashboardPeriodLabels.annualChartSelectedHint && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {dashboardPeriodLabels.annualChartSelectedHint}
+              </p>
+            )}
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -3733,6 +3695,9 @@ export default function Dashboard() {
             <CardTitle>
               {`${formatFYForDisplay(filterFinancialYear)} Actual vs Target (${dashboardQuarterLabel})`}
             </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              {dashboardPeriodLabels.quarterMonthsFooter}
+            </p>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -3828,12 +3793,13 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {(() => {
-                const now = new Date();
-                const monthName = now.toLocaleString('default', { month: 'long' });
-                return `${formatFYForDisplay(filterFinancialYear)} Actual vs Target (${monthName})`;
-              })()}
+              {`${formatFYForDisplay(filterFinancialYear)} Actual vs Target (${dashboardPeriodLabels.currentMonthChartTitle})`}
             </CardTitle>
+            {dashboardPeriodLabels.isScoped && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {dashboardPeriodLabels.targetMcvMonthFooter}
+              </p>
+            )}
           </CardHeader>
           <CardContent>
             {loading ? (

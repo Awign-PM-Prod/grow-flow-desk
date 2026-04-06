@@ -114,3 +114,89 @@ export function getFinancialYearMonths(fyString: string): Array<{
 export function getMonthYearPairsForFY(fyKey: string): Array<{ month: number; year: number }> {
   return getFinancialYearMonths(fyKey).map(({ month, year }) => ({ month, year }));
 }
+
+/** Indian FY quarters: Q1 Apr–Jun, Q2 Jul–Sep, Q3 Oct–Dec, Q4 Jan–Mar (calendar year on each pair). */
+export function getFYQuarterMonthYearPairs(
+  refMonth: number,
+  refYear: number
+): Array<{ month: number; year: number }> {
+  if (refMonth >= 4 && refMonth <= 6) {
+    return [
+      { month: 4, year: refYear },
+      { month: 5, year: refYear },
+      { month: 6, year: refYear },
+    ];
+  }
+  if (refMonth >= 7 && refMonth <= 9) {
+    return [
+      { month: 7, year: refYear },
+      { month: 8, year: refYear },
+      { month: 9, year: refYear },
+    ];
+  }
+  if (refMonth >= 10 && refMonth <= 12) {
+    return [
+      { month: 10, year: refYear },
+      { month: 11, year: refYear },
+      { month: 12, year: refYear },
+    ];
+  }
+  return [
+    { month: 1, year: refYear },
+    { month: 2, year: refYear },
+    { month: 3, year: refYear },
+  ];
+}
+
+/** Quarter immediately after the one containing refMonth/refYear. */
+export function getNextFYQuarterMonthYearPairs(
+  refMonth: number,
+  refYear: number
+): Array<{ month: number; year: number }> {
+  if (refMonth >= 4 && refMonth <= 6) {
+    return [
+      { month: 7, year: refYear },
+      { month: 8, year: refYear },
+      { month: 9, year: refYear },
+    ];
+  }
+  if (refMonth >= 7 && refMonth <= 9) {
+    return [
+      { month: 10, year: refYear },
+      { month: 11, year: refYear },
+      { month: 12, year: refYear },
+    ];
+  }
+  if (refMonth >= 10 && refMonth <= 12) {
+    return [
+      { month: 1, year: refYear + 1 },
+      { month: 2, year: refYear + 1 },
+      { month: 3, year: refYear + 1 },
+    ];
+  }
+  return [
+    { month: 4, year: refYear },
+    { month: 5, year: refYear },
+    { month: 6, year: refYear },
+  ];
+}
+
+const LONG_MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+export function formatMonthYearLong(month: number, year: number): string {
+  if (month < 1 || month > 12) return "";
+  return `${LONG_MONTH_NAMES[month - 1]} ${year}`;
+}
