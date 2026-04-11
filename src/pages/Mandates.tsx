@@ -295,6 +295,7 @@ export default function Mandates() {
   const [filterAccount, setFilterAccount] = useState("all");
   const [filterKam, setFilterKam] = useState("all");
   const [filterLob, setFilterLob] = useState("all");
+  const [filterType, setFilterType] = useState("all");
   const [filterMandateHealth, setFilterMandateHealth] = useState("all");
   const [filterUpsellStatus, setFilterUpsellStatus] = useState("all");
   const [filterRetentionType, setFilterRetentionType] = useState("all");
@@ -2361,6 +2362,7 @@ export default function Mandates() {
     setFilterAccount("all");
     setFilterKam("all");
     setFilterLob("all");
+    setFilterType("all");
     setFilterMandateHealth("all");
     setFilterUpsellStatus("all");
     setFilterRetentionType("all");
@@ -2644,15 +2646,16 @@ export default function Mandates() {
     const matchesAccount = filterAccount === "all" || mandate.account_id === filterAccount;
     const matchesKam = isKAM ? true : (filterKam === "all" || mandate.kam_id === filterKam);
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
+    const matchesType = filterType === "all" || mandate.type === filterType;
     const matchesHealth = filterMandateHealth === "all" || mandate.mandateHealth === filterMandateHealth;
     const matchesStatus = filterUpsellStatus === "all" || mandate.upsellStatus === filterUpsellStatus;
     const matchesRetentionType = filterRetentionType === "all" || mandate.retention_type === filterRetentionType;
 
-    return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesHealth && matchesStatus && matchesRetentionType;
+    return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesType && matchesHealth && matchesStatus && matchesRetentionType;
   });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterAccount !== "all" || (!isKAM && filterKam !== "all") || filterLob !== "all" || filterMandateHealth !== "all" || filterUpsellStatus !== "all" || filterRetentionType !== "all";
+  const hasActiveFilters = searchTerm || filterAccount !== "all" || (!isKAM && filterKam !== "all") || filterLob !== "all" || filterType !== "all" || filterMandateHealth !== "all" || filterUpsellStatus !== "all" || filterRetentionType !== "all";
 
   return (
     <div className="space-y-6">
@@ -3517,7 +3520,7 @@ export default function Mandates() {
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-8 gap-3">
               <Input
                   placeholder="Search all fields..."
                 value={searchTerm}
@@ -3563,6 +3566,17 @@ export default function Mandates() {
                         {lob}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterType} onValueChange={setFilterType}>
+                    <SelectTrigger className={`text-left ${filterType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="Existing">Existing</SelectItem>
+                    <SelectItem value="New Acquisition">New Acquisition</SelectItem>
+                    <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={filterMandateHealth} onValueChange={setFilterMandateHealth}>
