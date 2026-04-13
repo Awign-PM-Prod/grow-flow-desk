@@ -118,7 +118,8 @@ const App = () => (
               path="pipeline"
               element={<MonthlyTargetsTab mode="new_cross_sell" />}
             />
-            <Route path="overall" element={<OverallTargetsTab />} />
+            <Route path="top-level-target" element={<OverallTargetsTab />} />
+            <Route path="overall" element={<Navigate to="../top-level-target" replace />} />
           </Route>
           <Route
             path="/admin/users"

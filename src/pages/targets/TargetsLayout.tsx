@@ -81,7 +81,7 @@ export function TargetsLayout() {
     return <Navigate to="/targets/mandate" replace />;
   }
 
-  if (location.pathname.includes("/targets/overall") && !isSuperAdmin) {
+  if (location.pathname.includes("/targets/top-level-target") && !isSuperAdmin) {
     return <Navigate to="/targets/mandate" replace />;
   }
 
@@ -118,11 +118,11 @@ export function TargetsLayout() {
             </NavLink>
             {isSuperAdmin ? (
               <NavLink
-                to="/targets/overall"
+                to="/targets/top-level-target"
                 className={cn(tabClass, tabInactiveClass)}
                 activeClassName={cn(tabClass, tabActiveClass)}
               >
-                Overall Targets
+                Top Level Target
               </NavLink>
             ) : null}
           </nav>

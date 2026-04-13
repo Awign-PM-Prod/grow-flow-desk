@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { useAuth } from "@/hooks/useAuth";
-import { formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 import {
   getFinancialYearMonths,
   getFYQuarterMonthYearPairs,
@@ -1558,8 +1558,8 @@ export default function Dashboard() {
                     const month = parseInt(monthStr);
                     const monthDate = new Date(year, month - 1, 1);
                     
-                    // Only include if within selected FY date range and current month
-                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
+                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                       const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                     }
@@ -1585,8 +1585,8 @@ export default function Dashboard() {
                     const month = parseInt(monthStr);
                     const monthDate = new Date(year, month - 1, 1);
                     
-                    // Only include if within selected FY date range and current month
-                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
+                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                   }
@@ -1611,8 +1611,8 @@ export default function Dashboard() {
                     const month = parseInt(monthStr);
                     const monthDate = new Date(year, month - 1, 1);
                     
-                    // Only include if within selected FY date range and current month
-                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
+                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                   }
@@ -1637,8 +1637,8 @@ export default function Dashboard() {
                     const month = parseInt(monthStr);
                     const monthDate = new Date(year, month - 1, 1);
                     
-                    // Only include if within selected FY date range and current month
-                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
+                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                   }
@@ -1663,8 +1663,8 @@ export default function Dashboard() {
                     const month = parseInt(monthStr);
                     const monthDate = new Date(year, month - 1, 1);
                     
-                    // Only include if within selected FY date range and current month
-                    if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
+                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
+                    if (includeInDashboardPeriod(monthDate, monthYear)) {
                     const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                   }
@@ -1680,18 +1680,13 @@ export default function Dashboard() {
             const monthlyData = mandate.monthly_data;
             if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
               Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                  // Check if this month falls within the selected financial year
-                  const [yearStr, monthStr] = monthYear.split('-');
-                  const year = parseInt(yearStr);
-                  const month = parseInt(monthStr);
-                  const monthDate = new Date(year, month - 1, 1);
-                  
-                  // Only include if within selected FY date range and current month
-                  if (includeInDashboardPeriod(monthDate, monthYear) && monthYear === currentMonthYear) {
-                    const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                    totalFfmAchieved += achievedMcv;
-                  }
+                // Check if this month falls within the selected dashboard period
+                const [yearStr, monthStr] = monthYear.split('-');
+                const year = parseInt(yearStr);
+                const month = parseInt(monthStr);
+                const monthDate = new Date(year, month - 1, 1);
+                if (includeInDashboardPeriod(monthDate, monthYear)) {
+                  totalFfmAchieved += getAchievedMcv(monthRecord);
                 }
               });
             }
@@ -2296,6 +2291,15 @@ export default function Dashboard() {
       setAnnualAchieved(totalAnnualAchieved);
       setAnnualTarget(totalAnnualTarget);
 
+      // When month filter is full FY, top cards should reflect FY totals.
+      if (!isMonthScoped) {
+        setMcvPlanned(totalAnnualTarget);
+        setFfmAchieved(totalAnnualAchieved);
+        const fullFyPercentage =
+          totalAnnualTarget > 0 ? (totalAnnualAchieved / totalAnnualTarget) * 100 : 0;
+        setFfmAchievedFyPercentage(fullFyPercentage);
+      }
+
       // Calculate Current Quarter Target (same quarter window as mcvThisQuarter)
       const quarterMonthsForTarget = quarterMonthYearPairs.map((p) => p.month);
       const quarterYearForTarget = quarterMonthYearPairs[0].year;
@@ -2874,8 +2878,7 @@ export default function Dashboard() {
         });
       });
 
-      // Last 3 month columns → "Last 3 months" totals (sum of last 3 columns per row)
-      const lqCols = monthColumns.slice(-3);
+      // Full financial-year columns → "Total" values (sum of all month columns per row)
 
       // Convert to array format for display - 4 rows per tier
       const formattedTierData: Array<{
@@ -2897,7 +2900,7 @@ export default function Dashboard() {
           tier: tier,
           rowType: "Target",
           lastQuarter: formatCurrency(
-            lqCols.reduce((s, c) => s + (tierTargetData[tierKey][c.key] || 0), 0)
+            monthColumns.reduce((s, c) => s + (tierTargetData[tierKey][c.key] || 0), 0)
           ),
           ...monthColumns.reduce((acc, col) => {
             const value = tierTargetData[tierKey][col.key] || 0;
@@ -2913,7 +2916,7 @@ export default function Dashboard() {
           tier: "",
           rowType: "Actual",
           lastQuarter: formatCurrency(
-            lqCols.reduce((s, c) => s + (monthlyTierData[tierKey][c.key] || 0), 0)
+            monthColumns.reduce((s, c) => s + (monthlyTierData[tierKey][c.key] || 0), 0)
           ),
           ...monthColumns.reduce((acc, col) => {
             // Use monthlyTierData for non-cumulative actual values
@@ -2930,9 +2933,15 @@ export default function Dashboard() {
           tier: "",
           rowType: "Achievement",
           lastQuarter: (() => {
-            const lqT = lqCols.reduce((s, c) => s + (tierTargetData[tierKey][c.key] || 0), 0);
-            const lqA = lqCols.reduce((s, c) => s + (monthlyTierData[tierKey][c.key] || 0), 0);
-            const pct = lqT > 0 ? (lqA / lqT) * 100 : 0;
+            const totalTarget = monthColumns.reduce(
+              (s, c) => s + (tierTargetData[tierKey][c.key] || 0),
+              0
+            );
+            const totalActual = monthColumns.reduce(
+              (s, c) => s + (monthlyTierData[tierKey][c.key] || 0),
+              0
+            );
+            const pct = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
             return `${pct.toFixed(1)}%`;
           })(),
           ...monthColumns.reduce((acc, col) => {
@@ -2951,7 +2960,7 @@ export default function Dashboard() {
           category: "",
           tier: "",
           rowType: "Balance",
-          lastQuarter: lqCols.reduce((s, c) => {
+          lastQuarter: monthColumns.reduce((s, c) => {
             const target = tierTargetData[tierKey][c.key] || 0;
             const actual = monthlyTierData[tierKey][c.key] || 0;
             return s + (target - actual);
@@ -2975,7 +2984,7 @@ export default function Dashboard() {
         tier: "Tier 1 + Tier 2",
         rowType: "Target",
         lastQuarter: formatCurrency(
-          lqCols.reduce((s, c) => {
+          monthColumns.reduce((s, c) => {
             const t1 = tierTargetData[tier1Key][c.key] || 0;
             const t2 = tierTargetData[tier2Key][c.key] || 0;
             return s + t1 + t2;
@@ -2993,7 +3002,7 @@ export default function Dashboard() {
         tier: "",
         rowType: "Actual",
         lastQuarter: formatCurrency(
-          lqCols.reduce((s, c) => {
+          monthColumns.reduce((s, c) => {
             const a1 = monthlyTierData[tier1Key][c.key] || 0;
             const a2 = monthlyTierData[tier2Key][c.key] || 0;
             return s + a1 + a2;
@@ -3011,21 +3020,21 @@ export default function Dashboard() {
         tier: "",
         rowType: "Achievement",
         lastQuarter: (() => {
-          const lqT = lqCols.reduce((s, c) => {
+          const totalTarget = monthColumns.reduce((s, c) => {
             return (
               s +
               (tierTargetData[tier1Key][c.key] || 0) +
               (tierTargetData[tier2Key][c.key] || 0)
             );
           }, 0);
-          const lqA = lqCols.reduce((s, c) => {
+          const totalActual = monthColumns.reduce((s, c) => {
             return (
               s +
               (monthlyTierData[tier1Key][c.key] || 0) +
               (monthlyTierData[tier2Key][c.key] || 0)
             );
           }, 0);
-          const pct = lqT > 0 ? (lqA / lqT) * 100 : 0;
+          const pct = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
           return `${pct.toFixed(1)}%`;
         })(),
         ...monthColumns.reduce((acc, col) => {
@@ -3040,7 +3049,7 @@ export default function Dashboard() {
         category: "",
         tier: "",
         rowType: "Balance",
-        lastQuarter: lqCols.reduce((s, c) => {
+        lastQuarter: monthColumns.reduce((s, c) => {
           const totalTarget = (tierTargetData[tier1Key][c.key] || 0) + (tierTargetData[tier2Key][c.key] || 0);
           const totalActual = (monthlyTierData[tier1Key][c.key] || 0) + (monthlyTierData[tier2Key][c.key] || 0);
           return s + (totalTarget - totalActual);
@@ -4324,16 +4333,22 @@ export default function Dashboard() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Category</TableHead>
-                    <TableHead className="min-w-[168px] whitespace-nowrap">Tier</TableHead>
-                    <TableHead>Type</TableHead>
+                    <TableHead className="sticky left-0 z-30 min-w-[120px] bg-background border-r">
+                      Category
+                    </TableHead>
+                    <TableHead className="sticky left-[120px] z-30 min-w-[180px] whitespace-nowrap bg-background border-r">
+                      Tier
+                    </TableHead>
+                    <TableHead className="sticky left-[300px] z-30 min-w-[110px] bg-background border-r">
+                      Type
+                    </TableHead>
                     {tierMonthColumns.map((col) => (
                       <TableHead key={col.key} className="min-w-[100px] whitespace-nowrap">
                         {col.label}
                       </TableHead>
                     ))}
                     <TableHead className="sticky right-0 z-20 min-w-[130px] bg-background border-l text-right shadow-[-6px_0_12px_-4px_rgba(0,0,0,0.15)]">
-                      Last 3 months
+                      Total
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -4363,13 +4378,25 @@ export default function Dashboard() {
                         else if (lqBalance > 0) lqBalanceClass = "text-red-600 font-medium";
                       }
 
+                      const isTierStartRow = row.rowType === "Target" && idx > 0;
+                      const isTierBoundaryRow = row.rowType === "Balance";
                       return (
-                        <TableRow key={idx}>
-                          <TableCell>{row.category}</TableCell>
-                          <TableCell className="min-w-[168px] whitespace-nowrap">
+                        <TableRow
+                          key={idx}
+                          className={cn(
+                            isTierStartRow && "border-t-4 border-t-slate-400 bg-slate-100/30",
+                            isTierBoundaryRow && "border-b-4 border-b-slate-400"
+                          )}
+                        >
+                          <TableCell className="sticky left-0 z-10 min-w-[120px] bg-background border-r">
+                            {row.category}
+                          </TableCell>
+                          <TableCell className="sticky left-[120px] z-10 min-w-[180px] whitespace-nowrap bg-background border-r">
                             {row.tier}
                           </TableCell>
-                          <TableCell>{row.rowType}</TableCell>
+                          <TableCell className="sticky left-[300px] z-10 min-w-[110px] bg-background border-r">
+                            {row.rowType}
+                          </TableCell>
                           {tierMonthColumns.map((col) => {
                             const cellValue = row[col.key];
 
@@ -4390,14 +4417,20 @@ export default function Dashboard() {
                                   : "";
 
                               return (
-                                <TableCell key={col.key} className={`min-w-[100px] ${colorClass}`}>
+                                <TableCell
+                                  key={col.key}
+                                  className={`min-w-[100px] ${colorClass}`}
+                                >
                                   {formattedValue}
                                 </TableCell>
                               );
                             }
 
                             return (
-                              <TableCell key={col.key} className="min-w-[100px] whitespace-nowrap">
+                              <TableCell
+                                key={col.key}
+                                className="min-w-[100px] whitespace-nowrap"
+                              >
                                 {cellValue || (row.rowType === "Achievement" ? "0.0%" : "₹0")}
                               </TableCell>
                             );

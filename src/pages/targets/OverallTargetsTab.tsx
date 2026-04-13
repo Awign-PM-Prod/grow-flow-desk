@@ -134,6 +134,21 @@ export function OverallTargetsTab() {
     rowMap.set(`${r.year}-${String(r.month).padStart(2, "0")}`, r);
   });
 
+  const totals = useMemo(() => {
+    return monthColumns.reduce(
+      (acc, col) => {
+        const row = rowMap.get(col.key);
+        const existing = Number(row?.existing_target ?? 0);
+        const newAc = Number(row?.new_ac_target ?? 0);
+        acc.existing += existing;
+        acc.newAc += newAc;
+        acc.total += existing + newAc;
+        return acc;
+      },
+      { existing: 0, newAc: 0, total: 0 }
+    );
+  }, [monthColumns, rows]);
+
   const openAdd = () => {
     setEditing(null);
     setMonth("");
@@ -473,14 +488,21 @@ export function OverallTargetsTab() {
                     </TableHead>
                     <TableHead
                       className={cn(
-                        "w-[21%] text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground",
-                        !canMutatePortal && "rounded-tr-xl"
+                        "w-[21%] text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"
                       )}
                     >
                       New AC target
                     </TableHead>
+                    <TableHead
+                      className={cn(
+                        "w-[21%] text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+                        !canMutatePortal && "rounded-tr-xl"
+                      )}
+                    >
+                      Total
+                    </TableHead>
                     {canMutatePortal ? (
-                      <TableHead className="w-[35%] rounded-tr-xl pl-6 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <TableHead className="w-[14%] rounded-tr-xl pl-6 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Actions
                       </TableHead>
                     ) : null}
@@ -519,11 +541,25 @@ export function OverallTargetsTab() {
                         <TableCell
                           className={cn(
                             "text-right tabular-nums text-muted-foreground",
-                            isLast && !canMutatePortal && "rounded-br-xl"
+                            isLast && !canMutatePortal && "rounded-br-none"
                           )}
                         >
                           {r
                             ? formatNumber(Math.round(Number(r.new_ac_target)))
+                            : "—"}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            "text-right tabular-nums text-muted-foreground",
+                            isLast && !canMutatePortal && "rounded-br-none"
+                          )}
+                        >
+                          {r
+                            ? formatNumber(
+                                Math.round(
+                                  Number(r.existing_target) + Number(r.new_ac_target)
+                                )
+                              )
                             : "—"}
                         </TableCell>
                         {canMutatePortal ? (
@@ -575,6 +611,28 @@ export function OverallTargetsTab() {
                       </TableRow>
                     );
                   })}
+                  <TableRow className="border-0 bg-background/60 font-semibold">
+                    <TableCell className="rounded-bl-xl text-foreground">Total</TableCell>
+                    <TableCell className="text-right tabular-nums text-foreground">
+                      {formatNumber(Math.round(totals.existing))}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-foreground">
+                      {formatNumber(Math.round(totals.newAc))}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "text-right tabular-nums text-foreground",
+                        !canMutatePortal && "rounded-br-xl"
+                      )}
+                    >
+                      {formatNumber(Math.round(totals.total))}
+                    </TableCell>
+                    {canMutatePortal ? (
+                      <TableCell className="rounded-br-xl pl-6 text-center text-muted-foreground">
+                        —
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
                 </TableBody>
               </Table>
             </div>
