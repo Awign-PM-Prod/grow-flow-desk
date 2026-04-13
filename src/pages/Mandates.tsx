@@ -299,6 +299,7 @@ export default function Mandates() {
   const [filterMandateHealth, setFilterMandateHealth] = useState("all");
   const [filterUpsellStatus, setFilterUpsellStatus] = useState("all");
   const [filterRetentionType, setFilterRetentionType] = useState("all");
+  const [filterLifecycleStatus, setFilterLifecycleStatus] = useState("all");
 
   // Search terms for dropdowns in forms
   const [accountSearch, setAccountSearch] = useState("");
@@ -2366,6 +2367,7 @@ export default function Mandates() {
     setFilterMandateHealth("all");
     setFilterUpsellStatus("all");
     setFilterRetentionType("all");
+    setFilterLifecycleStatus("all");
   };
 
   const handleViewDetails = (mandate: any) => {
@@ -2650,12 +2652,34 @@ export default function Mandates() {
     const matchesHealth = filterMandateHealth === "all" || mandate.mandateHealth === filterMandateHealth;
     const matchesStatus = filterUpsellStatus === "all" || mandate.upsellStatus === filterUpsellStatus;
     const matchesRetentionType = filterRetentionType === "all" || mandate.retention_type === filterRetentionType;
+    const lifecycleStatus = mandate.lifecycle_status ?? "Active";
+    const matchesLifecycleStatus =
+      filterLifecycleStatus === "all" || lifecycleStatus === filterLifecycleStatus;
 
-    return matchesSearch && matchesAccount && matchesKam && matchesLob && matchesType && matchesHealth && matchesStatus && matchesRetentionType;
+    return (
+      matchesSearch &&
+      matchesAccount &&
+      matchesKam &&
+      matchesLob &&
+      matchesType &&
+      matchesHealth &&
+      matchesStatus &&
+      matchesRetentionType &&
+      matchesLifecycleStatus
+    );
   });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterAccount !== "all" || (!isKAM && filterKam !== "all") || filterLob !== "all" || filterType !== "all" || filterMandateHealth !== "all" || filterUpsellStatus !== "all" || filterRetentionType !== "all";
+  const hasActiveFilters =
+    searchTerm ||
+    filterAccount !== "all" ||
+    (!isKAM && filterKam !== "all") ||
+    filterLob !== "all" ||
+    filterType !== "all" ||
+    filterMandateHealth !== "all" ||
+    filterUpsellStatus !== "all" ||
+    filterRetentionType !== "all" ||
+    filterLifecycleStatus !== "all";
 
   return (
     <div className="space-y-6">
@@ -3520,7 +3544,7 @@ export default function Mandates() {
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-8 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-9 gap-3">
               <Input
                   placeholder="Search all fields..."
                 value={searchTerm}
@@ -3612,6 +3636,16 @@ export default function Mandates() {
                         {retentionType}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterLifecycleStatus} onValueChange={setFilterLifecycleStatus}>
+                  <SelectTrigger className={`text-left ${filterLifecycleStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectValue placeholder="All Mandates" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Mandates</SelectItem>
+                    <SelectItem value="Active">Active Mandates</SelectItem>
+                    <SelectItem value="Inactive">Inactive Mandates</SelectItem>
                   </SelectContent>
                 </Select>
                 </div>
