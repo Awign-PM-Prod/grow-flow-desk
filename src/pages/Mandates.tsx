@@ -252,7 +252,7 @@ export default function Mandates() {
   const { user, hasRole, canMutatePortal } = useAuth();
   const isKAM = hasRole("kam");
   const canToggleMandateLifecycle =
-    hasRole("superadmin") || hasRole("manager");
+    hasRole("superadmin") || hasRole("manager") || hasRole("kam");
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);

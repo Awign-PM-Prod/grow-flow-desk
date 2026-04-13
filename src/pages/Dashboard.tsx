@@ -850,10 +850,11 @@ export default function Dashboard() {
         (inactiveLifecycleRows || []).map((r: { id: string }) => r.id)
       );
       
-      // Total mandates: all rows in scope (status/KAM filters), not limited by financial year
+      // Total mandates: only Active rows in scope (status/KAM filters), not limited by financial year
       let mandatesCountQuery = supabase
         .from("mandates")
-        .select("*", { count: "exact", head: true });
+        .select("*", { count: "exact", head: true })
+        .eq("lifecycle_status", "Active");
       
       // Apply status filter
       mandatesCountQuery = applyStatusFilter(mandatesCountQuery, filterUpsellStatus, filterType);
