@@ -251,6 +251,7 @@ const extractYearFromFinancialYear = (financialYear: string): number => {
 export default function Mandates() {
   const { user, hasRole, canMutatePortal } = useAuth();
   const isKAM = hasRole("kam");
+  const isNSO = hasRole("nso");
   const canToggleMandateLifecycle =
     hasRole("superadmin") || hasRole("manager") || hasRole("kam");
   const [viewMode, setViewMode] = useState<ViewMode>("view");
@@ -293,7 +294,9 @@ export default function Mandates() {
   // Filters for view mode
   const [searchTerm, setSearchTerm] = useState("");
   const [filterAccount, setFilterAccount] = useState("all");
-  const [filterKam, setFilterKam] = useState("all");
+  const [filterKamNsoType, setFilterKamNsoType] = useState<"all" | "all_kams" | "all_nsos" | "kam" | "nso">("all");
+  const [filterKam, setFilterKam] = useState("");
+  const [filterNso, setFilterNso] = useState("");
   const [filterLob, setFilterLob] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [filterMandateHealth, setFilterMandateHealth] = useState("all");
@@ -304,6 +307,8 @@ export default function Mandates() {
   // Search terms for dropdowns in forms
   const [accountSearch, setAccountSearch] = useState("");
   const [kamSearch, setKamSearch] = useState("");
+  const [kamFilterSearch, setKamFilterSearch] = useState("");
+  const [nsoFilterSearch, setNsoFilterSearch] = useState("");
   const [editAccountSearch, setEditAccountSearch] = useState("");
   const [editKamSearch, setEditKamSearch] = useState("");
   const [nsoSelectOpen, setNsoSelectOpen] = useState(false);
@@ -2361,7 +2366,9 @@ export default function Mandates() {
   const clearFilters = () => {
     setSearchTerm("");
     setFilterAccount("all");
-    setFilterKam("all");
+    setFilterKamNsoType("all");
+    setFilterKam("");
+    setFilterNso("");
     setFilterLob("all");
     setFilterType("all");
     setFilterMandateHealth("all");
@@ -2646,7 +2653,31 @@ export default function Mandates() {
     })();
     
     const matchesAccount = filterAccount === "all" || mandate.account_id === filterAccount;
-    const matchesKam = isKAM ? true : (filterKam === "all" || mandate.kam_id === filterKam);
+    const matchesKamNso = (() => {
+      if (isKAM) {
+        return true;
+      }
+      if (filterKamNsoType === "all") {
+        return true;
+      }
+      if (filterKamNsoType === "all_kams") {
+        return Boolean(mandate.kam_id);
+      }
+      if (filterKamNsoType === "all_nsos") {
+        return mandate.type === "New Acquisition" && Boolean(mandate.new_sales_owner);
+      }
+      if (filterKamNsoType === "kam") {
+        return Boolean(filterKam) && mandate.kam_id === filterKam;
+      }
+      if (filterKamNsoType === "nso") {
+        return (
+          Boolean(filterNso) &&
+          mandate.type === "New Acquisition" &&
+          mandate.new_sales_owner === filterNso
+        );
+      }
+      return true;
+    })();
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
     const matchesType = filterType === "all" || mandate.type === filterType;
     const matchesHealth = filterMandateHealth === "all" || mandate.mandateHealth === filterMandateHealth;
@@ -2659,7 +2690,7 @@ export default function Mandates() {
     return (
       matchesSearch &&
       matchesAccount &&
-      matchesKam &&
+      matchesKamNso &&
       matchesLob &&
       matchesType &&
       matchesHealth &&
@@ -2673,7 +2704,7 @@ export default function Mandates() {
   const hasActiveFilters =
     searchTerm ||
     filterAccount !== "all" ||
-    (!isKAM && filterKam !== "all") ||
+    (!isKAM && (filterKamNsoType !== "all" || filterKam !== "" || filterNso !== "")) ||
     filterLob !== "all" ||
     filterType !== "all" ||
     filterMandateHealth !== "all" ||
@@ -3565,17 +3596,123 @@ export default function Mandates() {
                   </SelectContent>
                 </Select>
                 {!isKAM && (
-                  <Select value={filterKam} onValueChange={setFilterKam}>
-                    <SelectTrigger className={`text-left ${filterKam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                      <SelectValue placeholder="All KAMs" />
+                  <Select
+                    value={
+                      filterKamNsoType === "all"
+                        ? "all"
+                        : filterKamNsoType === "all_kams"
+                          ? "all_kams"
+                          : filterKamNsoType === "all_nsos"
+                            ? "all_nsos"
+                            : filterKamNsoType === "kam"
+                              ? `kam_${filterKam}`
+                              : `nso_${filterNso}`
+                    }
+                    onValueChange={(value) => {
+                      if (value === "all") {
+                        setFilterKamNsoType("all");
+                        setFilterKam("");
+                        setFilterNso("");
+                      } else if (value === "all_kams") {
+                        setFilterKamNsoType("all_kams");
+                        setFilterKam("");
+                        setFilterNso("");
+                      } else if (!isNSO && value === "all_nsos") {
+                        setFilterKamNsoType("all_nsos");
+                        setFilterKam("");
+                        setFilterNso("");
+                      } else if (value.startsWith("kam_")) {
+                        const kamId = value.replace("kam_", "");
+                        setFilterKamNsoType("kam");
+                        setFilterKam(kamId);
+                        setFilterNso("");
+                      } else if (!isNSO && value.startsWith("nso_")) {
+                        const nsoMailId = value.replace("nso_", "");
+                        setFilterKamNsoType("nso");
+                        setFilterNso(nsoMailId);
+                        setFilterKam("");
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      className={`text-left ${filterKamNsoType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}
+                    >
+                      <SelectValue placeholder="All KAMs and NSOs">
+                        {filterKamNsoType === "all" && "All KAMs and NSOs"}
+                        {filterKamNsoType === "all_kams" && "All KAMs"}
+                        {filterKamNsoType === "all_nsos" && "All NSOs"}
+                        {filterKamNsoType === "kam" &&
+                          filterKam &&
+                          kams.find((k) => k.id === filterKam)?.full_name}
+                        {filterKamNsoType === "nso" &&
+                          filterNso &&
+                          nsos.find((n) => n.email === filterNso)?.full_name}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All KAMs</SelectItem>
-                      {kams.map((kam) => (
-                        <SelectItem key={kam.id} value={kam.id}>
-                          {kam.full_name}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="all">All KAMs and NSOs</SelectItem>
+                      <SelectItem value="all_kams">All KAMs</SelectItem>
+                      {!isNSO && <SelectItem value="all_nsos">All NSOs</SelectItem>}
+                      <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">
+                        KAM
+                      </div>
+                      <div className="px-2 pb-2">
+                        <Input
+                          placeholder="Search KAM..."
+                          value={kamFilterSearch}
+                          onChange={(e) => setKamFilterSearch(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="h-8"
+                        />
+                      </div>
+                      {kams
+                        .filter((kam) =>
+                          kam.full_name?.toLowerCase().includes(kamFilterSearch.toLowerCase())
+                        )
+                        .map((kam) => (
+                          <SelectItem key={kam.id} value={`kam_${kam.id}`}>
+                            {kam.full_name}
+                          </SelectItem>
+                        ))}
+                      {kams.filter((kam) =>
+                        kam.full_name?.toLowerCase().includes(kamFilterSearch.toLowerCase())
+                      ).length === 0 && (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No KAMs found</div>
+                      )}
+                      {!isNSO && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">
+                            NSO
+                          </div>
+                          <div className="px-2 pb-2">
+                            <Input
+                              placeholder="Search NSO..."
+                              value={nsoFilterSearch}
+                              onChange={(e) => setNsoFilterSearch(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              className="h-8"
+                            />
+                          </div>
+                          {nsos
+                            .filter((nso) => {
+                              const label = (nso.full_name || nso.email || "").toLowerCase();
+                              return label.includes(nsoFilterSearch.toLowerCase());
+                            })
+                            .map((nso) => (
+                              <SelectItem key={nso.id} value={`nso_${nso.email}`}>
+                                {nso.full_name || nso.email}
+                              </SelectItem>
+                            ))}
+                          {nsos.filter((nso) => {
+                            const label = (nso.full_name || nso.email || "").toLowerCase();
+                            return label.includes(nsoFilterSearch.toLowerCase());
+                          }).length === 0 && (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">No NSOs found</div>
+                          )}
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 )}
@@ -4204,6 +4341,18 @@ export default function Mandates() {
                                 <CommandInput placeholder="Search NSOs..." />
                                 <CommandEmpty>No New Sales Officer found.</CommandEmpty>
                                 <CommandList className="max-h-[300px]">
+                                  <CommandItem
+                                    value="remove nso unassign clear"
+                                    onSelect={() => {
+                                      setEditMandateData({
+                                        ...editMandateData,
+                                        newSalesOwner: "",
+                                      });
+                                      setEditNsoSelectOpen(false);
+                                    }}
+                                  >
+                                    <span className="text-destructive">Remove NSO</span>
+                                  </CommandItem>
                                   {nsos.map((nso) => (
                                     <CommandItem
                                       key={nso.id}
