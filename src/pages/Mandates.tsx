@@ -4312,7 +4312,7 @@ export default function Mandates() {
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">New Sales Owner:</Label>
                       {isEditMode ? (
-                        editMandateData.type === "New Acquisition" ? (
+                        (editMandateData.type === "New Acquisition" || editMandateData.type === "Existing") ? (
                           <Popover open={editNsoSelectOpen} onOpenChange={setEditNsoSelectOpen}>
                             <PopoverTrigger asChild>
                               <Button
