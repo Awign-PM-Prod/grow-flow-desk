@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 
 export type UserRole = "kam" | "manager" | "leadership" | "superadmin" | "nso";
+export type Team = "ce" | "staffing" | "experts";
 
 /** Map profiles.role (or JWT metadata) to a canonical app role. */
 function normalizeProfileRole(raw: unknown): UserRole | null {
@@ -42,6 +43,7 @@ export type AuthContextValue = {
   session: Session | null;
   userRoles: UserRole[];
   fullName: string | null;
+  team: Team | null;
   loading: boolean;
   signOut: () => Promise<void>;
   hasRole: (role: UserRole) => boolean;
@@ -62,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
   const [fullName, setFullName] = useState<string | null>(null);
+  const [team, setTeam] = useState<Team | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const isInitializedRef = useRef(false);
@@ -72,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("role, full_name")
+        .select("role, full_name, team")
         .eq("id", userId)
         .maybeSingle();
 
@@ -87,10 +90,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setUserRoles([]);
       }
+
+      const rawTeam = data?.team ?? null;
+      if (rawTeam === "ce" || rawTeam === "staffing" || rawTeam === "experts") {
+        setTeam(rawTeam);
+      } else {
+        setTeam(null);
+      }
     } catch (error) {
       console.error("Error fetching user roles:", error);
       setUserRoles([]);
       setFullName(null);
+      setTeam(null);
     }
   }, []);
 
@@ -217,6 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       userRoles,
       fullName,
+      team,
       loading,
       signOut,
       hasRole,
@@ -232,7 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isNSO,
       canMutatePortal: !loading && !isReadOnlyLeadership,
     };
-  }, [user, session, userRoles, fullName, loading, signOut, hasRole]);
+  }, [user, session, userRoles, fullName, team, loading, signOut, hasRole]);
 
   return (
     <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -10,11 +10,13 @@ import { Loader2, BookOpen } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { cn, formatNumber } from "@/lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   getFinancialYearMonths,
   getFYQuarterMonthYearPairs,
   getNextFYQuarterMonthYearPairs,
   formatMonthYearLong,
+  getMonthYearPairsForFY,
 } from "./targets/financialYearUtils";
 
 // All LoB options
@@ -42,11 +44,36 @@ const getAchievedMcv = (monthRecord: any): number => {
   return 0;
 };
 
+/** Single-month target from manager_targets for the mandate-type filter (org-level buckets). */
+const managerTargetValueForMandateFilter = (
+  existing: number,
+  newAc: number,
+  filterUpsellStatus: string
+): number => {
+  if (filterUpsellStatus === "All Cross Sell + Existing") {
+    return existing;
+  }
+  if (filterUpsellStatus === "New Acquisitions") {
+    return newAc;
+  }
+  if (filterUpsellStatus === "All mandate types" || filterUpsellStatus === "all") {
+    return existing + newAc;
+  }
+  if (filterUpsellStatus === "Existing" || filterUpsellStatus === "All Cross Sell") {
+    return existing;
+  }
+  return 0;
+};
+
 export default function Dashboard() {
-  const { user, hasRole, isNSO } = useAuth();
+  const { user, hasRole, isNSO, isSuperAdmin, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
+  const [selectedTeam, setSelectedTeam] = useState<"ce" | "staffing" | "experts" | null>(null);
   const [loading, setLoading] = useState(true);
-  const [totalMandates, setTotalMandates] = useState(0);
+  /** Active mandates in scope (filters applied); shown as x in the Active Mandates card. */
+  const [activeMandatesCount, setActiveMandatesCount] = useState(0);
+  /** All mandates in scope incl. inactive (filters applied); shown as y in the Active Mandates card. */
+  const [allMandatesCount, setAllMandatesCount] = useState(0);
   const [mandatesThisMonth, setMandatesThisMonth] = useState(0);
   const [totalAccounts, setTotalAccounts] = useState(0);
   const [avgAwignShare, setAvgAwignShare] = useState<number | null>(null);
@@ -147,6 +174,12 @@ export default function Dashboard() {
   /** Mandates with lifecycle_status = Inactive — their monthly_targets rows are excluded from rollups. */
   const inactiveMandateIdsRef = useRef<Set<string>>(new Set());
 
+  // Default dashboard team scope to the user's own team; superadmins can switch.
+  useEffect(() => {
+    if (!userTeam) return;
+    setSelectedTeam((prev) => prev ?? userTeam);
+  }, [userTeam]);
+
   // Set filterKam to current user's ID when they're a KAM
   useEffect(() => {
     if (isKAM && user?.id) {
@@ -175,7 +208,7 @@ export default function Dashboard() {
     }
     fetchKams();
     fetchNsos();
-  }, [filterFinancialYear, filterDashboardMonth, filterUpsellStatus, filterKam, filterNso, filterType, isKAM, isNSO]);
+  }, [filterFinancialYear, filterDashboardMonth, filterUpsellStatus, filterKam, filterNso, filterType, isKAM, isNSO, selectedTeam]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -725,12 +758,15 @@ export default function Dashboard() {
 
   const fetchKams = async () => {
     try {
-      const { data, error } = await supabase
+      if (!selectedTeam) return;
+      let query = supabase
         .from("profiles")
         .select("id, full_name, role")
         .eq("role", "kam")
+        .eq("team", selectedTeam)
         .not("full_name", "is", null)
         .order("full_name", { ascending: true });
+      const { data, error } = await query;
 
       if (error) {
         console.error("Error fetching KAMs:", error);
@@ -749,10 +785,12 @@ export default function Dashboard() {
 
   const fetchNsos = async () => {
     try {
+      if (!selectedTeam) return;
       const { data, error } = await supabase
         .from("profiles")
         .select("email, full_name")
         .eq("role", "nso")
+        .eq("team", selectedTeam)
         .order("full_name", { ascending: true, nullsFirst: false });
 
       if (error) {
@@ -781,6 +819,14 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+
+      if (!selectedTeam) {
+        // Wait until auth profile team is available.
+        return;
+      }
+      const applyTeamFilter = (query: any): any => {
+        return selectedTeam ? query.eq("team", selectedTeam) : query;
+      };
       
       // Get financial year date range from filter
       const fyDateRange = getFinancialYearDateRange(filterFinancialYear);
@@ -842,19 +888,20 @@ export default function Dashboard() {
       const prevMonthEnd = new Date(prevCalendarYear, prevCalendarMonth, 0, 23, 59, 59, 999);
       const prevMonthYearStr = `${prevCalendarYear}-${String(prevCalendarMonth).padStart(2, "0")}`;
 
-      const { data: inactiveLifecycleRows } = await supabase
-        .from("mandates")
-        .select("id")
-        .eq("lifecycle_status", "Inactive");
+      const { data: inactiveLifecycleRows } = await applyTeamFilter(
+        supabase.from("mandates").select("id").eq("lifecycle_status", "Inactive")
+      );
       inactiveMandateIdsRef.current = new Set(
         (inactiveLifecycleRows || []).map((r: { id: string }) => r.id)
       );
       
       // Total mandates: only Active rows in scope (status/KAM filters), not limited by financial year
-      let mandatesCountQuery = supabase
+      let mandatesCountQuery = applyTeamFilter(
+        supabase
         .from("mandates")
         .select("*", { count: "exact", head: true })
-        .eq("lifecycle_status", "Active");
+        .eq("lifecycle_status", "Active")
+      );
       
       // Apply status filter
       mandatesCountQuery = applyStatusFilter(mandatesCountQuery, filterUpsellStatus, filterType);
@@ -866,12 +913,25 @@ export default function Dashboard() {
 
       if (totalError) throw totalError;
 
+      // Total mandates (active + inactive) in same scope as above, for x/y display
+      let allMandatesCountQuery = applyTeamFilter(
+        supabase.from("mandates").select("*", { count: "exact", head: true })
+      );
+      allMandatesCountQuery = applyStatusFilter(allMandatesCountQuery, filterUpsellStatus, filterType);
+      allMandatesCountQuery = applyKamFilter(allMandatesCountQuery, filterKam, filterNso, filterType);
+      const { count: allMandatesTotalCount, error: allMandatesCountError } =
+        await allMandatesCountQuery;
+
+      if (allMandatesCountError) throw allMandatesCountError;
+
       // Fetch mandates created this month
-      let monthCountQuery = supabase
+      let monthCountQuery = applyTeamFilter(
+        supabase
         .from("mandates")
         .select("*", { count: "exact", head: true })
         .gte("created_at", startOfMonth.toISOString())
-        .lte("created_at", endOfMonth.toISOString());
+        .lte("created_at", endOfMonth.toISOString())
+      );
       
       // Apply KAM/NSO filter
       monthCountQuery = applyKamFilter(monthCountQuery, filterKam, filterNso, filterType);
@@ -881,9 +941,11 @@ export default function Dashboard() {
       if (monthError) throw monthError;
 
       // Unique accounts from mandates in scope (status/KAM filters), not limited by financial year
-      let accountsQuery = supabase
+      let accountsQuery = applyTeamFilter(
+        supabase
         .from("mandates")
-        .select("account_id");
+        .select("account_id")
+      );
       
       // Apply status filter
       accountsQuery = applyStatusFilter(accountsQuery, filterUpsellStatus, filterType);
@@ -910,10 +972,12 @@ export default function Dashboard() {
       const accountsCount = uniqueAccountIds.size;
 
       // Fetch mandates with awign_share_percent to calculate average
-      let mandatesDataQuery = supabase
+      let mandatesDataQuery = applyTeamFilter(
+        supabase
         .from("mandates")
         .select("awign_share_percent")
-        .not("awign_share_percent", "is", null);
+        .not("awign_share_percent", "is", null)
+      );
       
       // Apply KAM/NSO filter
       mandatesDataQuery = applyKamFilter(mandatesDataQuery, filterKam, filterNso, filterType);
@@ -972,10 +1036,12 @@ export default function Dashboard() {
 
 
       // Fetch mandates with retention_type = "B" for Group B upsell data
-      let groupBMandatesQuery = supabase
-        .from("mandates")
-        .select("upsell_action_status, revenue_mcv, account_id")
-        .eq("retention_type", "B");
+      let groupBMandatesQuery = applyTeamFilter(
+        supabase
+          .from("mandates")
+          .select("upsell_action_status, revenue_mcv, account_id")
+          .eq("retention_type", "B")
+      );
       
       // Apply status filter
       groupBMandatesQuery = applyStatusFilter(groupBMandatesQuery, filterUpsellStatus, filterType);
@@ -996,10 +1062,12 @@ export default function Dashboard() {
       setRawGroupBMandates(groupBMandates || []);
 
       // Fetch mandates with retention_type = "C" for Group C upsell data
-      let groupCMandatesQuery = supabase
-        .from("mandates")
-        .select("upsell_action_status, revenue_mcv, account_id")
-        .eq("retention_type", "C");
+      let groupCMandatesQuery = applyTeamFilter(
+        supabase
+          .from("mandates")
+          .select("upsell_action_status, revenue_mcv, account_id")
+          .eq("retention_type", "C")
+      );
       
       // Apply status filter
       groupCMandatesQuery = applyStatusFilter(groupCMandatesQuery, filterUpsellStatus, filterType);
@@ -1021,9 +1089,11 @@ export default function Dashboard() {
 
       // Fetch all unique retention types for upsell performance
       // Include all mandates, even those with null retention_type
-      let allMandatesQuery = supabase
-        .from("mandates")
-        .select("retention_type, revenue_mcv, account_id, created_at, type, kam_id");
+      let allMandatesQuery = applyTeamFilter(
+        supabase
+          .from("mandates")
+          .select("retention_type, revenue_mcv, account_id, created_at, type, kam_id")
+      );
       
       // Apply status filter
       allMandatesQuery = applyStatusFilter(allMandatesQuery, filterUpsellStatus, filterType);
@@ -1046,10 +1116,12 @@ export default function Dashboard() {
 
       // Fetch LoB Sales Performance data from mandates monthly records
       // Respect the mandate type filter from the top
-      let lobMandatesQuery = supabase
-        .from("mandates")
-        .select("id, lob, monthly_data, type, kam_id, account_id")
-        .eq("lifecycle_status", "Active");
+      let lobMandatesQuery = applyTeamFilter(
+        supabase
+          .from("mandates")
+          .select("id, lob, monthly_data, type, kam_id, account_id")
+          .eq("lifecycle_status", "Active")
+      );
       lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus, filterType);
       lobMandatesQuery = applyKamFilter(lobMandatesQuery, filterKam, filterNso, filterType);
       const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
@@ -1253,10 +1325,12 @@ export default function Dashboard() {
 
       // Fetch KAM Sales Performance data from mandates monthly records
       // Respect the mandate type filter from the top
-      let kamMandatesQuery = supabase
-        .from("mandates")
-        .select("id, kam_id, monthly_data, type, account_id")
-        .eq("lifecycle_status", "Active");
+      let kamMandatesQuery = applyTeamFilter(
+        supabase
+          .from("mandates")
+          .select("id, kam_id, monthly_data, type, account_id")
+          .eq("lifecycle_status", "Active")
+      );
       kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus, filterType);
       kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam, filterNso, filterType);
       const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
@@ -1327,6 +1401,7 @@ export default function Dashboard() {
         .from("profiles")
         .select("id, full_name")
         .eq("role", "kam")
+        .eq("team", selectedTeam)
         .not("full_name", "is", null)
         .order("full_name", { ascending: true });
 
@@ -1489,44 +1564,67 @@ export default function Dashboard() {
 
       setKamSalesPerformance(formattedKamData);
 
-      // Calculate MCV Planned from manager_targets table for reference month (selected FY month or today)
       let totalMcvPlanned = 0;
       let totalFfmAchieved = 0;
 
-      // Fetch MCV Planned from manager_targets table for current month
-      // All types → existing_target + new_ac_target; Existing → existing_target only; New Acquisitions → new_ac_target only
-      const { data: managerTargetRow } = await supabase
+      // Org-level targets: one row per calendar month in manager_targets (existing_target vs new_ac_target)
+      const { data: managerTargetsFyRows } = await supabase
         .from("manager_targets")
-        .select("existing_target, new_ac_target")
-        .eq("month", refMonth)
-        .eq("year", refYear)
-        .maybeSingle();
+        .select("month, year, existing_target, new_ac_target")
+        .in("year", [fyStartYear, fyEndYear]);
+
+      const managerTargetRow =
+        managerTargetsFyRows?.find((r) => r.month === refMonth && r.year === refYear) ?? null;
+
+      const fyPairsForManager = getMonthYearPairsForFY(filterFinancialYear);
+      const managerMonthKey = (m: number, y: number) =>
+        `${y}-${String(m).padStart(2, "0")}`;
+      const fyPairSet = new Set(
+        fyPairsForManager.map((p) => managerMonthKey(p.month, p.year))
+      );
+      const quarterPairSet = new Set(
+        quarterMonthYearPairs.map((p) => managerMonthKey(p.month, p.year))
+      );
+
+      let totalAnnualTarget = 0;
+      let totalQuarterTarget = 0;
+      if (managerTargetsFyRows) {
+        for (const row of managerTargetsFyRows) {
+          const k = managerMonthKey(row.month, row.year);
+          const existing = parseFloat(String(row.existing_target ?? 0)) || 0;
+          const newAc = parseFloat(String(row.new_ac_target ?? 0)) || 0;
+          const tv = managerTargetValueForMandateFilter(
+            existing,
+            newAc,
+            filterUpsellStatus
+          );
+          if (fyPairSet.has(k)) {
+            totalAnnualTarget += tv;
+          }
+          if (quarterPairSet.has(k)) {
+            totalQuarterTarget += tv;
+          }
+        }
+      }
 
       if (managerTargetRow) {
         const existing = parseFloat(String(managerTargetRow.existing_target ?? 0)) || 0;
         const newAc = parseFloat(String(managerTargetRow.new_ac_target ?? 0)) || 0;
-        if (filterUpsellStatus === "All Cross Sell + Existing") {
-          // When "Existing" is selected in dropdown, it sets value to "All Cross Sell + Existing"
-          // Show only existing_target for this filter
-          totalMcvPlanned = existing;
-        } else if (filterUpsellStatus === "New Acquisitions") {
-          totalMcvPlanned = newAc;
-        } else if (filterUpsellStatus === "All mandate types" || filterUpsellStatus === "all") {
-          // Only "All mandate types" shows the sum
-          totalMcvPlanned = existing + newAc;
-        } else {
-          // For other filters (All Cross Sell, Existing, etc.), show 0
-          // since manager_targets table doesn't have cross-sell specific targets
-          totalMcvPlanned = 0;
-        }
+        totalMcvPlanned = managerTargetValueForMandateFilter(
+          existing,
+          newAc,
+          filterUpsellStatus
+        );
       }
 
       // Fetch all mandates with monthly_data to calculate FFM Achieved for current month within selected FY
       // Apply status filter based on filterUpsellStatus
-      let mandatesQuery = supabase
-        .from("mandates")
-        .select("monthly_data, type, new_sales_owner")
-        .eq("lifecycle_status", "Active");
+      let mandatesQuery = applyTeamFilter(
+        supabase
+          .from("mandates")
+          .select("monthly_data, type, new_sales_owner")
+          .eq("lifecycle_status", "Active")
+      );
       mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus, filterType);
       mandatesQuery = applyKamFilter(mandatesQuery, filterKam, filterNso, filterType);
       const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
@@ -2202,93 +2300,8 @@ export default function Dashboard() {
           });
         }
       }
-      
-      // Calculate Annual Target: Sum of targets for all months in selected FY from monthly_targets table
-      const fyMonths = [
-        { month: 4, year: fyStartYear },
-        { month: 5, year: fyStartYear },
-        { month: 6, year: fyStartYear },
-        { month: 7, year: fyStartYear },
-        { month: 8, year: fyStartYear },
-        { month: 9, year: fyStartYear },
-        { month: 10, year: fyStartYear },
-        { month: 11, year: fyStartYear },
-        { month: 12, year: fyStartYear },
-        { month: 1, year: fyEndYear },
-        { month: 2, year: fyEndYear },
-        { month: 3, year: fyEndYear },
-      ];
 
-      const fyTargetMonthNumbers = fyMonths.map((m) => m.month);
-      const fyTargetYears = [fyStartYear, fyEndYear];
-      
-      let fyTargetsQuery = supabase
-        .from("monthly_targets")
-        .select("target, month, year, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
-        .in("month", fyTargetMonthNumbers)
-        .in("year", fyTargetYears);
-      
-      // Filter by financial_year if available
-      if (financialYearString) {
-        fyTargetsQuery = fyTargetsQuery.eq("financial_year", financialYearString);
-      }
-      
-      // Don't apply target_type filter - we'll filter by mandate type client-side
-      const { data: allFyTargets, error: fyTargetsError } = await fyTargetsQuery;
-      
-      // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
-      let fyTargets = filterTargetsByKamNso(allFyTargets || []);
-      
-      // Filter by mandate type based on filterUpsellStatus
-      // Only include targets that are linked to mandates (target_type = 'existing' with mandate_id)
-      if (fyTargets && fyTargets.length > 0) {
-        fyTargets = fyTargets.filter((target: any) => {
-          // Only include targets linked to mandates
-          if (target.target_type !== 'existing' || !target.mandate_id) {
-            return false;
-          }
-          
-          // Get mandate object (handle both array and single object)
-          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
-          if (!mandate) {
-            return false;
-          }
-          
-          const mandateType = mandate.type;
-          
-          // Filter by mandate type based on filterUpsellStatus
-          if (filterUpsellStatus === "Existing") {
-            // Only include targets linked to mandates with type = 'Existing'
-            return mandateType === 'Existing';
-          } else if (filterUpsellStatus === "All Cross Sell") {
-            // Only include targets linked to mandates with type = 'New Cross Sell'
-            return mandateType === 'New Cross Sell';
-          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-            // Include targets linked to mandates with type = 'Existing' or 'New Cross Sell'
-            return mandateType === 'Existing' || mandateType === 'New Cross Sell';
-          } else if (filterUpsellStatus === "New Acquisitions") {
-            // Only include targets linked to mandates with type = 'New Acquisition'
-            return mandateType === 'New Acquisition';
-          } else {
-            // For "All mandate types" or other status filters, include all targets linked to mandates
-            return true;
-          }
-        });
-      }
-      
-      let totalAnnualTarget = 0;
-      if (!fyTargetsError && fyTargets) {
-        // Filter to only include targets that match the FY months exactly
-        fyTargets.forEach((target: any) => {
-          const matchesFyMonth = fyMonths.some(
-            (fyMonth) => fyMonth.month === target.month && fyMonth.year === target.year
-          );
-          if (matchesFyMonth) {
-            totalAnnualTarget += parseFloat(target.target?.toString() || "0") || 0;
-          }
-        });
-      }
-      
+      // Annual / quarter targets: totalAnnualTarget & totalQuarterTarget from manager_targets (computed above)
       setAnnualAchieved(totalAnnualAchieved);
       setAnnualTarget(totalAnnualTarget);
 
@@ -2301,68 +2314,7 @@ export default function Dashboard() {
         setFfmAchievedFyPercentage(fullFyPercentage);
       }
 
-      // Calculate Current Quarter Target (same quarter window as mcvThisQuarter)
-      const quarterMonthsForTarget = quarterMonthYearPairs.map((p) => p.month);
-      const quarterYearForTarget = quarterMonthYearPairs[0].year;
-
-      // Calculate Quarter Target: Sum of targets for current quarter months from monthly_targets table within selected FY
-      let quarterTargetsQuery = supabase
-        .from("monthly_targets")
-        .select("target, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
-        .in("month", quarterMonthsForTarget)
-        .eq("year", quarterYearForTarget);
-      
-      // Filter by financial_year if available
-      if (financialYearString) {
-        quarterTargetsQuery = quarterTargetsQuery.eq("financial_year", financialYearString);
-      }
-      
-      // Don't apply target_type filter - we'll filter by mandate type client-side
-      const { data: allQuarterTargets, error: quarterTargetsError } = await quarterTargetsQuery;
-
-      // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
-      let quarterTargets = filterTargetsByKamNso(allQuarterTargets || []);
-
-      // Filter by mandate type based on filterUpsellStatus
-      // Only include targets that are linked to mandates (target_type = 'existing' with mandate_id)
-      if (quarterTargets && quarterTargets.length > 0) {
-        quarterTargets = quarterTargets.filter((target: any) => {
-          // Only include targets linked to mandates
-          if (target.target_type !== 'existing' || !target.mandate_id) {
-            return false;
-          }
-          
-          // Get mandate object (handle both array and single object)
-          const mandate = Array.isArray(target.mandates) ? target.mandates[0] : target.mandates;
-          if (!mandate) {
-            return false;
-          }
-          
-          const mandateType = mandate.type;
-          
-          // Filter by mandate type based on filterUpsellStatus
-          if (filterUpsellStatus === "Existing") {
-            return mandateType === 'Existing';
-          } else if (filterUpsellStatus === "All Cross Sell") {
-            return mandateType === 'New Cross Sell';
-          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-            return mandateType === 'Existing' || mandateType === 'New Cross Sell';
-          } else if (filterUpsellStatus === "New Acquisitions") {
-            return mandateType === 'New Acquisition';
-          } else {
-            // For "All mandate types" or other status filters, include all targets linked to mandates
-            return true;
-          }
-        });
-      }
-
-      let totalQuarterTarget = 0;
-      if (!quarterTargetsError && quarterTargets) {
-        totalQuarterTarget = quarterTargets.reduce((sum, target) => {
-          return sum + (parseFloat(target.target?.toString() || "0") || 0);
-        }, 0);
-      }
-
+      // Quarter target: totalQuarterTarget from manager_targets (computed above)
       // Reuse mcvThisQuarter for quarterAchieved since they're the same calculation
       setQuarterAchieved(totalMcvThisQuarter);
       setQuarterTarget(totalQuarterTarget);
@@ -2485,26 +2437,16 @@ export default function Dashboard() {
         }
       }
       
-      // Calculate Current Month Target: Dashboard uses manager_targets table (not monthly_targets)
-      // Reuse managerTargetRow from above (already fetched for MCV Planned)
+      // Current month target: same manager_targets row + mandate filter as MCV Planned
       let totalCurrentMonthTarget = 0;
       if (managerTargetRow) {
         const existing = parseFloat(String(managerTargetRow.existing_target ?? 0)) || 0;
         const newAc = parseFloat(String(managerTargetRow.new_ac_target ?? 0)) || 0;
-        if (filterUpsellStatus === "All Cross Sell + Existing") {
-          // When "Existing" is selected in dropdown, it sets value to "All Cross Sell + Existing"
-          // Show only existing_target for this filter
-          totalCurrentMonthTarget = existing;
-        } else if (filterUpsellStatus === "New Acquisitions") {
-          totalCurrentMonthTarget = newAc;
-        } else if (filterUpsellStatus === "All mandate types" || filterUpsellStatus === "all") {
-          // Only "All mandate types" shows the sum
-          totalCurrentMonthTarget = existing + newAc;
-        } else {
-          // For other filters (All Cross Sell, Existing, etc.), show 0
-          // since manager_targets table doesn't have cross-sell specific targets
-          totalCurrentMonthTarget = 0;
-        }
+        totalCurrentMonthTarget = managerTargetValueForMandateFilter(
+          existing,
+          newAc,
+          filterUpsellStatus
+        );
       }
 
       setCurrentMonthAchieved(totalCurrentMonthAchieved);
@@ -2609,10 +2551,12 @@ export default function Dashboard() {
 
       // Fetch mandates with account_id and monthly_data
       // Apply status filter to only consider mandates with the selected status
-      let mandatesTierQuery = supabase
-        .from("mandates")
-        .select("id, account_id, monthly_data, type")
-        .eq("lifecycle_status", "Active");
+      let mandatesTierQuery = applyTeamFilter(
+        supabase
+          .from("mandates")
+          .select("id, account_id, monthly_data, type")
+          .eq("lifecycle_status", "Active")
+      );
       mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus, filterType);
       mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam, filterNso, filterType);
       const { data: mandatesTierData, error: mandatesTierError } = await mandatesTierQuery;
@@ -3066,7 +3010,8 @@ export default function Dashboard() {
       setMcvTierData(formattedTierData);
       setTierMonthColumns(monthColumns);
 
-      setTotalMandates(totalCount || 0);
+      setActiveMandatesCount(totalCount || 0);
+      setAllMandatesCount(allMandatesTotalCount || 0);
       setMandatesThisMonth(monthCount || 0);
       setTotalAccounts(accountsCount || 0);
       setAvgAwignShare(average);
@@ -3216,6 +3161,34 @@ export default function Dashboard() {
     return formatIndianNumber(value);
   };
 
+  const ActualVsTargetBarTooltip = ({
+    active,
+    payload,
+  }: {
+    active?: boolean;
+    payload?: Array<{ payload?: { target?: number; achieved?: number } }>;
+  }) => {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload;
+    if (!row) return null;
+    const target = Number(row.target) || 0;
+    const achieved = Number(row.achieved) || 0;
+    return (
+      <div className="rounded-md border border-border bg-popover px-3 py-2 text-sm shadow-md">
+        <div className="leading-relaxed">
+          <span className="font-semibold text-[#1d4ed8]">Achieved</span>
+          <span className="text-muted-foreground"> : </span>
+          <span className="font-medium tabular-nums text-foreground">{formatTooltipValue(achieved)}</span>
+        </div>
+        <div className="mt-1 leading-relaxed">
+          <span className="font-semibold text-slate-900">Target</span>
+          <span className="text-muted-foreground"> : </span>
+          <span className="font-medium tabular-nums text-foreground">{formatTooltipValue(target)}</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Main Dashboard Section */}
@@ -3234,6 +3207,31 @@ export default function Dashboard() {
         </Button>
         
         <div className="flex items-center gap-4">
+        {isSuperAdmin && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Team</span>
+            <ToggleGroup
+              type="single"
+              value={selectedTeam ?? undefined}
+              onValueChange={(v) => {
+                if (v === "ce" || v === "staffing" || v === "experts") {
+                  setSelectedTeam(v);
+                }
+              }}
+              className="justify-start"
+            >
+              <ToggleGroupItem value="ce" aria-label="CE">
+                CE
+              </ToggleGroupItem>
+              <ToggleGroupItem value="staffing" aria-label="Staffing">
+                Staffing
+              </ToggleGroupItem>
+              <ToggleGroupItem value="experts" aria-label="Experts">
+                Experts
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+        )}
         {/* Financial Year Filter */}
         <Select value={filterFinancialYear} onValueChange={setFilterFinancialYear}>
           <SelectTrigger className="w-[180px]">
@@ -3440,7 +3438,7 @@ export default function Dashboard() {
 
       {/* Key Metrics Cards - 8 cards in 2 rows */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Mandates */}
+        {/* Active Mandates (x) / Total Mandates (y) */}
         <Card>
           <CardContent className="pt-6">
             {loading ? (
@@ -3449,8 +3447,10 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                <p className="text-base font-bold mb-2">Total Mandates</p>
-                <div className="text-3xl font-bold">{formatNumber(totalMandates)}</div>
+                <p className="text-base font-bold mb-2">Active Mandates</p>
+                <div className="text-3xl font-bold tabular-nums">
+                  {formatNumber(activeMandatesCount)} / {formatNumber(allMandatesCount)}
+                </div>
               </>
             )}
           </CardContent>
@@ -3467,7 +3467,6 @@ export default function Dashboard() {
               <>
                 <p className="text-base font-bold mb-2">Total Accounts</p>
                 <div className="text-3xl font-bold">{formatNumber(totalAccounts)}</div>
-                <p className="text-xs text-muted-foreground mt-2">Unique accounts from mandates</p>
               </>
             )}
           </CardContent>
@@ -3585,7 +3584,7 @@ export default function Dashboard() {
                   {overlapFactor !== null ? overlapFactor.toFixed(2) : "N/A"}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {formatNumber(totalMandates)} mandates / {formatNumber(totalAccounts)} accounts
+                  {formatNumber(activeMandatesCount)} mandates / {formatNumber(totalAccounts)} accounts
                 </p>
               </>
             )}
@@ -3631,20 +3630,9 @@ export default function Dashboard() {
                       tickFormatter={(value) => formatNumber(value)}
                     />
                     <YAxis dataKey="name" type="category" width={80} hide />
-                    <Tooltip 
-                      formatter={(value: any, name: string, props: any) => {
-                        // Show original values instead of base/overlay
-                        if (name === 'Target' || name === 'Achieved') {
-                          const payload = props.payload;
-                          if (name === 'Target') {
-                            return [formatTooltipValue(payload.target || 0), 'Target'];
-                          } else if (name === 'Achieved') {
-                            return [formatTooltipValue(payload.achieved || 0), 'Achieved'];
-                          }
-                        }
-                        return [formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0), name];
-                      }}
-                      labelFormatter={() => ''}
+                    <Tooltip
+                      content={<ActualVsTargetBarTooltip />}
+                      cursor={{ fill: "rgba(15, 23, 42, 0.06)" }}
                     />
                     <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
                     {isAchievedGreater ? (
@@ -3728,20 +3716,9 @@ export default function Dashboard() {
                       tickFormatter={(value) => formatNumber(value)}
                     />
                     <YAxis dataKey="name" type="category" width={80} hide />
-                    <Tooltip 
-                      formatter={(value: any, name: string, props: any) => {
-                        // Show original values instead of base/overlay
-                        if (name === 'Target' || name === 'Achieved') {
-                          const payload = props.payload;
-                          if (name === 'Target') {
-                            return [formatTooltipValue(payload.target || 0), 'Target'];
-                          } else if (name === 'Achieved') {
-                            return [formatTooltipValue(payload.achieved || 0), 'Achieved'];
-                          }
-                        }
-                        return [formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0), name];
-                      }}
-                      labelFormatter={() => ''}
+                    <Tooltip
+                      content={<ActualVsTargetBarTooltip />}
+                      cursor={{ fill: "rgba(15, 23, 42, 0.06)" }}
                     />
                     <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
                     {isQuarterAchievedGreater ? (
@@ -3830,20 +3807,9 @@ export default function Dashboard() {
                       tickFormatter={(value) => formatNumber(value)}
                     />
                     <YAxis dataKey="name" type="category" width={80} hide />
-                    <Tooltip 
-                      formatter={(value: any, name: string, props: any) => {
-                        // Show original values instead of base/overlay
-                        if (name === 'Target' || name === 'Achieved') {
-                          const payload = props.payload;
-                          if (name === 'Target') {
-                            return [formatTooltipValue(payload.target || 0), 'Target'];
-                          } else if (name === 'Achieved') {
-                            return [formatTooltipValue(payload.achieved || 0), 'Achieved'];
-                          }
-                        }
-                        return [formatTooltipValue(typeof value === 'number' ? value : parseFloat(value) || 0), name];
-                      }}
-                      labelFormatter={() => ''}
+                    <Tooltip
+                      content={<ActualVsTargetBarTooltip />}
+                      cursor={{ fill: "rgba(15, 23, 42, 0.06)" }}
                     />
                     <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
                     {isCurrentMonthAchievedGreater ? (

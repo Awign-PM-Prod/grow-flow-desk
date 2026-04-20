@@ -14,6 +14,7 @@ interface InviteUserRequest {
   email: string;
   full_name: string;
   role: "kam" | "manager" | "leadership" | "superadmin" | "nso";
+  team: "ce" | "staffing" | "experts";
   password: string;
 }
 
@@ -59,12 +60,12 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Only superadmins can invite users");
     }
 
-    const { email, full_name, role, password }: InviteUserRequest = await req.json();
+    const { email, full_name, role, team, password }: InviteUserRequest = await req.json();
 
-    console.log("Inviting user:", { email, full_name, role });
+    console.log("Inviting user:", { email, full_name, role, team });
 
     // Validate input
-    if (!email || !full_name || !role || !password) {
+    if (!email || !full_name || !role || !team || !password) {
       throw new Error("Missing required fields");
     }
 
@@ -76,6 +77,11 @@ const handler = async (req: Request): Promise<Response> => {
     const validRoles = ["kam", "manager", "leadership", "superadmin", "nso"];
     if (!validRoles.includes(role)) {
       throw new Error("Invalid role");
+    }
+
+    const validTeams = ["ce", "staffing", "experts"];
+    if (!validTeams.includes(team)) {
+      throw new Error("Invalid team");
     }
 
     // Check if user already exists
@@ -104,13 +110,19 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("User created successfully:", newUser.user.id);
 
-    // Update profile with role
+    // Ensure profile exists and set role/team
     const { error: roleUpdateError } = await supabaseAdmin
       .from("profiles")
-      .update({
-        role: role,
-      })
-      .eq("id", newUser.user.id);
+      .upsert(
+        {
+          id: newUser.user.id,
+          email,
+          full_name,
+          role,
+          team,
+        },
+        { onConflict: "id" },
+      );
 
     if (roleUpdateError) {
       console.error("Error assigning role:", roleUpdateError);

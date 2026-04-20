@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, UserCog, Loader2, Mail, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -18,6 +19,7 @@ interface UserData {
   email: string;
   full_name?: string;
   role: string;
+  team: string;
   created_at: string;
   last_sign_in_at?: string;
 }
@@ -26,6 +28,7 @@ export default function AdminUsers() {
   const navigate = useNavigate();
   const { isSuperAdmin, loading: authLoading } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
+  const [teamFilter, setTeamFilter] = useState<"all" | "ce" | "staffing" | "experts">("all");
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
@@ -40,7 +43,7 @@ export default function AdminUsers() {
       // Fetch all profiles with their roles
       const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
-        .select("id, email, full_name, created_at, role");
+        .select("id, email, full_name, created_at, role, team");
 
       if (profilesError) throw profilesError;
 
@@ -57,6 +60,7 @@ export default function AdminUsers() {
           email: profile.email,
           full_name: profile.full_name || undefined,
           role: profile.role || "No Role",
+          team: profile.team || "unknown",
           created_at: profile.created_at,
           last_sign_in_at: undefined,
         };
@@ -92,10 +96,13 @@ export default function AdminUsers() {
     );
   }
 
-  const filteredUsers = users.filter((user) =>
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (user.full_name && user.full_name.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredUsers = users.filter((user) => {
+    const matchesSearch =
+      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.full_name && user.full_name.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesTeam = teamFilter === "all" || user.team === teamFilter;
+    return matchesSearch && matchesTeam;
+  });
 
   const getRoleBadge = (role: string) => {
     const variants: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
@@ -177,14 +184,27 @@ export default function AdminUsers() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>All Users</CardTitle>
-            <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search users..."
-                className="pl-8"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+            <div className="flex items-center gap-3">
+              <Select value={teamFilter} onValueChange={(v) => setTeamFilter(v as any)}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Team" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All teams</SelectItem>
+                  <SelectItem value="ce">CE</SelectItem>
+                  <SelectItem value="staffing">Staffing</SelectItem>
+                  <SelectItem value="experts">Experts</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative w-64">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search users..."
+                  className="pl-8"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -200,6 +220,7 @@ export default function AdminUsers() {
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Team</TableHead>
                   <TableHead>Last Login</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Actions</TableHead>
@@ -208,7 +229,7 @@ export default function AdminUsers() {
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">
                       No users found
                     </TableCell>
                   </TableRow>
@@ -225,6 +246,7 @@ export default function AdminUsers() {
                       </TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell>{getRoleBadge(user.role)}</TableCell>
+                      <TableCell className="capitalize">{user.team}</TableCell>
                       <TableCell>
                         {user.last_sign_in_at 
                           ? new Date(user.last_sign_in_at).toLocaleDateString()

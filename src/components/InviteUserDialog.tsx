@@ -29,6 +29,9 @@ const inviteSchema = z.object({
   role: z.enum(["kam", "manager", "leadership", "superadmin", "nso"], {
     errorMap: () => ({ message: "Please select a valid role" }),
   }),
+  team: z.enum(["ce", "staffing", "experts"], {
+    errorMap: () => ({ message: "Please select a valid team" }),
+  }),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -46,6 +49,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<string>("");
+  const [team, setTeam] = useState<string>("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const { toast } = useToast();
@@ -60,6 +64,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
         email,
         fullName,
         role,
+        team,
         password,
         confirmPassword,
       });
@@ -81,6 +86,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
           email: validationResult.data.email,
           full_name: validationResult.data.fullName,
           role: validationResult.data.role,
+          team: validationResult.data.team,
           password: validationResult.data.password,
         },
       });
@@ -126,6 +132,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
       setEmail("");
       setFullName("");
       setRole("");
+      setTeam("");
       setPassword("");
       setConfirmPassword("");
       setOpen(false);
@@ -205,6 +212,19 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
               </p>
             </div>
             <div className="grid gap-2">
+              <Label htmlFor="team">Team *</Label>
+              <Select value={team} onValueChange={setTeam} required>
+                <SelectTrigger id="team">
+                  <SelectValue placeholder="Select a team" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ce">CE</SelectItem>
+                  <SelectItem value="staffing">Staffing</SelectItem>
+                  <SelectItem value="experts">Experts</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="password">Password *</Label>
               <Input
                 id="password"
@@ -238,7 +258,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || !email || !fullName || !role || !password || !confirmPassword}>
+            <Button type="submit" disabled={loading || !email || !fullName || !role || !team || !password || !confirmPassword}>
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

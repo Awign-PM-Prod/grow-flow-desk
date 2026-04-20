@@ -249,7 +249,7 @@ const extractYearFromFinancialYear = (financialYear: string): number => {
 };
 
 export default function Mandates() {
-  const { user, hasRole, canMutatePortal } = useAuth();
+  const { user, hasRole, canMutatePortal, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
   const isNSO = hasRole("nso");
   const canToggleMandateLifecycle =
@@ -1018,6 +1018,9 @@ export default function Mandates() {
     setLoading(true);
 
     try {
+      if (!userTeam) {
+        throw new Error("Your profile team is not set. Please contact a superadmin.");
+      }
       // Get current user
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
@@ -1114,6 +1117,7 @@ export default function Mandates() {
         // Metadata
         created_by: user.id,
         lifecycle_status: "Active",
+        team: userTeam,
       };
 
       const { error: insertError } = await supabase
@@ -1818,7 +1822,11 @@ export default function Mandates() {
 
         // Insert new mandates
         if (toInsert.length > 0) {
-          const { error } = await supabase.from("mandates").insert(toInsert);
+          if (!userTeam) {
+            throw new Error("Your profile team is not set. Please contact a superadmin.");
+          }
+          const toInsertWithTeam = toInsert.map((m) => ({ ...m, team: userTeam }));
+          const { error } = await supabase.from("mandates").insert(toInsertWithTeam);
           
           if (error) {
             console.error("Error inserting batch:", error);
