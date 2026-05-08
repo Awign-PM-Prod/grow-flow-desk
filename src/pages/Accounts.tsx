@@ -75,7 +75,7 @@ const industrySubCategories: Record<string, string[]> = {
 };
 
 export default function Accounts() {
-  const { canMutatePortal } = useAuth();
+  const { canMutatePortal, isSuperAdmin } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -124,6 +124,8 @@ export default function Accounts() {
   const [filterRevenue, setFilterRevenue] = useState("");
   const [filterMCVTier, setFilterMCVTier] = useState("");
   const [filterCompanyTier, setFilterCompanyTier] = useState("");
+  const [filterTeam, setFilterTeam] = useState<"all" | "ce" | "staffing" | "experts">("all");
+  const [accountTeamsById, setAccountTeamsById] = useState<Record<string, Set<"ce" | "staffing" | "experts">>>({});
   
   // Search states for filter dropdowns
   const [accountNameSearch, setAccountNameSearch] = useState("");
@@ -280,7 +282,29 @@ export default function Accounts() {
 
       if (!data || data.length === 0) {
         setAccounts([]);
+        setAccountTeamsById({});
         return;
+      }
+
+      const accountIds = data.map((account) => account.id).filter(Boolean);
+      if (accountIds.length > 0) {
+        const { data: mandateTeams } = await supabase
+          .from("mandates")
+          .select("account_id, team")
+          .in("account_id", accountIds);
+
+        const teamMap: Record<string, Set<"ce" | "staffing" | "experts">> = {};
+        (mandateTeams || []).forEach((row: any) => {
+          if (!row.account_id || !row.team) return;
+          if (row.team !== "ce" && row.team !== "staffing" && row.team !== "experts") return;
+          if (!teamMap[row.account_id]) {
+            teamMap[row.account_id] = new Set();
+          }
+          teamMap[row.account_id].add(row.team);
+        });
+        setAccountTeamsById(teamMap);
+      } else {
+        setAccountTeamsById({});
       }
 
       // Calculate Total ACV and MCV from mandates for each account (if mandates table exists)
@@ -504,6 +528,7 @@ export default function Accounts() {
     setFilterRevenue("");
     setFilterMCVTier("");
     setFilterCompanyTier("");
+    setFilterTeam("all");
     setAccountNameSearch("");
     setCountrySearch("");
   };
@@ -540,12 +565,15 @@ export default function Accounts() {
     const matchesRevenue = !filterRevenue || account.revenue_range === filterRevenue;
     const matchesMCVTier = !filterMCVTier || account.mcv_tier === filterMCVTier;
     const matchesCompanyTier = !filterCompanyTier || account.company_size_tier === filterCompanyTier;
+    const matchesTeam =
+      filterTeam === "all" ||
+      (account?.id ? accountTeamsById[account.id]?.has(filterTeam) ?? false : false);
 
-    return matchesSearch && matchesAccountName && matchesCountry && matchesIndustry && matchesSubCategory && matchesRevenue && matchesMCVTier && matchesCompanyTier;
+    return matchesSearch && matchesAccountName && matchesCountry && matchesIndustry && matchesSubCategory && matchesRevenue && matchesMCVTier && matchesCompanyTier && matchesTeam;
   });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterAccountName || filterCountry || filterIndustry || filterSubCategory || filterRevenue || filterMCVTier || filterCompanyTier;
+  const hasActiveFilters = searchTerm || filterAccountName || filterCountry || filterIndustry || filterSubCategory || filterRevenue || filterMCVTier || filterCompanyTier || (isSuperAdmin && filterTeam !== "all");
   
   // Get unique account names and countries for filters
   const uniqueAccountNames = Array.from(new Set((accounts || []).map((acc) => acc.name).filter(Boolean))).sort();
@@ -1509,7 +1537,7 @@ export default function Accounts() {
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="space-y-3">
-                <div className={`grid grid-cols-1 md:grid-cols-3 ${filterIndustry ? "lg:grid-cols-8" : "lg:grid-cols-7"} gap-3`}>
+                <div className={`grid grid-cols-1 md:grid-cols-3 ${filterIndustry ? (isSuperAdmin ? "lg:grid-cols-9" : "lg:grid-cols-8") : (isSuperAdmin ? "lg:grid-cols-8" : "lg:grid-cols-7")} gap-3`}>
                   <Input
                     placeholder="Search all fields..."
                     value={searchTerm}
@@ -1645,6 +1673,19 @@ export default function Accounts() {
                       <SelectItem value="Tier 2">Tier 2</SelectItem>
                     </SelectContent>
                   </Select>
+                  {isSuperAdmin && (
+                    <Select value={filterTeam} onValueChange={(value) => setFilterTeam(value as "all" | "ce" | "staffing" | "experts")}>
+                      <SelectTrigger className={`text-left ${filterTeam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                        <SelectValue placeholder="All Teams" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Teams</SelectItem>
+                        <SelectItem value="ce">CE</SelectItem>
+                        <SelectItem value="staffing">Staffing</SelectItem>
+                        <SelectItem value="experts">Experts</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div className="flex justify-end">
                   <Button

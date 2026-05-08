@@ -84,9 +84,37 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Invalid team");
     }
 
-    // Check if user already exists
-    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-    const userExists = existingUser.users.some(u => u.email === email);
+    // Check if user already exists.
+    // listUsers is paginated, so iterate pages to avoid false negatives.
+    let page = 1;
+    const perPage = 200;
+    let userExists = false;
+
+    while (true) {
+      const { data: listedUsers, error: listUsersError } =
+        await supabaseAdmin.auth.admin.listUsers({
+          page,
+          perPage,
+        });
+
+      if (listUsersError) {
+        console.error("Error listing users:", listUsersError);
+        throw new Error(
+          `Failed to validate existing users: ${listUsersError.message}`,
+        );
+      }
+
+      const users = listedUsers.users ?? [];
+      userExists = users.some(
+        (u) => (u.email ?? "").toLowerCase() === email.toLowerCase(),
+      );
+
+      if (userExists || users.length < perPage) {
+        break;
+      }
+
+      page += 1;
+    }
 
     if (userExists) {
       throw new Error("User with this email already exists");
@@ -100,12 +128,17 @@ const handler = async (req: Request): Promise<Response> => {
       email_confirm: true, // Email is already confirmed, user can log in immediately
       user_metadata: {
         full_name,
+        role,
+        team,
       },
     });
 
     if (createError || !newUser.user) {
       console.error("Error creating user:", createError);
-      throw new Error("Failed to create user");
+      const reason = createError?.message
+        ? `: ${createError.message}`
+        : "";
+      throw new Error(`Failed to create user${reason}`);
     }
 
     console.log("User created successfully:", newUser.user.id);

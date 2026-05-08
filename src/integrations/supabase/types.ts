@@ -218,6 +218,35 @@ export type Database = {
           lob: Database["public"]["Enums"]["lob"]
           mandate_health: Database["public"]["Enums"]["mandate_health"] | null
           monthly_data: Json | null
+          revenue_section_type: "A" | "B" | "C" | null
+          staffing_active_months_per_year: number | null
+          staffing_b_acv: number | null
+          staffing_b_cost_per_store: number | null
+          staffing_b_current_fycv: number | null
+          staffing_b_mcv: number | null
+          staffing_b_num_stores: number | null
+          staffing_c_acv: number | null
+          staffing_c_call_center_management: number | null
+          staffing_c_current_fycv: number | null
+          staffing_c_hosting_maintenance: number | null
+          staffing_c_misc_one_time: number | null
+          staffing_c_misc_recurring: number | null
+          staffing_c_mcv: number | null
+          staffing_c_one_time_setup_fee: number | null
+          staffing_c_retainership_fee: number | null
+          staffing_c_reward_value: number | null
+          staffing_c_rewards_redemption_fee_percent: number | null
+          staffing_current_fycv: number | null
+          staffing_gm_percent: number | null
+          staffing_headcount: number | null
+          staffing_misc_one_time: number | null
+          staffing_misc_recurring: number | null
+          staffing_monthly_agency_fee_percent: number | null
+          staffing_program_management: number | null
+          staffing_recruitment_cost: number | null
+          staffing_saas_usage_fee: number | null
+          staffing_sales_force_automation_setup_fee: number | null
+          staffing_salary_payouts: number | null
           new_sales_owner: string | null
           prj_duration_months: number | null
           project_code: string
@@ -229,6 +258,7 @@ export type Database = {
           revenue_monthly_volume: number | null
           revenue_prj_type: Database["public"]["Enums"]["prj_type"] | null
           sub_use_case: Database["public"]["Enums"]["sub_use_case"] | null
+          team: string | null
           type: Database["public"]["Enums"]["mandate_type"] | null
           updated_at: string
           upsell_action_status:
@@ -268,6 +298,35 @@ export type Database = {
           lob: Database["public"]["Enums"]["lob"]
           mandate_health?: Database["public"]["Enums"]["mandate_health"] | null
           monthly_data?: Json | null
+          revenue_section_type?: "A" | "B" | "C" | null
+          staffing_active_months_per_year?: number | null
+          staffing_b_acv?: number | null
+          staffing_b_cost_per_store?: number | null
+          staffing_b_current_fycv?: number | null
+          staffing_b_mcv?: number | null
+          staffing_b_num_stores?: number | null
+          staffing_c_acv?: number | null
+          staffing_c_call_center_management?: number | null
+          staffing_c_current_fycv?: number | null
+          staffing_c_hosting_maintenance?: number | null
+          staffing_c_misc_one_time?: number | null
+          staffing_c_misc_recurring?: number | null
+          staffing_c_mcv?: number | null
+          staffing_c_one_time_setup_fee?: number | null
+          staffing_c_retainership_fee?: number | null
+          staffing_c_reward_value?: number | null
+          staffing_c_rewards_redemption_fee_percent?: number | null
+          staffing_current_fycv?: number | null
+          staffing_gm_percent?: number | null
+          staffing_headcount?: number | null
+          staffing_misc_one_time?: number | null
+          staffing_misc_recurring?: number | null
+          staffing_monthly_agency_fee_percent?: number | null
+          staffing_program_management?: number | null
+          staffing_recruitment_cost?: number | null
+          staffing_saas_usage_fee?: number | null
+          staffing_sales_force_automation_setup_fee?: number | null
+          staffing_salary_payouts?: number | null
           new_sales_owner?: string | null
           prj_duration_months?: number | null
           project_code: string
@@ -279,6 +338,7 @@ export type Database = {
           revenue_monthly_volume?: number | null
           revenue_prj_type?: Database["public"]["Enums"]["prj_type"] | null
           sub_use_case?: Database["public"]["Enums"]["sub_use_case"] | null
+          team?: string | null
           type?: Database["public"]["Enums"]["mandate_type"] | null
           updated_at?: string
           upsell_action_status?:
@@ -318,6 +378,35 @@ export type Database = {
           lob?: Database["public"]["Enums"]["lob"]
           mandate_health?: Database["public"]["Enums"]["mandate_health"] | null
           monthly_data?: Json | null
+          revenue_section_type?: "A" | "B" | "C" | null
+          staffing_active_months_per_year?: number | null
+          staffing_b_acv?: number | null
+          staffing_b_cost_per_store?: number | null
+          staffing_b_current_fycv?: number | null
+          staffing_b_mcv?: number | null
+          staffing_b_num_stores?: number | null
+          staffing_c_acv?: number | null
+          staffing_c_call_center_management?: number | null
+          staffing_c_current_fycv?: number | null
+          staffing_c_hosting_maintenance?: number | null
+          staffing_c_misc_one_time?: number | null
+          staffing_c_misc_recurring?: number | null
+          staffing_c_mcv?: number | null
+          staffing_c_one_time_setup_fee?: number | null
+          staffing_c_retainership_fee?: number | null
+          staffing_c_reward_value?: number | null
+          staffing_c_rewards_redemption_fee_percent?: number | null
+          staffing_current_fycv?: number | null
+          staffing_gm_percent?: number | null
+          staffing_headcount?: number | null
+          staffing_misc_one_time?: number | null
+          staffing_misc_recurring?: number | null
+          staffing_monthly_agency_fee_percent?: number | null
+          staffing_program_management?: number | null
+          staffing_recruitment_cost?: number | null
+          staffing_saas_usage_fee?: number | null
+          staffing_sales_force_automation_setup_fee?: number | null
+          staffing_salary_payouts?: number | null
           new_sales_owner?: string | null
           prj_duration_months?: number | null
           project_code?: string
@@ -329,6 +418,7 @@ export type Database = {
           revenue_monthly_volume?: number | null
           revenue_prj_type?: Database["public"]["Enums"]["prj_type"] | null
           sub_use_case?: Database["public"]["Enums"]["sub_use_case"] | null
+          team?: string | null
           type?: Database["public"]["Enums"]["mandate_type"] | null
           updated_at?: string
           upsell_action_status?:
@@ -437,6 +527,7 @@ export type Database = {
           year: number
           existing_target: number
           new_ac_target: number
+          team: string
           created_at: string
           updated_at: string
         }
@@ -446,6 +537,7 @@ export type Database = {
           year: number
           existing_target?: number
           new_ac_target?: number
+          team?: string
           created_at?: string
           updated_at?: string
         }
@@ -455,6 +547,7 @@ export type Database = {
           year?: number
           existing_target?: number
           new_ac_target?: number
+          team?: string
           created_at?: string
           updated_at?: string
         }
@@ -614,6 +707,7 @@ export type Database = {
           full_name: string | null
           id: string
           role: Database["public"]["Enums"]["app_role"] | null
+          team: string | null
           updated_at: string
         }
         Insert: {
@@ -622,6 +716,7 @@ export type Database = {
           full_name?: string | null
           id: string
           role?: Database["public"]["Enums"]["app_role"] | null
+          team?: string | null
           updated_at?: string
         }
         Update: {
@@ -630,6 +725,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           role?: Database["public"]["Enums"]["app_role"] | null
+          team?: string | null
           updated_at?: string
         }
         Relationships: []

@@ -48,11 +48,28 @@ type ManagerTargetRow = {
   year: number;
   existing_target: number;
   new_ac_target: number;
+  team: "ce" | "staffing" | "experts";
+};
+
+const TEAM_LABEL_BY_VALUE: Record<ManagerTargetRow["team"], string> = {
+  ce: "CE",
+  staffing: "Staffing",
+  experts: "Experts",
+};
+
+const normalizeTeamValue = (
+  value: string | undefined
+): ManagerTargetRow["team"] | null => {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (normalized === "ce") return "ce";
+  if (normalized === "staffing") return "staffing";
+  if (normalized === "experts") return "experts";
+  return null;
 };
 
 export function OverallTargetsTab() {
-  const { filterFinancialYear } = useOutletContext<TargetsOutletContext>();
-  const { canMutatePortal } = useAuth();
+  const { filterFinancialYear, selectedTeam } = useOutletContext<TargetsOutletContext>();
+  const { canMutatePortal, isSuperAdmin, team: userTeam } = useAuth();
   const { toast } = useToast();
 
   const [rows, setRows] = useState<ManagerTargetRow[]>([]);
@@ -64,6 +81,7 @@ export function OverallTargetsTab() {
   const [year, setYear] = useState<string>("");
   const [existingTarget, setExistingTarget] = useState<string>("");
   const [newAcTarget, setNewAcTarget] = useState<string>("");
+  const [formTeam, setFormTeam] = useState<ManagerTargetRow["team"]>("ce");
 
   const [bulkOpen, setBulkOpen] = useState(false);
   const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
@@ -77,6 +95,10 @@ export function OverallTargetsTab() {
   >([]);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const effectiveTeam =
+    isSuperAdmin && selectedTeam !== "all" ? selectedTeam : userTeam;
+  const canMutateToolbar = canMutatePortal;
+  const canMutateRows = canMutatePortal && !(isSuperAdmin && selectedTeam === "all");
 
   const monthColumns = useMemo(
     () => getFinancialYearMonths(filterFinancialYear),
@@ -100,7 +122,8 @@ export function OverallTargetsTab() {
 
       const { data, error } = await supabase
         .from("manager_targets")
-        .select("id, month, year, existing_target, new_ac_target")
+        .select("id, month, year, existing_target, new_ac_target, team")
+        .in("team", selectedTeam === "all" ? ["ce", "staffing", "experts"] : effectiveTeam ? [effectiveTeam] : ["ce"])
         .gte("year", fyStart)
         .lte("year", fyEnd);
 
@@ -110,7 +133,27 @@ export function OverallTargetsTab() {
       const filtered = (data || []).filter((r: ManagerTargetRow) =>
         allowed.has(`${r.year}-${r.month}`)
       );
-      setRows(filtered as ManagerTargetRow[]);
+      if (selectedTeam === "all") {
+        const aggregatedMap = new Map<string, ManagerTargetRow>();
+        filtered.forEach((r) => {
+          const key = `${r.year}-${r.month}`;
+          const existing = aggregatedMap.get(key);
+          if (existing) {
+            existing.existing_target =
+              Number(existing.existing_target || 0) + Number(r.existing_target || 0);
+            existing.new_ac_target =
+              Number(existing.new_ac_target || 0) + Number(r.new_ac_target || 0);
+          } else {
+            aggregatedMap.set(key, {
+              ...r,
+              team: "ce",
+            });
+          }
+        });
+        setRows(Array.from(aggregatedMap.values()));
+      } else {
+        setRows(filtered as ManagerTargetRow[]);
+      }
     } catch (e: unknown) {
       console.error(e);
       toast({
@@ -123,7 +166,7 @@ export function OverallTargetsTab() {
       setLoading(false);
     }
     // toast is stable; omit from deps to avoid effect churn if it ever changes identity
-  }, [filterFinancialYear, pairs]);
+  }, [filterFinancialYear, pairs, selectedTeam, effectiveTeam]);
 
   useEffect(() => {
     void load();
@@ -155,6 +198,7 @@ export function OverallTargetsTab() {
     setYear("");
     setExistingTarget("");
     setNewAcTarget("");
+    setFormTeam(effectiveTeam ?? "ce");
     setFormOpen(true);
   };
 
@@ -164,6 +208,7 @@ export function OverallTargetsTab() {
     setYear(String(col.year));
     setExistingTarget("0");
     setNewAcTarget("0");
+    setFormTeam(effectiveTeam ?? "ce");
     setFormOpen(true);
   };
 
@@ -173,6 +218,7 @@ export function OverallTargetsTab() {
     setYear(String(r.year));
     setExistingTarget(String(r.existing_target ?? 0));
     setNewAcTarget(String(r.new_ac_target ?? 0));
+    setFormTeam(r.team);
     setFormOpen(true);
   };
 
@@ -192,6 +238,8 @@ export function OverallTargetsTab() {
     }
 
     const key = `${y}-${String(m).padStart(2, "0")}`;
+    const targetTeam =
+      selectedTeam === "all" ? formTeam : effectiveTeam ?? "ce";
     const inFy = pairs.some(
       (p) => p.month === m && p.year === y
     );
@@ -222,6 +270,7 @@ export function OverallTargetsTab() {
             new_ac_target: na,
             updated_at: new Date().toISOString(),
           })
+          .eq("team", editing.team)
           .eq("id", editing.id);
         if (error) throw error;
       } else {
@@ -234,6 +283,7 @@ export function OverallTargetsTab() {
               new_ac_target: na,
               updated_at: new Date().toISOString(),
             })
+            .eq("team", targetTeam)
             .eq("id", existingId);
           if (error) throw error;
         } else {
@@ -242,6 +292,7 @@ export function OverallTargetsTab() {
             year: y,
             existing_target: ex,
             new_ac_target: na,
+            team: targetTeam,
           });
           if (error) throw error;
         }
@@ -270,6 +321,7 @@ export function OverallTargetsTab() {
       const { error } = await supabase
         .from("manager_targets")
         .delete()
+        .eq("team", r.team)
         .eq("id", r.id);
       if (error) throw error;
       toast({ title: "Deleted", description: "Targets removed for that month." });
@@ -281,8 +333,11 @@ export function OverallTargetsTab() {
   };
 
   const downloadTemplate = () => {
-    const headers = ["Month", "Year", "Existing Target", "New AC Target"];
+    const headers = ["Month", "Year", "Existing Target", "New AC Target", "Team"];
     const lines = [headers.join(",")];
+    const templateTeamLabel = TEAM_LABEL_BY_VALUE[
+      selectedTeam === "all" ? "ce" : effectiveTeam ?? "ce"
+    ];
     monthColumns.forEach((col) => {
       lines.push(
         [
@@ -290,6 +345,7 @@ export function OverallTargetsTab() {
           String(col.year),
           "0",
           "0",
+          templateTeamLabel,
         ].join(",")
       );
     });
@@ -319,6 +375,8 @@ export function OverallTargetsTab() {
         const yr = parseInt(row["Year"]?.trim() || "", 10);
         const exs = row["Existing Target"]?.trim() ?? "";
         const nas = row["New AC Target"]?.trim() ?? "";
+        const teamRaw = row["Team"]?.trim() ?? "";
+        const normalizedTeam = normalizeTeamValue(teamRaw);
         if (!row["Month"]?.trim()) errors.push("Month required");
         else if (mo < 1 || mo > 12) errors.push("Month 1–12");
         if (!row["Year"]?.trim()) errors.push("Year required");
@@ -329,6 +387,14 @@ export function OverallTargetsTab() {
           errors.push("Existing Target must be a number ≥ 0");
         if (nas === "" || Number.isNaN(na) || na < 0)
           errors.push("New AC Target must be a number ≥ 0");
+        if (!teamRaw) errors.push("Team required");
+        else if (!normalizedTeam)
+          errors.push("Team must be CE, Staffing, or Experts (case-insensitive)");
+        else if (
+          selectedTeam !== "all" &&
+          normalizedTeam !== (effectiveTeam ?? "ce")
+        )
+          errors.push(`Team must match selected team (${TEAM_LABEL_BY_VALUE[effectiveTeam ?? "ce"]})`);
         const inFy =
           !Number.isNaN(mo) &&
           !Number.isNaN(yr) &&
@@ -368,13 +434,17 @@ export function OverallTargetsTab() {
         const yr = parseInt(row["Year"]?.trim() || "", 10);
         const ex = parseFloat(row["Existing Target"]?.trim() || "0");
         const na = parseFloat(row["New AC Target"]?.trim() || "0");
+        const team = normalizeTeamValue(row["Team"]);
         if (!pairs.some((p) => p.month === mo && p.year === yr)) continue;
+        if (!team) continue;
+        if (selectedTeam !== "all" && team !== (effectiveTeam ?? "ce")) continue;
 
         const { data: existing } = await supabase
           .from("manager_targets")
           .select("id")
           .eq("month", mo)
           .eq("year", yr)
+          .eq("team", team)
           .maybeSingle();
 
         if (existing?.id) {
@@ -393,6 +463,7 @@ export function OverallTargetsTab() {
             year: yr,
             existing_target: ex,
             new_ac_target: na,
+            team,
           });
           if (error) throw error;
         }
@@ -414,7 +485,7 @@ export function OverallTargetsTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {canMutatePortal ? (
+        {canMutateToolbar ? (
           <>
             <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
               <DialogTrigger asChild>
@@ -496,12 +567,12 @@ export function OverallTargetsTab() {
                     <TableHead
                       className={cn(
                         "w-[21%] text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground",
-                        !canMutatePortal && "rounded-tr-xl"
+                        !canMutateRows && "rounded-tr-xl"
                       )}
                     >
                       Total
                     </TableHead>
-                    {canMutatePortal ? (
+                    {canMutateRows ? (
                       <TableHead className="w-[14%] rounded-tr-xl pl-6 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Actions
                       </TableHead>
@@ -541,7 +612,7 @@ export function OverallTargetsTab() {
                         <TableCell
                           className={cn(
                             "text-right tabular-nums text-muted-foreground",
-                            isLast && !canMutatePortal && "rounded-br-none"
+                            isLast && !canMutateRows && "rounded-br-none"
                           )}
                         >
                           {r
@@ -551,7 +622,7 @@ export function OverallTargetsTab() {
                         <TableCell
                           className={cn(
                             "text-right tabular-nums text-muted-foreground",
-                            isLast && !canMutatePortal && "rounded-br-none"
+                            isLast && !canMutateRows && "rounded-br-none"
                           )}
                         >
                           {r
@@ -562,7 +633,7 @@ export function OverallTargetsTab() {
                               )
                             : "—"}
                         </TableCell>
-                        {canMutatePortal ? (
+                        {canMutateRows ? (
                           <TableCell
                             className={cn(
                               "bg-gradient-to-r from-transparent via-muted/20 to-transparent pl-6 text-center",
@@ -622,12 +693,12 @@ export function OverallTargetsTab() {
                     <TableCell
                       className={cn(
                         "text-right tabular-nums text-foreground",
-                        !canMutatePortal && "rounded-br-xl"
+                        !canMutateRows && "rounded-br-xl"
                       )}
                     >
                       {formatNumber(Math.round(totals.total))}
                     </TableCell>
-                    {canMutatePortal ? (
+                    {canMutateRows ? (
                       <TableCell className="rounded-br-xl pl-6 text-center text-muted-foreground">
                         —
                       </TableCell>
@@ -701,6 +772,26 @@ export function OverallTargetsTab() {
                   required
                 />
               </div>
+              {selectedTeam === "all" ? (
+                <div className="grid gap-2">
+                  <Label>Team</Label>
+                  <Select
+                    value={formTeam}
+                    onValueChange={(v) =>
+                      setFormTeam(v as ManagerTargetRow["team"])
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select team" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ce">CE</SelectItem>
+                      <SelectItem value="staffing">Staffing</SelectItem>
+                      <SelectItem value="experts">Experts</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
             </div>
             <DialogFooter>
               <Button

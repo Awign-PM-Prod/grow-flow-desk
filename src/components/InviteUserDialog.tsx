@@ -43,6 +43,78 @@ interface InviteUserDialogProps {
   onUserInvited: () => void;
 }
 
+const parseEdgeFunctionError = async (
+  error: unknown,
+  data: unknown,
+): Promise<string> => {
+  const fromData =
+    data &&
+    typeof data === "object" &&
+    "error" in data &&
+    typeof (data as { error: unknown }).error === "string"
+      ? (data as { error: string }).error
+      : undefined;
+
+  if (fromData) {
+    return fromData;
+  }
+
+  const errWithContext = error as {
+    message?: string;
+    context?: { body?: string; json?: () => Promise<unknown>; text?: () => Promise<string> };
+  };
+
+  const context = errWithContext.context;
+
+  if (context?.body) {
+    try {
+      const parsed = JSON.parse(context.body) as { error?: string };
+      if (typeof parsed.error === "string") {
+        return parsed.error;
+      }
+    } catch {
+      // ignore parse issues and continue with other strategies
+    }
+  }
+
+  if (typeof context?.json === "function") {
+    try {
+      const parsed = (await context.json()) as { error?: string; message?: string };
+      if (typeof parsed.error === "string") {
+        return parsed.error;
+      }
+      if (typeof parsed.message === "string") {
+        return parsed.message;
+      }
+    } catch {
+      // ignore json parse errors and try text fallback
+    }
+  }
+
+  if (typeof context?.text === "function") {
+    try {
+      const text = await context.text();
+      if (text) {
+        try {
+          const parsed = JSON.parse(text) as { error?: string; message?: string };
+          if (typeof parsed.error === "string") {
+            return parsed.error;
+          }
+          if (typeof parsed.message === "string") {
+            return parsed.message;
+          }
+        } catch {
+          return text;
+        }
+      }
+    } catch {
+      // ignore text read errors
+    }
+  }
+
+  return errWithContext.message || "Failed to invite user";
+};
+
 export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -92,26 +164,8 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
       });
 
       if (error) {
-        const fromData =
-          data &&
-          typeof data === "object" &&
-          "error" in data &&
-          typeof (data as { error: unknown }).error === "string"
-            ? (data as { error: string }).error
-            : undefined;
-
-        let fromContext: string | undefined;
-        const ctx = (error as { context?: { body?: string } }).context;
-        if (ctx?.body) {
-          try {
-            const parsed = JSON.parse(ctx.body) as { error?: string };
-            if (typeof parsed.error === "string") fromContext = parsed.error;
-          } catch {
-            /* ignore */
-          }
-        }
-
-        throw new Error(fromData || fromContext || error.message || "Failed to invite user");
+        const message = await parseEdgeFunctionError(error, data);
+        throw new Error(message);
       }
 
       if (

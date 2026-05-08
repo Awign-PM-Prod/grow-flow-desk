@@ -4,13 +4,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, BookOpen } from "lucide-react";
+import { Loader2, BookOpen, Check, ChevronsUpDown, Minus } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { cn, formatNumber } from "@/lib/utils";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command";
 import {
   getFinancialYearMonths,
   getFYQuarterMonthYearPairs,
@@ -18,6 +26,7 @@ import {
   formatMonthYearLong,
   getMonthYearPairsForFY,
 } from "./targets/financialYearUtils";
+import { isMandateActiveAsOf } from "@/lib/mandateLifecycleLog";
 
 // All LoB options
 const lobOptions = [
@@ -30,6 +39,30 @@ const lobOptions = [
   "Staffing",
   "Others",
 ];
+
+/** Dashboard LoB filter: team categories (select category = all LoBs in that team). */
+const lobDashboardCategories: { id: string; label: string; lobs: string[] }[] = [
+  { id: "staffing", label: "Staffing", lobs: ["Staffing"] },
+  { id: "experts", label: "Experts", lobs: ["Awign Expert"] },
+  {
+    id: "ce",
+    label: "CE",
+    lobs: lobOptions.filter((l) => l !== "Staffing" && l !== "Awign Expert"),
+  },
+];
+
+function lobCategorySelectionState(
+  selected: string[],
+  categoryLobs: readonly string[],
+): "none" | "some" | "all" {
+  let n = 0;
+  for (const l of categoryLobs) {
+    if (selected.includes(l)) n += 1;
+  }
+  if (n === 0) return "none";
+  if (n === categoryLobs.length) return "all";
+  return "some";
+}
 
 // Helper function to extract achieved MCV from monthly_data
 // Handles both old format (array: [plannedMcv, achievedMcv]) and new format (number: achievedMcv)
@@ -68,7 +101,7 @@ const managerTargetValueForMandateFilter = (
 export default function Dashboard() {
   const { user, hasRole, isNSO, isSuperAdmin, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
-  const [selectedTeam, setSelectedTeam] = useState<"ce" | "staffing" | "experts" | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts" | null>(null);
   const [loading, setLoading] = useState(true);
   /** Active mandates in scope (filters applied); shown as x in the Active Mandates card. */
   const [activeMandatesCount, setActiveMandatesCount] = useState(0);
@@ -162,6 +195,8 @@ export default function Dashboard() {
     return `FY${fyYearDigits}`;
   });
   const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("All mandate types");
+  const [selectedLobs, setSelectedLobs] = useState<string[]>([]);
+  const [lobFilterOpen, setLobFilterOpen] = useState(false);
   const [filterKam, setFilterKam] = useState<string>("");
   const [filterType, setFilterType] = useState<"all" | "all_kams" | "all_nsos" | "kam" | "nso">("all");
   const [filterNso, setFilterNso] = useState<string>("");
@@ -176,9 +211,13 @@ export default function Dashboard() {
 
   // Default dashboard team scope to the user's own team; superadmins can switch.
   useEffect(() => {
+    if (isSuperAdmin) {
+      setSelectedTeam((prev) => prev ?? "all");
+      return;
+    }
     if (!userTeam) return;
     setSelectedTeam((prev) => prev ?? userTeam);
-  }, [userTeam]);
+  }, [isSuperAdmin, userTeam]);
 
   // Set filterKam to current user's ID when they're a KAM
   useEffect(() => {
@@ -208,7 +247,7 @@ export default function Dashboard() {
     }
     fetchKams();
     fetchNsos();
-  }, [filterFinancialYear, filterDashboardMonth, filterUpsellStatus, filterKam, filterNso, filterType, isKAM, isNSO, selectedTeam]);
+  }, [filterFinancialYear, filterDashboardMonth, filterUpsellStatus, filterKam, filterNso, filterType, isKAM, isNSO, selectedTeam, selectedLobs]);
 
   // Helper function to get current financial year in FY format (e.g., "FY25")
   const getCurrentFinancialYear = (): string => {
@@ -282,6 +321,14 @@ export default function Dashboard() {
 
     const targetMcvMonthFooter =
       isScoped && scoped ? scoped.label : formatMonthYearLong(calendarMonth, calendarYear);
+    const targetMcvFullFyFooter = (() => {
+      const yearMatch = filterFinancialYear.match(/FY(\d{2})/);
+      if (!yearMatch) return formatFYForDisplay(filterFinancialYear);
+      const startYear = 2000 + parseInt(yearMatch[1], 10);
+      const endYear = startYear + 1;
+      return `FY ${startYear} - ${endYear}`;
+    })();
+    const targetMcvFooter = isScoped ? targetMcvMonthFooter : targetMcvFullFyFooter;
 
     const quarterPairs = getFYQuarterMonthYearPairs(refMonth, refYear);
     const quarterMonthsFooter = quarterPairs
@@ -301,6 +348,7 @@ export default function Dashboard() {
 
     return {
       isScoped,
+      targetMcvFooter,
       targetMcvMonthFooter,
       quarterMonthsFooter,
       lastMonthFooter,
@@ -309,7 +357,7 @@ export default function Dashboard() {
       annualChartSelectedHint:
         isScoped && scoped ? `Selected: ${scoped.label}` : null,
     };
-  }, [filterDashboardMonth, dashboardMonthOptions]);
+  }, [filterDashboardMonth, dashboardMonthOptions, filterFinancialYear]);
 
   // Helper function to convert FY string to date range
   const getFinancialYearDateRange = (fyString: string): { start: Date; end: Date } => {
@@ -393,6 +441,11 @@ export default function Dashboard() {
     }
     
     return query; // Default: no filter
+  };
+
+  const applyLobFilter = (query: any, column: string = "lob"): any => {
+    if (selectedLobs.length === 0) return query;
+    return query.in(column, selectedLobs);
   };
 
   // Helper function to filter targets by KAM/NSO client-side
@@ -759,13 +812,15 @@ export default function Dashboard() {
   const fetchKams = async () => {
     try {
       if (!selectedTeam) return;
-      let query = supabase
+      let query: any = supabase
         .from("profiles")
         .select("id, full_name, role")
         .eq("role", "kam")
-        .eq("team", selectedTeam)
         .not("full_name", "is", null)
         .order("full_name", { ascending: true });
+      if (selectedTeam !== "all") {
+        query = query.eq("team", selectedTeam);
+      }
       const { data, error } = await query;
 
       if (error) {
@@ -786,12 +841,15 @@ export default function Dashboard() {
   const fetchNsos = async () => {
     try {
       if (!selectedTeam) return;
-      const { data, error } = await supabase
+      let query: any = supabase
         .from("profiles")
         .select("email, full_name")
         .eq("role", "nso")
-        .eq("team", selectedTeam)
         .order("full_name", { ascending: true, nullsFirst: false });
+      if (selectedTeam !== "all") {
+        query = query.eq("team", selectedTeam);
+      }
+      const { data, error } = await query;
 
       if (error) {
         console.error("Error fetching NSOs:", error);
@@ -825,7 +883,8 @@ export default function Dashboard() {
         return;
       }
       const applyTeamFilter = (query: any): any => {
-        return selectedTeam ? query.eq("team", selectedTeam) : query;
+        if (!selectedTeam || selectedTeam === "all") return query;
+        return query.eq("team", selectedTeam);
       };
       
       // Get financial year date range from filter
@@ -888,41 +947,57 @@ export default function Dashboard() {
       const prevMonthEnd = new Date(prevCalendarYear, prevCalendarMonth, 0, 23, 59, 59, 999);
       const prevMonthYearStr = `${prevCalendarYear}-${String(prevCalendarMonth).padStart(2, "0")}`;
 
-      const { data: inactiveLifecycleRows } = await applyTeamFilter(
-        supabase.from("mandates").select("id").eq("lifecycle_status", "Inactive")
+      const { data: inactiveLifecycleRows } = await applyLobFilter(
+        applyTeamFilter(
+          supabase.from("mandates").select("id").eq("lifecycle_status", "Inactive")
+        )
       );
       inactiveMandateIdsRef.current = new Set(
         (inactiveLifecycleRows || []).map((r: { id: string }) => r.id)
       );
-      
-      // Total mandates: only Active rows in scope (status/KAM filters), not limited by financial year
-      let mandatesCountQuery = applyTeamFilter(
+
+      /**
+       * Mandates card (x / y): point-in-time at end of selected period.
+       * - Specific month: as-of end of that month (FY calendar month).
+       * - Full FY: as-of last moment of selected financial year (March 31).
+       * Total = mandates with created_at <= asOf (same filters). Active = baseline from created_at +
+       * lifecycle_status_log replayed to asOf (see isMandateActiveAsOf).
+       */
+      const mandatesCardAsOf = isMonthScoped ? mandateDateRangeEnd : fyDateRange.end;
+
+      let mandatesCardQuery = applyTeamFilter(
         supabase
-        .from("mandates")
-        .select("*", { count: "exact", head: true })
-        .eq("lifecycle_status", "Active")
+          .from("mandates")
+          .select("id, created_at, lifecycle_status_log")
+          .lte("created_at", mandatesCardAsOf.toISOString())
       );
-      
-      // Apply status filter
-      mandatesCountQuery = applyStatusFilter(mandatesCountQuery, filterUpsellStatus, filterType);
-      
-      // Apply KAM/NSO filter
-      mandatesCountQuery = applyKamFilter(mandatesCountQuery, filterKam, filterNso, filterType);
-      
-      const { count: totalCount, error: totalError } = await mandatesCountQuery;
-
-      if (totalError) throw totalError;
-
-      // Total mandates (active + inactive) in same scope as above, for x/y display
-      let allMandatesCountQuery = applyTeamFilter(
-        supabase.from("mandates").select("*", { count: "exact", head: true })
+      mandatesCardQuery = applyStatusFilter(
+        mandatesCardQuery,
+        filterUpsellStatus,
+        filterType
       );
-      allMandatesCountQuery = applyStatusFilter(allMandatesCountQuery, filterUpsellStatus, filterType);
-      allMandatesCountQuery = applyKamFilter(allMandatesCountQuery, filterKam, filterNso, filterType);
-      const { count: allMandatesTotalCount, error: allMandatesCountError } =
-        await allMandatesCountQuery;
+      mandatesCardQuery = applyKamFilter(
+        mandatesCardQuery,
+        filterKam,
+        filterNso,
+        filterType
+      );
+      mandatesCardQuery = applyLobFilter(mandatesCardQuery);
 
-      if (allMandatesCountError) throw allMandatesCountError;
+      const { data: mandatesForCard, error: mandatesCardError } =
+        await mandatesCardQuery;
+
+      if (mandatesCardError) throw mandatesCardError;
+
+      const rows = mandatesForCard || [];
+      const allMandatesTotalCount = rows.length;
+      const totalCount = rows.filter((m: any) =>
+        isMandateActiveAsOf(
+          m.created_at,
+          m.lifecycle_status_log,
+          mandatesCardAsOf
+        )
+      ).length;
 
       // Fetch mandates created this month
       let monthCountQuery = applyTeamFilter(
@@ -935,6 +1010,7 @@ export default function Dashboard() {
       
       // Apply KAM/NSO filter
       monthCountQuery = applyKamFilter(monthCountQuery, filterKam, filterNso, filterType);
+      monthCountQuery = applyLobFilter(monthCountQuery);
       
       const { count: monthCount, error: monthError } = await monthCountQuery;
 
@@ -952,6 +1028,7 @@ export default function Dashboard() {
       
       // Apply KAM/NSO filter
       accountsQuery = applyKamFilter(accountsQuery, filterKam, filterNso, filterType);
+      accountsQuery = applyLobFilter(accountsQuery);
       
       accountsQuery = accountsQuery.not("account_id", "is", null);
       
@@ -981,6 +1058,7 @@ export default function Dashboard() {
       
       // Apply KAM/NSO filter
       mandatesDataQuery = applyKamFilter(mandatesDataQuery, filterKam, filterNso, filterType);
+      mandatesDataQuery = applyLobFilter(mandatesDataQuery);
       
       const { data: mandatesData, error: mandatesDataError } = await mandatesDataQuery;
 
@@ -1048,6 +1126,7 @@ export default function Dashboard() {
       
       // Apply KAM/NSO filter
       groupBMandatesQuery = applyKamFilter(groupBMandatesQuery, filterKam, filterNso, filterType);
+      groupBMandatesQuery = applyLobFilter(groupBMandatesQuery);
       
       // Apply FY filter
       groupBMandatesQuery = groupBMandatesQuery
@@ -1074,6 +1153,7 @@ export default function Dashboard() {
       
       // Apply KAM/NSO filter
       groupCMandatesQuery = applyKamFilter(groupCMandatesQuery, filterKam, filterNso, filterType);
+      groupCMandatesQuery = applyLobFilter(groupCMandatesQuery);
       
       // Apply FY filter
       groupCMandatesQuery = groupCMandatesQuery
@@ -1100,6 +1180,7 @@ export default function Dashboard() {
       
       // Apply KAM/NSO filter
       allMandatesQuery = applyKamFilter(allMandatesQuery, filterKam, filterNso, filterType);
+      allMandatesQuery = applyLobFilter(allMandatesQuery);
       
       // Apply FY filter
       allMandatesQuery = allMandatesQuery
@@ -1113,6 +1194,9 @@ export default function Dashboard() {
       // Store raw data for client-side filtering
       setRawAllMandates(allMandates || []);
       setAccountMcvTierMapState(accountMcvTierMap || {});
+      const scopedAccountIds = Array.from(
+        new Set((allMandates || []).map((m: any) => m.account_id).filter(Boolean))
+      );
 
       // Fetch LoB Sales Performance data from mandates monthly records
       // Respect the mandate type filter from the top
@@ -1124,6 +1208,7 @@ export default function Dashboard() {
       );
       lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus, filterType);
       lobMandatesQuery = applyKamFilter(lobMandatesQuery, filterKam, filterNso, filterType);
+      lobMandatesQuery = applyLobFilter(lobMandatesQuery);
       const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
 
       // Get mandate IDs for fetching targets
@@ -1152,6 +1237,9 @@ export default function Dashboard() {
       
       if (financialYearString) {
         targetsQuery = targetsQuery.eq("financial_year", financialYearString);
+      }
+      if (selectedLobs.length > 0) {
+        targetsQuery = targetsQuery.in("mandates.lob", selectedLobs);
       }
       
       // Apply target type filter based on mandate type filter
@@ -1316,7 +1404,8 @@ export default function Dashboard() {
         lob,
         targetMpv: lobData[lob]?.targetMpv || 0,
         achievedMpv: lobData[lob]?.achievedMpv || 0,
-      }));
+      }))
+      .filter((row) => selectedLobs.length === 0 || selectedLobs.includes(row.lob));
 
       // Debug: Log the calculated data to verify values
       console.log("LoB Sales Performance - Calculated Values:", formattedLobData);
@@ -1333,6 +1422,7 @@ export default function Dashboard() {
       );
       kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus, filterType);
       kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam, filterNso, filterType);
+      kamMandatesQuery = applyLobFilter(kamMandatesQuery);
       const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
 
       // Get mandate IDs for fetching targets
@@ -1397,13 +1487,16 @@ export default function Dashboard() {
       console.log("KAM Targets Data:", kamTargetsData?.length || 0, "Error:", kamTargetsError);
 
       // Fetch all KAMs to get their names (only profiles with role = 'kam')
-      const { data: allKamsData, error: allKamsError } = await supabase
+      let allKamsQuery: any = supabase
         .from("profiles")
         .select("id, full_name")
         .eq("role", "kam")
-        .eq("team", selectedTeam)
         .not("full_name", "is", null)
         .order("full_name", { ascending: true });
+      if (selectedTeam !== "all") {
+        allKamsQuery = allKamsQuery.eq("team", selectedTeam);
+      }
+      const { data: allKamsData, error: allKamsError } = await allKamsQuery;
 
       // Create KAM map
       const kamMap: Record<string, string> = {};
@@ -1570,7 +1663,8 @@ export default function Dashboard() {
       // Org-level targets: one row per calendar month in manager_targets (existing_target vs new_ac_target)
       const { data: managerTargetsFyRows } = await supabase
         .from("manager_targets")
-        .select("month, year, existing_target, new_ac_target")
+        .select("month, year, existing_target, new_ac_target, team")
+        .in("team", selectedTeam === "all" ? ["ce", "staffing", "experts"] : [selectedTeam])
         .in("year", [fyStartYear, fyEndYear]);
 
       const managerTargetRow =
@@ -1627,6 +1721,7 @@ export default function Dashboard() {
       );
       mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus, filterType);
       mandatesQuery = applyKamFilter(mandatesQuery, filterKam, filterNso, filterType);
+      mandatesQuery = applyLobFilter(mandatesQuery);
       const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
       
       // Debug logging for NSO filter
@@ -2128,6 +2223,12 @@ export default function Dashboard() {
       if (financialYearString) {
         nextQuarterQuery = nextQuarterQuery.eq("financial_year", financialYearString);
       }
+      if (selectedTeam !== "all") {
+        nextQuarterQuery = nextQuarterQuery.eq("mandates.team", selectedTeam);
+      }
+      if (selectedLobs.length > 0) {
+        nextQuarterQuery = nextQuarterQuery.in("mandates.lob", selectedLobs);
+      }
       
       // Don't apply target_type filter - we'll filter by mandate type client-side
       const { data: allNextQuarterTargets, error: nextQuarterTargetsError } = await nextQuarterQuery;
@@ -2453,11 +2554,20 @@ export default function Dashboard() {
       setCurrentMonthTarget(totalCurrentMonthTarget);
 
       // Fetch Dropped Sales and Reasons data
-      const { data: droppedDeals, error: droppedDealsError } = await supabase
+      let droppedDealsQuery: any = supabase
         .from("pipeline_deals")
-        .select("dropped_reason")
+        .select("dropped_reason, account_id")
         .eq("status", "Dropped")
         .not("dropped_reason", "is", null);
+      if (scopedAccountIds.length > 0) {
+        droppedDealsQuery = droppedDealsQuery.in("account_id", scopedAccountIds);
+      } else if (selectedTeam !== "all") {
+        droppedDealsQuery = droppedDealsQuery.eq(
+          "account_id",
+          "00000000-0000-0000-0000-000000000000"
+        );
+      }
+      const { data: droppedDeals, error: droppedDealsError } = await droppedDealsQuery;
 
       // Count deals by dropped reason
       const reasonCounts: Record<string, number> = {
@@ -2559,6 +2669,7 @@ export default function Dashboard() {
       );
       mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus, filterType);
       mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam, filterNso, filterType);
+      mandatesTierQuery = applyLobFilter(mandatesTierQuery);
       const { data: mandatesTierData, error: mandatesTierError } = await mandatesTierQuery;
 
       // Calculate total achieved MCV for each account from all mandates to determine MCV Tier dynamically
@@ -3161,6 +3272,13 @@ export default function Dashboard() {
     return formatIndianNumber(value);
   };
 
+  const selectedLobLabel =
+    selectedLobs.length === 0
+      ? "All LoBs"
+      : selectedLobs.length === 1
+        ? selectedLobs[0]
+        : `${selectedLobs.length} LoBs selected`;
+
   const ActualVsTargetBarTooltip = ({
     active,
     payload,
@@ -3210,26 +3328,24 @@ export default function Dashboard() {
         {isSuperAdmin && (
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Team</span>
-            <ToggleGroup
-              type="single"
-              value={selectedTeam ?? undefined}
+            <Select
+              value={selectedTeam ?? "all"}
               onValueChange={(v) => {
-                if (v === "ce" || v === "staffing" || v === "experts") {
+                if (v === "all" || v === "ce" || v === "staffing" || v === "experts") {
                   setSelectedTeam(v);
                 }
               }}
-              className="justify-start"
             >
-              <ToggleGroupItem value="ce" aria-label="CE">
-                CE
-              </ToggleGroupItem>
-              <ToggleGroupItem value="staffing" aria-label="Staffing">
-                Staffing
-              </ToggleGroupItem>
-              <ToggleGroupItem value="experts" aria-label="Experts">
-                Experts
-              </ToggleGroupItem>
-            </ToggleGroup>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Team" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All teams</SelectItem>
+                <SelectItem value="ce">CE</SelectItem>
+                <SelectItem value="staffing">Staffing</SelectItem>
+                <SelectItem value="experts">Experts</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         )}
         {/* Financial Year Filter */}
@@ -3251,7 +3367,7 @@ export default function Dashboard() {
             <SelectValue placeholder="Period" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Full financial year</SelectItem>
+            <SelectItem value="all">Full Financial Year</SelectItem>
             {dashboardMonthOptions.map((col) => (
               <SelectItem key={col.key} value={col.key}>
                 {col.label}
@@ -3259,6 +3375,116 @@ export default function Dashboard() {
             ))}
           </SelectContent>
         </Select>
+
+        <Popover open={lobFilterOpen} onOpenChange={setLobFilterOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={lobFilterOpen}
+              className="h-9 min-w-[200px] max-w-[260px] justify-between gap-2 px-3"
+            >
+              <span className="truncate text-left">{selectedLobLabel}</span>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[min(calc(100vw-1.5rem),20rem)] p-0"
+            align="start"
+            sideOffset={6}
+            collisionPadding={12}
+          >
+            <Command>
+              <CommandInput placeholder="Search team or LoB…" />
+              <CommandList className="max-h-[min(320px,50vh)]">
+                <CommandEmpty>No matches.</CommandEmpty>
+                <CommandItem
+                  value="all-lobs clear reset"
+                  onSelect={() => setSelectedLobs([])}
+                  className="font-medium"
+                >
+                  <span className="min-w-0 flex-1 truncate pr-2 text-left">All LoBs</span>
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    <Check
+                      className={cn(
+                        "h-4 w-4",
+                        selectedLobs.length === 0
+                          ? "text-primary opacity-100"
+                          : "opacity-0",
+                      )}
+                    />
+                  </span>
+                </CommandItem>
+                {lobDashboardCategories.map((cat) => {
+                  const catState = lobCategorySelectionState(selectedLobs, cat.lobs);
+                  const searchBlob = `${cat.label} ${cat.lobs.join(" ")}`;
+                  return (
+                    <Fragment key={cat.id}>
+                      <CommandSeparator className="my-0.5" />
+                      <CommandItem
+                        className="rounded-md border border-blue-200/80 bg-blue-100/70 py-2 font-semibold text-foreground shadow-sm data-[selected=true]:border-blue-300 data-[selected=true]:bg-blue-200/80 data-[selected=true]:text-foreground data-[selected=true]:shadow-none"
+                        value={`lob-cat-${cat.id} ${searchBlob}`}
+                        aria-label={`Select or clear all ${cat.label} lines of business`}
+                        onSelect={() => {
+                          setSelectedLobs((prev) => {
+                            const allIn = cat.lobs.every((l) => prev.includes(l));
+                            if (allIn) {
+                              return lobOptions.filter(
+                                (l) => prev.includes(l) && !cat.lobs.includes(l),
+                              );
+                            }
+                            const merged = new Set(prev);
+                            cat.lobs.forEach((l) => merged.add(l));
+                            return lobOptions.filter((l) => merged.has(l));
+                          });
+                        }}
+                      >
+                        <span className="min-w-0 flex-1 truncate pr-2 text-left">{cat.label}</span>
+                        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                          {catState === "all" ? (
+                            <Check className="h-4 w-4 text-primary opacity-100" />
+                          ) : catState === "some" ? (
+                            <Minus className="h-4 w-4 text-primary/75 opacity-100" />
+                          ) : (
+                            <Check className="h-4 w-4 opacity-0" />
+                          )}
+                        </span>
+                      </CommandItem>
+                      <CommandSeparator className="my-0.5" />
+                      {cat.lobs.map((lob) => (
+                        <CommandItem
+                          key={`${cat.id}-${lob}`}
+                          className="py-1.5 font-normal text-foreground"
+                          value={lob}
+                          onSelect={() => {
+                            setSelectedLobs((prev) => {
+                              if (prev.includes(lob)) {
+                                return lobOptions.filter((l) => prev.includes(l) && l !== lob);
+                              }
+                              return lobOptions.filter((l) => prev.includes(l) || l === lob);
+                            });
+                          }}
+                        >
+                          <span className="min-w-0 flex-1 truncate pr-2 text-left">{lob}</span>
+                          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                            <Check
+                              className={cn(
+                                "h-4 w-4",
+                                selectedLobs.includes(lob)
+                                  ? "text-primary opacity-100"
+                                  : "opacity-0",
+                              )}
+                            />
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </Fragment>
+                  );
+                })}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
 
         {/* Status Filter */}
         <Select value={filterUpsellStatus} onValueChange={(value) => setFilterUpsellStatus(value)}>
@@ -3484,7 +3710,7 @@ export default function Dashboard() {
                 <p className="text-base font-bold mb-2">Target MCV</p>
                 <div className="text-3xl font-bold">{formatCurrency(mcvPlanned)}</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {dashboardPeriodLabels.targetMcvMonthFooter}
+                  {dashboardPeriodLabels.targetMcvFooter}
                 </p>
               </>
             )}

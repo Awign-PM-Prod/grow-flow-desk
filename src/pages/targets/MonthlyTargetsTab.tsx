@@ -92,8 +92,8 @@ export function MonthlyTargetsTab({
 }: {
   mode: "existing" | "new_cross_sell";
 }) {
-  const { filterFinancialYear } = useOutletContext<TargetsOutletContext>();
-  const { hasRole, loading, userRoles, user, canMutatePortal } = useAuth();
+  const { filterFinancialYear, selectedTeam } = useOutletContext<TargetsOutletContext>();
+  const { hasRole, loading, userRoles, user, canMutatePortal, isSuperAdmin, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
   const { toast } = useToast();
   const [formDialogOpen, setFormDialogOpen] = useState(false);
@@ -147,6 +147,14 @@ export function MonthlyTargetsTab({
   const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
   const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const effectiveTeam =
+    isSuperAdmin && selectedTeam !== "all" ? selectedTeam : userTeam;
+
+  const applyMandateTeamFilter = (query: any) => {
+    if (isSuperAdmin && selectedTeam === "all") return query;
+    if (!effectiveTeam) return query;
+    return query.eq("team", effectiveTeam);
+  };
 
   const fetchMonthlyTargets = async () => {
     setLoadingTargets(true);
@@ -192,9 +200,9 @@ export function MonthlyTargetsTab({
 
       // Fetch all mandates for existing targets table
       // If user is a KAM, filter by their KAM ID
-      let mandatesQuery = supabase
+      let mandatesQuery = applyMandateTeamFilter(supabase
         .from("mandates")
-        .select("id, project_code, project_name, kam_id, type, new_sales_owner, lifecycle_status");
+        .select("id, project_code, project_name, kam_id, type, new_sales_owner, lifecycle_status"));
       
       if (currentIsKAM && currentUser?.id) {
         mandatesQuery = mandatesQuery.eq("kam_id", currentUser.id);
@@ -263,11 +271,11 @@ export function MonthlyTargetsTab({
       
       if (currentIsKAM && currentUser?.id) {
         // Get account IDs from KAM's mandates
-        const { data: kamMandatesData } = await supabase
+        const { data: kamMandatesData } = await applyMandateTeamFilter(supabase
           .from("mandates")
           .select("account_id")
           .eq("kam_id", currentUser.id)
-          .not("account_id", "is", null);
+          .not("account_id", "is", null));
         
         const accountIds = [...new Set((kamMandatesData || []).map((m: any) => m.account_id).filter(Boolean))];
         
@@ -312,10 +320,10 @@ export function MonthlyTargetsTab({
       }
 
       if (mandateIds.length > 0) {
-        const { data: mandateData } = await supabase
+        const { data: mandateData } = await applyMandateTeamFilter(supabase
           .from("mandates")
           .select("id, project_code, project_name")
-          .in("id", mandateIds);
+          .in("id", mandateIds));
 
         if (mandateData) {
           mandateData.forEach((mandate) => {
@@ -355,6 +363,14 @@ export function MonthlyTargetsTab({
       const existingData: Record<string, Record<string, number>> = {};
       const crossSellData: Record<string, Record<string, number>> = {}; // kamId_accountId -> monthKey -> target
       const kamAccountComboSet = new Set<string>(); // Track unique KAM-account combinations
+      const teamMandateIds = new Set(
+        (allMandatesData || []).map((m: any) => m.id).filter(Boolean)
+      );
+      const teamKamAccountRelations = new Set(
+        (allMandatesData || [])
+          .filter((m: any) => m.kam_id && m.account_id)
+          .map((m: any) => `${m.kam_id}_${m.account_id}`)
+      );
 
       // Get KAM's mandate IDs and account IDs for filtering
       const kamMandateIds = currentIsKAM && currentUser?.id ? new Set((allMandatesData || []).map((m: any) => m.id)) : null;
@@ -362,8 +378,17 @@ export function MonthlyTargetsTab({
 
       // Filter targets if user is a KAM
       let filteredTargets = data || [];
+      filteredTargets = filteredTargets.filter((target: any) => {
+        if (target.target_type === "existing" && target.mandate_id) {
+          return teamMandateIds.has(target.mandate_id);
+        }
+        if (target.target_type === "new_cross_sell" && target.kam_id && target.account_id) {
+          return teamKamAccountRelations.has(`${target.kam_id}_${target.account_id}`);
+        }
+        return false;
+      });
       if (currentIsKAM && currentUser?.id) {
-        filteredTargets = (data || []).filter((target: any) => {
+        filteredTargets = filteredTargets.filter((target: any) => {
           // For existing targets: only include if mandate belongs to KAM
           if (target.target_type === "existing" && target.mandate_id) {
             return kamMandateIds?.has(target.mandate_id) || false;
@@ -377,22 +402,8 @@ export function MonthlyTargetsTab({
         });
       }
 
-      const inactiveMandateIdsForTargets = new Set(
-        (allMandatesData || [])
-          .filter((m: { lifecycle_status?: string }) => m.lifecycle_status === "Inactive")
-          .map((m: { id: string }) => m.id)
-      );
-
       filteredTargets.forEach((target: any) => {
         const monthKey = `${target.year}-${String(target.month).padStart(2, '0')}`;
-        
-        if (
-          target.target_type === "existing" &&
-          target.mandate_id &&
-          inactiveMandateIdsForTargets.has(target.mandate_id)
-        ) {
-          return;
-        }
 
         if (target.target_type === "existing" && target.mandate_id) {
           if (!existingData[target.mandate_id]) {
@@ -508,11 +519,11 @@ export function MonthlyTargetsTab({
     setLoadingAccounts(true);
     try {
       // Get all mandates for this KAM
-      const { data: mandatesData, error: mandatesError } = await supabase
+      const { data: mandatesData, error: mandatesError } = await applyMandateTeamFilter(supabase
         .from("mandates")
         .select("account_id")
         .eq("kam_id", kamId)
-        .not("account_id", "is", null);
+        .not("account_id", "is", null));
 
       if (mandatesError) {
         console.error("Error fetching mandates for KAM:", mandatesError);
@@ -556,9 +567,9 @@ export function MonthlyTargetsTab({
       const currentUser = user;
       const currentIsKAM = hasRole("kam");
       
-      let query = supabase
+      let query = applyMandateTeamFilter(supabase
         .from("mandates")
-        .select("id, project_code, project_name");
+        .select("id, project_code, project_name"));
       
       // If user is a KAM, filter by their KAM ID
       if (currentIsKAM && currentUser?.id) {
@@ -596,7 +607,7 @@ export function MonthlyTargetsTab({
     }
     // Omit `user` from deps: session refresh replaces the object reference with the same id and would refetch on every tab focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userRoles.length, filterFinancialYear, isKAM, user?.id, mode]);
+  }, [loading, userRoles.length, filterFinancialYear, isKAM, user?.id, mode, selectedTeam, effectiveTeam, isSuperAdmin]);
 
   // Calculate Financial Year when month or year changes
   useEffect(() => {
@@ -685,11 +696,11 @@ export function MonthlyTargetsTab({
         }
 
         if (existingTarget.mandate_id) {
-          const { data: mandateData } = await supabase
+          const { data: mandateData } = await applyMandateTeamFilter(supabase
             .from("mandates")
             .select("id, project_code, project_name")
             .eq("id", existingTarget.mandate_id)
-            .single();
+            .single());
           if (mandateData) {
             mandateMap[mandateData.id] = {
               project_code: mandateData.project_code || "Unknown",
@@ -904,11 +915,11 @@ export function MonthlyTargetsTab({
         targetData.account_id = null;
 
         // Derive KAM + NSO from the mandate
-        const { data: mandateRow, error: mandateErr } = await supabase
+        const { data: mandateRow, error: mandateErr } = await applyMandateTeamFilter(supabase
           .from("mandates")
           .select("kam_id, type, new_sales_owner")
           .eq("id", formData.mandateId)
-          .single();
+          .single());
 
         if (mandateErr) throw mandateErr;
 
@@ -1005,11 +1016,11 @@ export function MonthlyTargetsTab({
   // Bulk upload functions
   const handleDownloadCrossSellTemplate = async () => {
     // Fetch KAM-Account relationships from mandates
-    const { data: mandatesData } = await supabase
+    const { data: mandatesData } = await applyMandateTeamFilter(supabase
       .from("mandates")
       .select("kam_id, account_id")
       .not("kam_id", "is", null)
-      .not("account_id", "is", null);
+      .not("account_id", "is", null));
 
     // Create a map of KAM IDs to KAM names
     const kamNameMap: Record<string, string> = {};
@@ -1200,10 +1211,10 @@ export function MonthlyTargetsTab({
         : [];
       
       const { data: mandateData } = mandateCodes.length > 0
-        ? await supabase
+        ? await applyMandateTeamFilter(supabase
             .from("mandates")
             .select("id, project_code, kam_id, type, new_sales_owner")
-            .in("project_code", mandateCodes)
+            .in("project_code", mandateCodes))
         : { data: null };
 
       const mandateMap: Record<string, string> = {};
@@ -1221,9 +1232,9 @@ export function MonthlyTargetsTab({
       });
 
       // Fetch KAM-Account relationships from mandates for validation
-      const { data: mandatesWithAccounts } = await supabase
+      const { data: mandatesWithAccounts } = await applyMandateTeamFilter(supabase
         .from("mandates")
-        .select("kam_id, account_id");
+        .select("kam_id, account_id"));
 
       const kamAccountRelations = new Set<string>();
       if (mandatesWithAccounts) {
@@ -1467,10 +1478,10 @@ export function MonthlyTargetsTab({
         : [];
       
       const { data: mandateData } = mandateCodes.length > 0
-        ? await supabase
+        ? await applyMandateTeamFilter(supabase
             .from("mandates")
             .select("id, project_code, kam_id, type, new_sales_owner")
-            .in("project_code", mandateCodes)
+            .in("project_code", mandateCodes))
         : { data: null };
 
       const mandateMap: Record<string, string> = {};

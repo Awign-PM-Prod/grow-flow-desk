@@ -20,6 +20,7 @@ import { formatFYLabel, getCurrentFYKey, listFYKeysDescending } from "./financia
 export type TargetsOutletContext = {
   filterFinancialYear: string;
   setFilterFinancialYear: (v: string) => void;
+  selectedTeam: "all" | "ce" | "staffing" | "experts";
 };
 
 const tabClass =
@@ -36,6 +37,9 @@ export function TargetsLayout() {
 
   const [filterFinancialYear, setFilterFinancialYear] = useState<string>(() =>
     getCurrentFYKey()
+  );
+  const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts">(
+    "all"
   );
 
   const fyOptions = useMemo(() => listFYKeysDescending(12), []);
@@ -88,6 +92,7 @@ export function TargetsLayout() {
   const outletContext: TargetsOutletContext = {
     filterFinancialYear,
     setFilterFinancialYear,
+    selectedTeam,
   };
 
   return (
@@ -126,21 +131,36 @@ export function TargetsLayout() {
               </NavLink>
             ) : null}
           </nav>
-          <Select
-            value={filterFinancialYear}
-            onValueChange={setFilterFinancialYear}
-          >
-            <SelectTrigger className="w-[200px] sm:w-[220px]">
-              <SelectValue placeholder="Financial year" />
-            </SelectTrigger>
-            <SelectContent>
-              {fyOptions.map((key) => (
-                <SelectItem key={key} value={key}>
-                  {formatFYLabel(key)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            {isSuperAdmin ? (
+              <Select value={selectedTeam} onValueChange={(v) => setSelectedTeam(v as "all" | "ce" | "staffing" | "experts")}>
+                <SelectTrigger className="w-[160px] sm:w-[180px]">
+                  <SelectValue placeholder="Team" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All teams</SelectItem>
+                  <SelectItem value="ce">CE</SelectItem>
+                  <SelectItem value="staffing">Staffing</SelectItem>
+                  <SelectItem value="experts">Experts</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : null}
+            <Select
+              value={filterFinancialYear}
+              onValueChange={setFilterFinancialYear}
+            >
+              <SelectTrigger className="w-[200px] sm:w-[220px]">
+                <SelectValue placeholder="Financial year" />
+              </SelectTrigger>
+              <SelectContent>
+                {fyOptions.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {formatFYLabel(key)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
       <Outlet context={outletContext} />
