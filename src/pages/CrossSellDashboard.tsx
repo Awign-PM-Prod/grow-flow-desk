@@ -1842,7 +1842,7 @@ export default function CrossSellDashboard() {
                     name="Base"
                     stackId="kam"
                     barSize={30}
-                    radius={[4, 4, 0, 0]}
+                    radius={[0, 0, 0, 0]}
                     activeBar={false}
                     isAnimationActive={false}
                   >
@@ -1858,7 +1858,7 @@ export default function CrossSellDashboard() {
                     name="Overlay"
                     stackId="kam"
                     barSize={30}
-                    radius={[4, 4, 0, 0]}
+                    radius={[0, 0, 0, 0]}
                     activeBar={false}
                     isAnimationActive={false}
                   >

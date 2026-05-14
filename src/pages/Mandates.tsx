@@ -52,6 +52,11 @@ import {
   mandateLifecycleLogCount,
   parseMandateLifecycleLog,
 } from "@/lib/mandateLifecycleLog";
+import {
+  computeStaffingGrossMarginTypeA,
+  computeStaffingGrossMarginTypeB,
+  computeStaffingGrossMarginTypeC,
+} from "@/lib/staffingGrossMargin";
 import type { Json } from "@/integrations/supabase/types";
 
 type ViewMode = "form" | "view";
@@ -93,22 +98,12 @@ interface MandateFormData {
   staffingMiscOneTime: string;
   staffingActiveMonthsPerYear: string;
   staffingGmPercent: string;
-  staffingCurrentFycv: string;
   staffingBNumStores: string;
   staffingBCostPerStore: string;
   staffingBMcv: string;
   staffingBAcv: string;
-  staffingBCurrentFycv: string;
   staffingCOneTimeSetupFee: string;
-  staffingCRetainershipFee: string;
-  staffingCHostingMaintenance: string;
-  staffingCCallCenterManagement: string;
-  staffingCRewardValue: string;
-  staffingCRewardsRedemptionFeePercent: string;
-  staffingCMiscRecurring: string;
-  staffingCMiscOneTime: string;
-  staffingCAcv: string;
-  staffingCCurrentFycv: string;
+  staffingCMonthlyRecurringFees: string;
 
   // Mandate Checker
   mandateHealth: string;
@@ -207,6 +202,7 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
   },
   "Staffing": {
     "Staffing": ["-"],
+    "Staffing - Core": ["-"],
     "Retail Branding": [
       "Merchandiser Driven Programs",
       "Signage Deployments",
@@ -309,7 +305,7 @@ const calculateRevenueSectionType = (
   const normalizedUseCase = normalizeMandateLabel(useCase);
   const normalizedSubUseCase = normalizeMandateLabel(subUseCase);
 
-  if (normalizedUseCase === "staffing") return "A";
+  if (normalizedUseCase === "staffing" || normalizedUseCase === "staffing - core") return "A";
   if (normalizedUseCase === "loyalty programs") return "C";
 
   if (normalizedUseCase === "retail branding") {
@@ -369,22 +365,12 @@ export default function Mandates() {
     staffingMiscOneTime: "",
     staffingActiveMonthsPerYear: "",
     staffingGmPercent: "",
-    staffingCurrentFycv: "",
     staffingBNumStores: "",
     staffingBCostPerStore: "",
     staffingBMcv: "",
     staffingBAcv: "",
-    staffingBCurrentFycv: "",
     staffingCOneTimeSetupFee: "",
-    staffingCRetainershipFee: "",
-    staffingCHostingMaintenance: "",
-    staffingCCallCenterManagement: "",
-    staffingCRewardValue: "",
-    staffingCRewardsRedemptionFeePercent: "",
-    staffingCMiscRecurring: "",
-    staffingCMiscOneTime: "",
-    staffingCAcv: "",
-    staffingCCurrentFycv: "",
+    staffingCMonthlyRecurringFees: "",
     mandateHealth: "",
     upsellConstraint: "",
     upsellConstraintType: "",
@@ -502,35 +488,53 @@ export default function Mandates() {
   const staffingMiscOneTimeValue = parseFloat(formData.staffingMiscOneTime) || 0;
   const staffingActiveMonthsPerYearValue =
     parseFloat(formData.staffingActiveMonthsPerYear) || 0;
+  const staffingGmPercentValue = parseFloat(formData.staffingGmPercent) || 0;
+  /** Staffing revenue type A: MCV per agreed formula (Headcount × per-head components + agency % on partial base + misc recurring). */
   const staffingMcvCalculated =
-    staffingSalaryPayoutsValue +
-    staffingProgramManagementValue +
-    staffingSaasUsageFeeValue +
-    staffingMonthlyAgencyFeePercentValue +
-    staffingMiscRecurringValue;
+    staffingHeadcountValue *
+      (staffingSalaryPayoutsValue +
+        staffingSaasUsageFeeValue +
+        staffingProgramManagementValue) +
+    ((staffingHeadcountValue * (staffingSalaryPayoutsValue + staffingSaasUsageFeeValue) +
+      staffingProgramManagementValue) *
+      staffingMonthlyAgencyFeePercentValue) /
+      100 +
+    staffingHeadcountValue * staffingMiscRecurringValue;
+  /** ACV = (MCV × active months) + ((SFA setup + recruitment) × headcount) + misc one-time. */
   const staffingAcvCalculated =
     staffingMcvCalculated * staffingActiveMonthsPerYearValue +
-    staffingSalesForceAutomationSetupFeeValue +
-    staffingRecruitmentCostValue +
+    (staffingSalesForceAutomationSetupFeeValue + staffingRecruitmentCostValue) *
+      staffingHeadcountValue +
     staffingMiscOneTimeValue;
-  const staffingCurrentFycvCalculated =
-    staffingHeadcountValue * (staffingSalaryPayoutsValue + staffingSaasUsageFeeValue) -
-    staffingProgramManagementValue;
+  const staffingGrossMarginCalculatedA = computeStaffingGrossMarginTypeA({
+    acv: staffingAcvCalculated,
+    gmPercent: staffingGmPercentValue,
+  });
 
-  const staffingCRetainershipFeeValue = parseFloat(formData.staffingCRetainershipFee) || 0;
-  const staffingCHostingMaintenanceValue = parseFloat(formData.staffingCHostingMaintenance) || 0;
-  const staffingCCallCenterManagementValue =
-    parseFloat(formData.staffingCCallCenterManagement) || 0;
-  const staffingCRewardValueValue = parseFloat(formData.staffingCRewardValue) || 0;
-  const staffingCRewardsRedemptionFeePercentValue =
-    parseFloat(formData.staffingCRewardsRedemptionFeePercent) || 0;
-  const staffingCMiscRecurringCValue = parseFloat(formData.staffingCMiscRecurring) || 0;
-  const staffingCMcvCalculated =
-    staffingCRetainershipFeeValue +
-    staffingCHostingMaintenanceValue +
-    staffingCCallCenterManagementValue +
-    staffingCMiscRecurringCValue +
-    (staffingCRewardsRedemptionFeePercentValue / 100) * staffingCRewardValueValue;
+  const staffingBNumStoresParsed = parseFloat(formData.staffingBNumStores) || 0;
+  const staffingBCostPerStoreParsed = parseFloat(formData.staffingBCostPerStore) || 0;
+  /** Staffing revenue type B: MCV = No. of Stores × Cost per Store; ACV = MCV × Active months per year. */
+  const staffingBMcvCalculatedB =
+    staffingBNumStoresParsed * staffingBCostPerStoreParsed;
+  const staffingBAcvCalculatedB =
+    staffingBMcvCalculatedB * staffingActiveMonthsPerYearValue;
+  const staffingGrossMarginCalculatedB = computeStaffingGrossMarginTypeB({
+    acv: staffingBAcvCalculatedB,
+    gmPercent: staffingGmPercentValue,
+  });
+
+  const staffingCOneTimeParsed = parseFloat(formData.staffingCOneTimeSetupFee) || 0;
+  const staffingCMonthlyRecurringParsed =
+    parseFloat(formData.staffingCMonthlyRecurringFees) || 0;
+  /** Staffing revenue type C: MCV = monthly recurring; ACV = (monthly recurring × active months) + one-time setup. */
+  const staffingCMcvCalculated = staffingCMonthlyRecurringParsed;
+  const staffingCAcvCalculatedC =
+    staffingCMonthlyRecurringParsed * staffingActiveMonthsPerYearValue +
+    staffingCOneTimeParsed;
+  const staffingGrossMarginCalculatedC = computeStaffingGrossMarginTypeC({
+    acv: staffingCAcvCalculatedC,
+    gmPercent: staffingGmPercentValue,
+  });
 
   const { toast } = useToast();
 
@@ -638,7 +642,6 @@ export default function Mandates() {
       ...prev,
       revenueMcv: staffingMcvCalculated.toString(),
       revenueAcv: staffingAcvCalculated.toString(),
-      staffingCurrentFycv: staffingCurrentFycvCalculated.toString(),
     }));
   }, [
     isStaffingLobSelected,
@@ -646,7 +649,22 @@ export default function Mandates() {
     staffingRevenueSectionType,
     staffingMcvCalculated,
     staffingAcvCalculated,
-    staffingCurrentFycvCalculated,
+  ]);
+
+  useEffect(() => {
+    if (!isStaffingLobSelected || !staffingRevenueReady || staffingRevenueSectionType !== "B") return;
+    const nextMcv = staffingBMcvCalculatedB.toString();
+    const nextAcv = staffingBAcvCalculatedB.toString();
+    setFormData((prev) => {
+      if (prev.staffingBMcv === nextMcv && prev.staffingBAcv === nextAcv) return prev;
+      return { ...prev, staffingBMcv: nextMcv, staffingBAcv: nextAcv };
+    });
+  }, [
+    isStaffingLobSelected,
+    staffingRevenueReady,
+    staffingRevenueSectionType,
+    staffingBMcvCalculatedB,
+    staffingBAcvCalculatedB,
   ]);
 
   useEffect(() => {
@@ -654,12 +672,14 @@ export default function Mandates() {
     setFormData((prev) => ({
       ...prev,
       revenueMcv: staffingCMcvCalculated.toString(),
+      revenueAcv: staffingCAcvCalculatedC.toString(),
     }));
   }, [
     isStaffingLobSelected,
     staffingRevenueReady,
     staffingRevenueSectionType,
     staffingCMcvCalculated,
+    staffingCAcvCalculatedC,
   ]);
 
   // Reset dependent fields when Mandate Health changes
@@ -1301,9 +1321,6 @@ export default function Mandates() {
           formData.staffingBCostPerStore,
           formData.staffingGmPercent,
           formData.staffingActiveMonthsPerYear,
-          formData.staffingBAcv,
-          formData.staffingBMcv,
-          formData.staffingBCurrentFycv,
         ];
         if (requiredStaffingBFields.some((value) => !value)) {
           throw new Error("Please fill all required Revenue Info fields for Staffing (section B).");
@@ -1313,14 +1330,8 @@ export default function Mandates() {
       if (isStaffingLobSelected && staffingRevenueSectionType === "C") {
         const requiredStaffingCFields = [
           formData.staffingCOneTimeSetupFee,
-          formData.staffingCRetainershipFee,
-          formData.staffingCHostingMaintenance,
-          formData.staffingCCallCenterManagement,
-          formData.staffingCRewardValue,
-          formData.staffingCRewardsRedemptionFeePercent,
+          formData.staffingCMonthlyRecurringFees,
           formData.staffingActiveMonthsPerYear,
-          formData.staffingCAcv,
-          formData.staffingCCurrentFycv,
           formData.staffingGmPercent,
         ];
         if (requiredStaffingCFields.some((value) => !value)) {
@@ -1328,31 +1339,24 @@ export default function Mandates() {
         }
       }
 
-      const staffingBNumStoresValue = parseFloat(formData.staffingBNumStores) || 0;
-      const staffingBCostPerStoreValue = parseFloat(formData.staffingBCostPerStore) || 0;
-      const staffingBMcvValue = parseFloat(formData.staffingBMcv) || 0;
-      const staffingBAcvValue = parseFloat(formData.staffingBAcv) || 0;
-      const staffingBCurrentFycvValue = parseFloat(formData.staffingBCurrentFycv) || 0;
+      const staffingBNumStoresValue = staffingBNumStoresParsed;
+      const staffingBCostPerStoreValue = staffingBCostPerStoreParsed;
+      const staffingBMcvValue = staffingBMcvCalculatedB;
+      const staffingBAcvValue = staffingBAcvCalculatedB;
 
-      const staffingCOneTimeSetupValue = parseFloat(formData.staffingCOneTimeSetupFee) || 0;
-      const staffingCRetainershipFeeSubmitValue = parseFloat(formData.staffingCRetainershipFee) || 0;
-      const staffingCHostingMaintenanceSubmitValue =
-        parseFloat(formData.staffingCHostingMaintenance) || 0;
-      const staffingCCallCenterSubmitValue =
-        parseFloat(formData.staffingCCallCenterManagement) || 0;
-      const staffingCRewardValueSubmitValue = parseFloat(formData.staffingCRewardValue) || 0;
-      const staffingCRewardsRedemptionPercentSubmitValue =
-        parseFloat(formData.staffingCRewardsRedemptionFeePercent) || 0;
-      const staffingCMiscRecurringSubmitValue = parseFloat(formData.staffingCMiscRecurring) || 0;
-      const staffingCMiscOneTimeSubmitValue = parseFloat(formData.staffingCMiscOneTime) || 0;
-      const staffingCAcvSubmitValue = parseFloat(formData.staffingCAcv) || 0;
-      const staffingCCurrentFycvSubmitValue = parseFloat(formData.staffingCCurrentFycv) || 0;
-      const staffingCMcvSubmitValue =
-        staffingCRetainershipFeeSubmitValue +
-        staffingCHostingMaintenanceSubmitValue +
-        staffingCCallCenterSubmitValue +
-        staffingCMiscRecurringSubmitValue +
-        (staffingCRewardsRedemptionPercentSubmitValue / 100) * staffingCRewardValueSubmitValue;
+      const staffingCOneTimeSetupValue = staffingCOneTimeParsed;
+      const staffingCMonthlyRecurringFeesValue = staffingCMonthlyRecurringParsed;
+      const staffingCMcvSubmitValue = staffingCMcvCalculated;
+      const staffingCAcvSubmitValue = staffingCAcvCalculatedC;
+
+      const staffingGrossMarginSubmitValue =
+        staffingRevenueSectionType === "A"
+          ? staffingGrossMarginCalculatedA
+          : staffingRevenueSectionType === "B"
+            ? staffingGrossMarginCalculatedB
+            : staffingRevenueSectionType === "C"
+              ? staffingGrossMarginCalculatedC
+              : null;
 
       // Prepare data for insertion
       const normalizedLob =
@@ -1375,6 +1379,7 @@ export default function Mandates() {
         lob: normalizedLob, // Fallback to original if not in enum (shouldn't happen)
         use_case: ensureEnumValue(formData.useCase, [
           'Staffing',
+          'Staffing - Core',
           'Retail Branding',
           'Loyalty Programs',
           'Mystery Audit',
@@ -1508,12 +1513,13 @@ export default function Mandates() {
             staffingRevenueSectionType === "C")
             ? (parseFloat(formData.staffingGmPercent) || 0)
             : null,
-        staffing_current_fycv:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
-            ? staffingCurrentFycvCalculated
-            : isStaffingLobSelected && staffingRevenueSectionType === "B"
-              ? staffingBCurrentFycvValue
-              : null,
+        staffing_gross_margin:
+          isStaffingLobSelected &&
+          (staffingRevenueSectionType === "A" ||
+            staffingRevenueSectionType === "B" ||
+            staffingRevenueSectionType === "C")
+            ? staffingGrossMarginSubmitValue
+            : null,
         staffing_b_num_stores:
           isStaffingLobSelected && staffingRevenueSectionType === "B"
             ? staffingBNumStoresValue
@@ -1530,53 +1536,13 @@ export default function Mandates() {
           isStaffingLobSelected && staffingRevenueSectionType === "B"
             ? staffingBAcvValue
             : null,
-        staffing_b_current_fycv:
-          isStaffingLobSelected && staffingRevenueSectionType === "B"
-            ? staffingBCurrentFycvValue
-            : null,
         staffing_c_one_time_setup_fee:
           isStaffingLobSelected && staffingRevenueSectionType === "C"
             ? staffingCOneTimeSetupValue
             : null,
-        staffing_c_retainership_fee:
+        staffing_c_monthly_recurring_fees:
           isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? staffingCRetainershipFeeSubmitValue
-            : null,
-        staffing_c_hosting_maintenance:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? staffingCHostingMaintenanceSubmitValue
-            : null,
-        staffing_c_call_center_management:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? staffingCCallCenterSubmitValue
-            : null,
-        staffing_c_reward_value:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? staffingCRewardValueSubmitValue
-            : null,
-        staffing_c_rewards_redemption_fee_percent:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? staffingCRewardsRedemptionPercentSubmitValue
-            : null,
-        staffing_c_misc_recurring:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? (formData.staffingCMiscRecurring ? staffingCMiscRecurringSubmitValue : null)
-            : null,
-        staffing_c_misc_one_time:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? (formData.staffingCMiscOneTime ? staffingCMiscOneTimeSubmitValue : null)
-            : null,
-        staffing_c_mcv:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? staffingCMcvSubmitValue
-            : null,
-        staffing_c_acv:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? staffingCAcvSubmitValue
-            : null,
-        staffing_c_current_fycv:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
-            ? staffingCCurrentFycvSubmitValue
+            ? staffingCMonthlyRecurringFeesValue
             : null,
         
         // Mandate Checker
@@ -1655,22 +1621,12 @@ export default function Mandates() {
         staffingMiscOneTime: "",
         staffingActiveMonthsPerYear: "",
         staffingGmPercent: "",
-        staffingCurrentFycv: "",
         staffingBNumStores: "",
         staffingBCostPerStore: "",
         staffingBMcv: "",
         staffingBAcv: "",
-        staffingBCurrentFycv: "",
         staffingCOneTimeSetupFee: "",
-        staffingCRetainershipFee: "",
-        staffingCHostingMaintenance: "",
-        staffingCCallCenterManagement: "",
-        staffingCRewardValue: "",
-        staffingCRewardsRedemptionFeePercent: "",
-        staffingCMiscRecurring: "",
-        staffingCMiscOneTime: "",
-        staffingCAcv: "",
-        staffingCCurrentFycv: "",
+        staffingCMonthlyRecurringFees: "",
         mandateHealth: "",
         upsellConstraint: "",
         upsellConstraintType: "",
@@ -3002,6 +2958,7 @@ export default function Mandates() {
         ]) || editMandateData.lob || null,
         use_case: ensureEnumValue(editMandateData.useCase, [
           'Staffing',
+          'Staffing - Core',
           'Retail Branding',
           'Loyalty Programs',
           'Mystery Audit',
@@ -3346,22 +3303,12 @@ export default function Mandates() {
             staffingMiscOneTime: "",
             staffingActiveMonthsPerYear: "",
             staffingGmPercent: "",
-            staffingCurrentFycv: "",
             staffingBNumStores: "",
             staffingBCostPerStore: "",
             staffingBMcv: "",
             staffingBAcv: "",
-            staffingBCurrentFycv: "",
             staffingCOneTimeSetupFee: "",
-            staffingCRetainershipFee: "",
-            staffingCHostingMaintenance: "",
-            staffingCCallCenterManagement: "",
-            staffingCRewardValue: "",
-            staffingCRewardsRedemptionFeePercent: "",
-            staffingCMiscRecurring: "",
-            staffingCMiscOneTime: "",
-            staffingCAcv: "",
-            staffingCCurrentFycv: "",
+            staffingCMonthlyRecurringFees: "",
             mandateHealth: "",
             upsellConstraint: "",
             upsellConstraintType: "",
@@ -3881,8 +3828,8 @@ export default function Mandates() {
                           <Input id="revenueAcv" value={staffingAcvCalculated.toString()} placeholder="Auto" readOnly className="bg-muted" />
                         </div>
                         <div className="space-y-2 md:col-span-2">
-                          <Label htmlFor="staffingCurrentFycv">Current FYCV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCurrentFycv" value={staffingCurrentFycvCalculated.toString()} placeholder="Auto" readOnly className="bg-muted" />
+                          <Label htmlFor="staffingGrossMarginA">Gross Margin <span className="text-destructive">*</span></Label>
+                          <Input id="staffingGrossMarginA" value={staffingGrossMarginCalculatedA.toString()} placeholder="Auto" readOnly className="bg-muted" />
                         </div>
                       </div>
                     ) : staffingRevenueSectionType === "B" ? (
@@ -3904,71 +3851,47 @@ export default function Mandates() {
                           <Input id="staffingActiveMonthsPerYearB" type="number" min={1} max={12} value={formData.staffingActiveMonthsPerYear} onChange={(e) => handleInputChange("staffingActiveMonthsPerYear", e.target.value)} required />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="staffingBAcv">ACV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingBAcv" type="number" value={formData.staffingBAcv} onChange={(e) => handleInputChange("staffingBAcv", e.target.value)} required />
+                          <Label htmlFor="staffingBMcv">MCV <span className="text-destructive">*</span></Label>
+                          <Input id="staffingBMcv" value={staffingBMcvCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="staffingBMcv">MCV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingBMcv" type="number" value={formData.staffingBMcv} onChange={(e) => handleInputChange("staffingBMcv", e.target.value)} required />
+                          <Label htmlFor="staffingBAcv">ACV <span className="text-destructive">*</span></Label>
+                          <Input id="staffingBAcv" value={staffingBAcvCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
                         </div>
                         <div className="space-y-2 md:col-span-2">
-                          <Label htmlFor="staffingBCurrentFycv">Current FYCV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingBCurrentFycv" type="number" value={formData.staffingBCurrentFycv} onChange={(e) => handleInputChange("staffingBCurrentFycv", e.target.value)} required />
+                          <Label htmlFor="staffingGrossMarginB">Gross Margin <span className="text-destructive">*</span></Label>
+                          <Input id="staffingGrossMarginB" value={staffingGrossMarginCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
                         </div>
                       </div>
                     ) : staffingRevenueSectionType === "C" ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="staffingCOneTimeSetupFee">One-time Setup Fee <span className="text-destructive">*</span></Label>
+                          <Label htmlFor="staffingCOneTimeSetupFee">One Time Setup Fees <span className="text-destructive">*</span></Label>
                           <Input id="staffingCOneTimeSetupFee" type="number" value={formData.staffingCOneTimeSetupFee} onChange={(e) => handleInputChange("staffingCOneTimeSetupFee", e.target.value)} required />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="staffingCRetainershipFee">Retainership Fee <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCRetainershipFee" type="number" value={formData.staffingCRetainershipFee} onChange={(e) => handleInputChange("staffingCRetainershipFee", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCHostingMaintenance">Hosting & Maintenance <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCHostingMaintenance" type="number" value={formData.staffingCHostingMaintenance} onChange={(e) => handleInputChange("staffingCHostingMaintenance", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCCallCenterManagement">Call Center (Helpdesk) Management <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCCallCenterManagement" type="number" value={formData.staffingCCallCenterManagement} onChange={(e) => handleInputChange("staffingCCallCenterManagement", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCRewardValue">Reward Value <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCRewardValue" type="number" value={formData.staffingCRewardValue} onChange={(e) => handleInputChange("staffingCRewardValue", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCRewardsRedemptionFeePercent">Rewards Redemption Fee % <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCRewardsRedemptionFeePercent" type="number" value={formData.staffingCRewardsRedemptionFeePercent} onChange={(e) => handleInputChange("staffingCRewardsRedemptionFeePercent", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCMiscRecurring">Miscellaneous - Recurring</Label>
-                          <Input id="staffingCMiscRecurring" type="number" value={formData.staffingCMiscRecurring} onChange={(e) => handleInputChange("staffingCMiscRecurring", e.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCMiscOneTime">Miscellaneous - One time</Label>
-                          <Input id="staffingCMiscOneTime" type="number" value={formData.staffingCMiscOneTime} onChange={(e) => handleInputChange("staffingCMiscOneTime", e.target.value)} />
+                          <Label htmlFor="staffingCMonthlyRecurringFees">Monthly Recurring Fees <span className="text-destructive">*</span></Label>
+                          <Input id="staffingCMonthlyRecurringFees" type="number" value={formData.staffingCMonthlyRecurringFees} onChange={(e) => handleInputChange("staffingCMonthlyRecurringFees", e.target.value)} required />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="staffingActiveMonthsPerYearC">Active Months per year (1-12) <span className="text-destructive">*</span></Label>
                           <Input id="staffingActiveMonthsPerYearC" type="number" min={1} max={12} value={formData.staffingActiveMonthsPerYear} onChange={(e) => handleInputChange("staffingActiveMonthsPerYear", e.target.value)} required />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="staffingCMcvDisplay">MCV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCMcvDisplay" value={staffingCMcvCalculated.toString()} readOnly className="bg-muted" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCAcv">ACV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCAcv" type="number" value={formData.staffingCAcv} onChange={(e) => handleInputChange("staffingCAcv", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCCurrentFycv">Current FYCV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCCurrentFycv" type="number" value={formData.staffingCCurrentFycv} onChange={(e) => handleInputChange("staffingCCurrentFycv", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
                           <Label htmlFor="staffingGmPercentC">GM% <span className="text-destructive">*</span></Label>
                           <Input id="staffingGmPercentC" type="number" value={formData.staffingGmPercent} onChange={(e) => handleInputChange("staffingGmPercent", e.target.value)} required />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="staffingCMcvDisplay">MCV <span className="text-destructive">*</span></Label>
+                          <Input id="staffingCMcvDisplay" value={staffingCMcvCalculated.toString()} readOnly placeholder="Auto" className="bg-muted" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="staffingCAcvDisplay">ACV <span className="text-destructive">*</span></Label>
+                          <Input id="staffingCAcvDisplay" value={staffingCAcvCalculatedC.toString()} readOnly placeholder="Auto" className="bg-muted" />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor="staffingGrossMarginC">Gross Margin <span className="text-destructive">*</span></Label>
+                          <Input id="staffingGrossMarginC" value={staffingGrossMarginCalculatedC.toString()} readOnly placeholder="Auto" className="bg-muted" />
                         </div>
                       </div>
                     ) : (

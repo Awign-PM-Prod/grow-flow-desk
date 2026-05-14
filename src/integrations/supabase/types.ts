@@ -222,22 +222,12 @@ export type Database = {
           staffing_active_months_per_year: number | null
           staffing_b_acv: number | null
           staffing_b_cost_per_store: number | null
-          staffing_b_current_fycv: number | null
           staffing_b_mcv: number | null
           staffing_b_num_stores: number | null
-          staffing_c_acv: number | null
-          staffing_c_call_center_management: number | null
-          staffing_c_current_fycv: number | null
-          staffing_c_hosting_maintenance: number | null
-          staffing_c_misc_one_time: number | null
-          staffing_c_misc_recurring: number | null
-          staffing_c_mcv: number | null
+          staffing_c_monthly_recurring_fees: number | null
           staffing_c_one_time_setup_fee: number | null
-          staffing_c_retainership_fee: number | null
-          staffing_c_reward_value: number | null
-          staffing_c_rewards_redemption_fee_percent: number | null
-          staffing_current_fycv: number | null
           staffing_gm_percent: number | null
+          staffing_gross_margin: number | null
           staffing_headcount: number | null
           staffing_misc_one_time: number | null
           staffing_misc_recurring: number | null
@@ -302,22 +292,12 @@ export type Database = {
           staffing_active_months_per_year?: number | null
           staffing_b_acv?: number | null
           staffing_b_cost_per_store?: number | null
-          staffing_b_current_fycv?: number | null
           staffing_b_mcv?: number | null
           staffing_b_num_stores?: number | null
-          staffing_c_acv?: number | null
-          staffing_c_call_center_management?: number | null
-          staffing_c_current_fycv?: number | null
-          staffing_c_hosting_maintenance?: number | null
-          staffing_c_misc_one_time?: number | null
-          staffing_c_misc_recurring?: number | null
-          staffing_c_mcv?: number | null
+          staffing_c_monthly_recurring_fees?: number | null
           staffing_c_one_time_setup_fee?: number | null
-          staffing_c_retainership_fee?: number | null
-          staffing_c_reward_value?: number | null
-          staffing_c_rewards_redemption_fee_percent?: number | null
-          staffing_current_fycv?: number | null
           staffing_gm_percent?: number | null
+          staffing_gross_margin?: number | null
           staffing_headcount?: number | null
           staffing_misc_one_time?: number | null
           staffing_misc_recurring?: number | null
@@ -382,22 +362,12 @@ export type Database = {
           staffing_active_months_per_year?: number | null
           staffing_b_acv?: number | null
           staffing_b_cost_per_store?: number | null
-          staffing_b_current_fycv?: number | null
           staffing_b_mcv?: number | null
           staffing_b_num_stores?: number | null
-          staffing_c_acv?: number | null
-          staffing_c_call_center_management?: number | null
-          staffing_c_current_fycv?: number | null
-          staffing_c_hosting_maintenance?: number | null
-          staffing_c_misc_one_time?: number | null
-          staffing_c_misc_recurring?: number | null
-          staffing_c_mcv?: number | null
+          staffing_c_monthly_recurring_fees?: number | null
           staffing_c_one_time_setup_fee?: number | null
-          staffing_c_retainership_fee?: number | null
-          staffing_c_reward_value?: number | null
-          staffing_c_rewards_redemption_fee_percent?: number | null
-          staffing_current_fycv?: number | null
           staffing_gm_percent?: number | null
+          staffing_gross_margin?: number | null
           staffing_headcount?: number | null
           staffing_misc_one_time?: number | null
           staffing_misc_recurring?: number | null

@@ -77,6 +77,29 @@ const getAchievedMcv = (monthRecord: any): number => {
   return 0;
 };
 
+/** Compact rupee labels for horizontal chart value axes */
+function formatAxisCurrencyTick(value: number): string {
+  if (value >= 10_000_000) return `₹${(value / 10_000_000).toFixed(1)}Cr`;
+  if (value >= 100_000) return `₹${(value / 100_000).toFixed(1)}L`;
+  return `₹${formatNumber(value)}`;
+}
+
+/** Height for horizontal bar charts from category count */
+function horizontalBarChartHeight(
+  rowCount: number,
+  opts?: { min?: number; max?: number; perRow?: number }
+): number {
+  const { min = 360, max = 720, perRow = 56 } = opts ?? {};
+  return Math.min(max, Math.max(min, Math.max(1, rowCount) * perRow));
+}
+
+function formatCurrencyLabel(value: number): string {
+  if (value === 0) return "0";
+  if (value >= 10_000_000) return `₹${(value / 10_000_000).toFixed(2)}Cr`;
+  if (value >= 100_000) return `₹${(value / 100_000).toFixed(1)}L`;
+  return `₹${formatNumber(value)}`;
+}
+
 /** Single-month target from manager_targets for the mandate-type filter (org-level buckets). */
 const managerTargetValueForMandateFilter = (
   existing: number,
@@ -175,6 +198,12 @@ export default function Dashboard() {
     targetMpv: number;
     achievedMpv: number;
   }>>([]);
+  const [mandatesPerLobChart, setMandatesPerLobChart] = useState<
+    Array<{ lob: string; count: number }>
+  >([]);
+  const [maxMcvPerLobChart, setMaxMcvPerLobChart] = useState<
+    Array<{ lob: string; sumMaxMcv: number }>
+  >([]);
   // Filter states
   /** "all" = full FY; otherwise month key e.g. "2025-04" from getFinancialYearMonths */
   const [filterDashboardMonth, setFilterDashboardMonth] = useState<string>("all");
@@ -968,7 +997,7 @@ export default function Dashboard() {
       let mandatesCardQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("id, created_at, lifecycle_status_log")
+          .select("id, lob, created_at, lifecycle_status_log")
           .lte("created_at", mandatesCardAsOf.toISOString())
       );
       mandatesCardQuery = applyStatusFilter(
@@ -998,6 +1027,49 @@ export default function Dashboard() {
           mandatesCardAsOf
         )
       ).length;
+
+      const mandatesPerLobCounts: Record<string, number> = {};
+      lobOptions.forEach((l) => {
+        mandatesPerLobCounts[l] = 0;
+      });
+      rows.forEach((m: any) => {
+        if (
+          !isMandateActiveAsOf(
+            m.created_at,
+            m.lifecycle_status_log,
+            mandatesCardAsOf
+          )
+        ) {
+          return;
+        }
+        const raw = (m.lob && String(m.lob).trim()) || "";
+        const key = raw && lobOptions.includes(raw) ? raw : "Others";
+        mandatesPerLobCounts[key] = (mandatesPerLobCounts[key] ?? 0) + 1;
+      });
+      const mandatesPerLobFormatted = lobOptions
+        .map((lob) => ({
+          lob,
+          count: mandatesPerLobCounts[lob] ?? 0,
+        }))
+        .filter(
+          (row) =>
+            selectedLobs.length === 0 || selectedLobs.includes(row.lob)
+        );
+      setMandatesPerLobChart(
+        totalCount === 0 ? [] : mandatesPerLobFormatted
+      );
+
+      /** Mandates active as-of card date (same numerator as Active Mandates card). */
+      const activeMandateIdsFromCard = rows
+        .filter((m: any) =>
+          isMandateActiveAsOf(
+            m.created_at,
+            m.lifecycle_status_log,
+            mandatesCardAsOf
+          )
+        )
+        .map((m: any) => m.id)
+        .filter(Boolean) as string[];
 
       // Fetch mandates created this month
       let monthCountQuery = applyTeamFilter(
@@ -1198,18 +1270,31 @@ export default function Dashboard() {
         new Set((allMandates || []).map((m: any) => m.account_id).filter(Boolean))
       );
 
-      // Fetch LoB Sales Performance data from mandates monthly records
-      // Respect the mandate type filter from the top
-      let lobMandatesQuery = applyTeamFilter(
-        supabase
-          .from("mandates")
-          .select("id, lob, monthly_data, type, kam_id, account_id")
-          .eq("lifecycle_status", "Active")
-      );
-      lobMandatesQuery = applyStatusFilter(lobMandatesQuery, filterUpsellStatus, filterType);
-      lobMandatesQuery = applyKamFilter(lobMandatesQuery, filterKam, filterNso, filterType);
-      lobMandatesQuery = applyLobFilter(lobMandatesQuery);
-      const { data: lobMandatesData, error: lobMandatesError } = await lobMandatesQuery;
+      // Fetch LoB Sales / Max MCV only for mandates counted as active on the mandates card (as-of filters).
+      let lobMandatesData: any[] = [];
+      let lobMandatesError: any = null;
+      if (activeMandateIdsFromCard.length > 0) {
+        const ID_CHUNK = 120;
+        const merged: any[] = [];
+        for (let i = 0; i < activeMandateIdsFromCard.length; i += ID_CHUNK) {
+          const idChunk = activeMandateIdsFromCard.slice(i, i + ID_CHUNK);
+          let lobChunkQuery = applyTeamFilter(
+            supabase
+              .from("mandates")
+              .select("id, lob, monthly_data, type, kam_id, account_id")
+              .in("id", idChunk)
+          );
+          const { data: chunkData, error: chunkError } = await lobChunkQuery;
+          if (chunkError) {
+            lobMandatesError = chunkError;
+            break;
+          }
+          merged.push(...(chunkData || []));
+        }
+        lobMandatesData = merged;
+      }
+
+      if (lobMandatesError) throw lobMandatesError;
 
       // Get mandate IDs for fetching targets
       const mandateIds = lobMandatesData?.map((m: any) => m.id).filter(Boolean) || [];
@@ -1410,7 +1495,53 @@ export default function Dashboard() {
       // Debug: Log the calculated data to verify values
       console.log("LoB Sales Performance - Calculated Values:", formattedLobData);
 
-      setLobSalesPerformance(formattedLobData);
+      setLobSalesPerformance(totalCount === 0 ? [] : formattedLobData);
+
+      const maxMcvByLob: Record<string, number> = {};
+      lobOptions.forEach((l) => {
+        maxMcvByLob[l] = 0;
+      });
+      if (!lobMandatesError && lobMandatesData && lobMandatesData.length > 0) {
+        lobMandatesData.forEach((mandate: any) => {
+          const lobRaw = (mandate.lob && String(mandate.lob).trim()) || "";
+          const lobKey =
+            lobRaw && lobOptions.includes(lobRaw) ? lobRaw : "Others";
+          const monthlyData = mandate.monthly_data;
+          if (
+            !monthlyData ||
+            typeof monthlyData !== "object" ||
+            Array.isArray(monthlyData)
+          ) {
+            return;
+          }
+          let maxAchievedForMandate = 0;
+          Object.entries(monthlyData).forEach(([monthYear, record]) => {
+            const parts = monthYear.split("-");
+            if (parts.length < 2) return;
+            const y = parseInt(parts[0], 10);
+            const mo = parseInt(parts[1], 10);
+            if (Number.isNaN(y) || Number.isNaN(mo)) return;
+            const monthDate = new Date(y, mo - 1, 1);
+            if (!includeInDashboardPeriod(monthDate, monthYear)) return;
+            const achievedValue = getAchievedMcv(record);
+            if (achievedValue > maxAchievedForMandate) {
+              maxAchievedForMandate = achievedValue;
+            }
+          });
+          maxMcvByLob[lobKey] =
+            (maxMcvByLob[lobKey] ?? 0) + maxAchievedForMandate;
+        });
+      }
+      const maxMcvPerLobFormatted = lobOptions
+        .map((lob) => ({
+          lob,
+          sumMaxMcv: maxMcvByLob[lob] ?? 0,
+        }))
+        .filter(
+          (row) =>
+            selectedLobs.length === 0 || selectedLobs.includes(row.lob)
+        );
+      setMaxMcvPerLobChart(totalCount === 0 ? [] : maxMcvPerLobFormatted);
 
       // Fetch KAM Sales Performance data from mandates monthly records
       // Respect the mandate type filter from the top
@@ -3282,15 +3413,19 @@ export default function Dashboard() {
   const ActualVsTargetBarTooltip = ({
     active,
     payload,
+    targetField = "target",
+    achievedField = "achieved",
   }: {
     active?: boolean;
-    payload?: Array<{ payload?: { target?: number; achieved?: number } }>;
+    payload?: Array<{ payload?: Record<string, unknown> }>;
+    targetField?: string;
+    achievedField?: string;
   }) => {
     if (!active || !payload?.length) return null;
     const row = payload[0]?.payload;
     if (!row) return null;
-    const target = Number(row.target) || 0;
-    const achieved = Number(row.achieved) || 0;
+    const target = Number(row[targetField]) || 0;
+    const achieved = Number(row[achievedField]) || 0;
     return (
       <div className="rounded-md border border-border bg-popover px-3 py-2 text-sm shadow-md">
         <div className="leading-relaxed">
@@ -3302,6 +3437,34 @@ export default function Dashboard() {
           <span className="font-semibold text-slate-900">Target</span>
           <span className="text-muted-foreground"> : </span>
           <span className="font-medium tabular-nums text-foreground">{formatTooltipValue(target)}</span>
+        </div>
+      </div>
+    );
+  };
+
+  /** Same popover + Indian number formatting as Actual vs Target, for a single metric. */
+  const DashboardSingleMetricTooltip = ({
+    active,
+    payload,
+    valueKey,
+    label,
+  }: {
+    active?: boolean;
+    payload?: Array<{ payload?: Record<string, unknown>; value?: unknown }>;
+    valueKey: string;
+    label: string;
+  }) => {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload;
+    const raw =
+      row && valueKey in row ? row[valueKey] : (payload[0] as { value?: unknown }).value;
+    const num = Number(raw) || 0;
+    return (
+      <div className="rounded-md border border-border bg-popover px-3 py-2 text-sm shadow-md">
+        <div className="leading-relaxed">
+          <span className="font-semibold text-[#1d4ed8]">{label}</span>
+          <span className="text-muted-foreground"> : </span>
+          <span className="font-medium tabular-nums text-foreground">{formatTooltipValue(num)}</span>
         </div>
       </div>
     );
@@ -4274,8 +4437,8 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* LoB Sales Performance Comparison and Annual Sales Target - Side by Side */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* LoB + KAM performance charts (2×2) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* LoB Existing Sales Performance Comparison */}
         <Card>
           <CardHeader>
@@ -4283,111 +4446,298 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="flex items-center justify-center h-[300px]">
+              <div className="flex items-center justify-center min-h-[400px] h-[420px]">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : lobSalesPerformance.length === 0 ? (
-              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+              <div className="flex items-center justify-center min-h-[400px] h-[420px] text-muted-foreground">
                 No data available
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={300}>
-              <BarChart 
-                data={lobSalesPerformance}
-                margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
-                barCategoryGap="20%"
-                barGap={0}
+              <ResponsiveContainer
+                width="100%"
+                height={horizontalBarChartHeight(lobSalesPerformance.length, {
+                  min: 400,
+                  max: 820,
+                  perRow: 58,
+                })}
               >
-                <XAxis 
-                  dataKey="lob" 
-                  angle={-45}
-                  textAnchor="end"
-                  height={60}
+              <BarChart
+                layout="vertical"
+                data={lobSalesPerformance}
+                margin={{ top: 40, right: 72, left: 6, bottom: 12 }}
+                barCategoryGap="16%"
+                barGap={8}
+              >
+                <XAxis
+                  type="number"
+                  tickFormatter={(v) => formatAxisCurrencyTick(Number(v))}
+                  tick={{ fontSize: 11 }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="lob"
+                  width={176}
                   interval={0}
                   tick={{ fontSize: 11 }}
                 />
-                <YAxis hide />
-                <Tooltip 
-                  formatter={(value: number, name: string) => {
-                    const formattedValue = value >= 10000000
-                        ? `₹${(value / 10000000).toFixed(2)}Cr`
-                        : value >= 100000
-                        ? `₹${(value / 100000).toFixed(1)}L`
-                        : `₹${formatNumber(value)}`;
-                    return formattedValue;
-                  }}
-                  content={({ active, payload }: any) => {
-                    if (active && payload && payload.length) {
-                      return (
-                        <div className="bg-white p-3 border border-gray-200 rounded shadow-lg">
-                          {payload.map((entry: any, index: number) => {
-                            // Show both Target and Achieved values
-                            if (entry.name === "Target" || entry.name === "Achieved") {
-                              const color = entry.name === "Target" ? "#E0E0E0" : "#4169E1";
-                              return (
-                                <p key={index} style={{ color }}>
-                                  {entry.name}: {entry.value >= 10000000
-                                    ? `₹${(entry.value / 10000000).toFixed(2)}Cr`
-                                    : entry.value >= 100000
-                                    ? `₹${(entry.value / 100000).toFixed(1)}L`
-                                    : `₹${formatNumber(entry.value)}`}
-                                </p>
-                              );
-                            }
-                            return null;
-                          })}
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
+                <Tooltip
+                  content={(props) => (
+                    <ActualVsTargetBarTooltip
+                      {...props}
+                      targetField="targetMpv"
+                      achievedField="achievedMpv"
+                    />
+                  )}
                   cursor={false}
                 />
-                <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }} />
+                <Legend align="right" verticalAlign="top" wrapperStyle={{ fontSize: '12px', paddingBottom: '12px' }} />
                 {/* Target bar (grey) */}
                 <Bar 
                   dataKey="targetMpv" 
                   fill="#E0E0E0" 
                   name="Target" 
-                  barSize={30}
-                  radius={[4, 4, 0, 0]}
+                  barSize={22}
+                  radius={[0, 4, 4, 0]}
                   activeBar={false}
                   isAnimationActive={false}
-                />
+                >
+                  <LabelList
+                    dataKey="targetMpv"
+                    position="right"
+                    formatter={(v: number) => formatCurrencyLabel(v)}
+                    style={{
+                      fill: "hsl(var(--foreground))",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  />
+                </Bar>
                 {/* Achieved bar (blue) */}
                 <Bar 
                   dataKey="achievedMpv" 
                   fill="#4169E1" 
                   name="Achieved" 
-                  barSize={30}
-                  radius={[4, 4, 0, 0]}
+                  barSize={22}
+                  radius={[0, 4, 4, 0]}
                   activeBar={false}
                   isAnimationActive={false}
-                />
+                >
+                  <LabelList
+                    dataKey="achievedMpv"
+                    position="right"
+                    formatter={(v: number) => formatCurrencyLabel(v)}
+                    style={{
+                      fill: "hsl(var(--foreground))",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
         </CardContent>
         </Card>
 
-        {/* Annual Sales Target - Individual */}
         <Card>
-        <CardHeader>
-          <CardTitle>{formatFYForDisplay(filterFinancialYear)} Annual Sales Target - Individual</CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">Compare target vs achieved sales for individual staff members.</p>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center h-[400px]">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : kamSalesPerformance.length === 0 ? (
-            <div className="flex items-center justify-center h-[400px] text-muted-foreground">
-              No data available
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
+          <CardHeader>
+            <CardTitle>Mandates Per LoB</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Active mandates as of end of {dashboardPeriodLabels.targetMcvFooter}, matching the
+              Active Mandates card filters.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center min-h-[400px] h-[420px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : mandatesPerLobChart.length === 0 ? (
+              <div className="flex items-center justify-center min-h-[400px] h-[420px] text-muted-foreground">
+                No data available
+              </div>
+            ) : (
+              <ResponsiveContainer
+                width="100%"
+                height={horizontalBarChartHeight(mandatesPerLobChart.length, {
+                  min: 400,
+                  max: 820,
+                  perRow: 58,
+                })}
+              >
+                <BarChart
+                  layout="vertical"
+                  data={mandatesPerLobChart}
+                  margin={{ top: 12, right: 48, left: 6, bottom: 12 }}
+                  barCategoryGap="16%"
+                >
+                  <XAxis
+                    type="number"
+                    allowDecimals={false}
+                    tickFormatter={(v) => formatNumber(Number(v))}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="lob"
+                    width={176}
+                    interval={0}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <Tooltip
+                    content={(props) => (
+                      <DashboardSingleMetricTooltip
+                        {...props}
+                        valueKey="count"
+                        label="Active mandates"
+                      />
+                    )}
+                    cursor={false}
+                  />
+                  <Bar
+                    dataKey="count"
+                    name="Active mandates"
+                    fill="#4169E1"
+                    barSize={26}
+                    radius={[0, 4, 4, 0]}
+                    activeBar={false}
+                    isAnimationActive={false}
+                  >
+                    <LabelList
+                      dataKey="count"
+                      position="right"
+                      formatter={(v: number) => formatNumber(Number(v))}
+                      style={{
+                        fill: "hsl(var(--foreground))",
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Max MCV Per LoB</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              {dashboardPeriodLabels.isScoped ? (
+                <>
+                  Sum of achieved MCV for each active mandate in{" "}
+                  <span className="font-medium text-foreground">
+                    {dashboardPeriodLabels.targetMcvMonthFooter}
+                  </span>
+                  .
+                </>
+              ) : (
+                <>
+                  Sum of each active mandate&apos;s highest monthly achieved MCV within{" "}
+                  {formatFYForDisplay(filterFinancialYear)}.
+                </>
+              )}
+            </p>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center min-h-[400px] h-[420px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : maxMcvPerLobChart.length === 0 ? (
+              <div className="flex items-center justify-center min-h-[400px] h-[420px] text-muted-foreground">
+                No data available
+              </div>
+            ) : (
+              <ResponsiveContainer
+                width="100%"
+                height={horizontalBarChartHeight(maxMcvPerLobChart.length, {
+                  min: 400,
+                  max: 820,
+                  perRow: 58,
+                })}
+              >
+                <BarChart
+                  layout="vertical"
+                  data={maxMcvPerLobChart}
+                  margin={{ top: 12, right: 72, left: 6, bottom: 12 }}
+                  barCategoryGap="16%"
+                >
+                  <XAxis
+                    type="number"
+                    tickFormatter={(v) => formatAxisCurrencyTick(Number(v))}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="lob"
+                    width={176}
+                    interval={0}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <Tooltip
+                    content={(props) => (
+                      <DashboardSingleMetricTooltip
+                        {...props}
+                        valueKey="sumMaxMcv"
+                        label="Sum of max achieved MCV"
+                      />
+                    )}
+                    cursor={false}
+                  />
+                  <Bar
+                    dataKey="sumMaxMcv"
+                    name="Sum of max achieved MCV"
+                    fill="#4169E1"
+                    barSize={26}
+                    radius={[0, 4, 4, 0]}
+                    activeBar={false}
+                    isAnimationActive={false}
+                  >
+                    <LabelList
+                      dataKey="sumMaxMcv"
+                      position="right"
+                      formatter={(v: number) => formatCurrencyLabel(Number(v))}
+                      style={{
+                        fill: "hsl(var(--foreground))",
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{formatFYForDisplay(filterFinancialYear)} Annual Sales Target - Individual</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">Compare target vs achieved sales for individual staff members.</p>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center min-h-[400px] h-[420px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : kamSalesPerformance.length === 0 ? (
+              <div className="flex items-center justify-center min-h-[400px] h-[420px] text-muted-foreground">
+                No data available
+              </div>
+            ) : (
+            <ResponsiveContainer
+              width="100%"
+              height={horizontalBarChartHeight(kamSalesPerformance.length, {
+                min: 440,
+                max: 920,
+                perRow: 50,
+              })}
+            >
               <BarChart
+                layout="vertical"
                 data={kamSalesPerformance.map((item) => {
                   const isAchievedGreater = item.achievedMpv > item.targetMpv;
                   const smallerValue = isAchievedGreater ? item.targetMpv : item.achievedMpv;
@@ -4404,69 +4754,47 @@ export default function Dashboard() {
                     overlayName: isAchievedGreater ? "Achieved" : "Target",
                   };
                 })}
-                margin={{ top: 10, right: 20, left: 10, bottom: 60 }}
-                barCategoryGap="20%"
+                margin={{ top: 40, right: 16, left: 6, bottom: 12 }}
+                barCategoryGap="14%"
                 barGap={0}
               >
-                <XAxis 
-                  dataKey="kamName" 
-                  angle={-45}
-                  textAnchor="end"
-                  height={60}
+                <XAxis
+                  type="number"
+                  tickFormatter={(v) => formatAxisCurrencyTick(Number(v))}
+                  tick={{ fontSize: 11 }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="kamName"
+                  width={168}
                   interval={0}
                   tick={{ fontSize: 11 }}
                 />
-                <YAxis hide />
-                <Tooltip 
-                  formatter={(value: any, name: string, props: any) => {
-                    const payload = props.payload;
-                    // Convert Base/Overlay to Target/Achieved based on the data
-                    let displayName = name;
-                    let originalValue = 0;
-                    
-                    if (name === 'Base' || name === 'Overlay') {
-                      // Determine which field this represents based on the data
-                      const isAchievedGreater = payload.achievedMpv > payload.targetMpv;
-                      if (name === 'Base') {
-                        displayName = isAchievedGreater ? 'Target' : 'Achieved';
-                        originalValue = isAchievedGreater ? payload.targetMpv : payload.achievedMpv;
-                      } else { // Overlay
-                        displayName = isAchievedGreater ? 'Achieved' : 'Target';
-                        originalValue = isAchievedGreater ? payload.achievedMpv : payload.targetMpv;
-                      }
-                    } else if (name === 'Target' || name === 'Achieved') {
-                      originalValue = name === 'Target' ? payload.targetMpv : payload.achievedMpv;
-                    } else {
-                      // Fallback
-                      originalValue = typeof value === 'number' ? value : parseFloat(value) || 0;
-                    }
-                    
-                    // Format the value
-                    if (originalValue >= 10000000) {
-                      return [`₹${(originalValue / 10000000).toFixed(2)}Cr`, displayName];
-                    } else if (originalValue >= 100000) {
-                      return [`₹${(originalValue / 100000).toFixed(1)}L`, displayName];
-                    } else {
-                      return [`₹${formatNumber(originalValue)}`, displayName];
-                    }
-                  }}
+                <Tooltip
+                  content={(props) => (
+                    <ActualVsTargetBarTooltip
+                      {...props}
+                      targetField="targetMpv"
+                      achievedField="achievedMpv"
+                    />
+                  )}
                   cursor={false}
                 />
                 <Legend 
                   align="right" 
                   verticalAlign="top" 
-                  wrapperStyle={{ fontSize: '11px', paddingBottom: '10px' }}
+                  wrapperStyle={{ fontSize: '12px', paddingBottom: '12px' }}
                   content={({ payload }) => {
                     if (!payload || payload.length === 0) return null;
                     return (
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', paddingBottom: '10px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <div style={{ width: '12px', height: '12px', backgroundColor: '#4169E1', borderRadius: '2px' }}></div>
-                          <span style={{ fontSize: '11px' }}>Achieved</span>
+                          <span style={{ fontSize: '12px' }}>Achieved</span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <div style={{ width: '12px', height: '12px', backgroundColor: '#E0E0E0', borderRadius: '2px' }}></div>
-                          <span style={{ fontSize: '11px' }}>Target</span>
+                          <span style={{ fontSize: '12px' }}>Target</span>
                         </div>
                       </div>
                     );
@@ -4477,8 +4805,8 @@ export default function Dashboard() {
                   dataKey="base" 
                   name="Base"
                   stackId="kam"
-                  barSize={30}
-                  radius={[4, 4, 0, 0]}
+                  barSize={28}
+                  radius={[0, 0, 0, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 >
@@ -4493,8 +4821,8 @@ export default function Dashboard() {
                   dataKey="overlay" 
                   name="Overlay"
                   stackId="kam"
-                  barSize={30}
-                  radius={[4, 4, 0, 0]}
+                  barSize={28}
+                  radius={[0, 4, 4, 0]}
                   activeBar={false}
                   isAnimationActive={false}
                 >
@@ -4506,8 +4834,8 @@ export default function Dashboard() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          )}
-        </CardContent>
+            )}
+          </CardContent>
         </Card>
       </div>
 
