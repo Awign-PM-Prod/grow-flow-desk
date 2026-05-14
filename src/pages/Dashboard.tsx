@@ -3891,12 +3891,20 @@ export default function Dashboard() {
               <>
                 <p className="text-base font-bold mb-2">MCV Achieved</p>
                 <div className="text-3xl font-bold">{formatCurrency(ffmAchieved)}</div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {dashboardPeriodLabels.targetMcvMonthFooter}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {`${formatFYForDisplay(filterFinancialYear)} (${ffmAchievedFyPercentage.toFixed(1)}% of Target MCV)`}
-                </p>
+                {dashboardPeriodLabels.isScoped ? (
+                  <>
+                    <p className="text-xs font-medium text-foreground mt-2">
+                      {dashboardPeriodLabels.targetMcvMonthFooter}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {`${formatFYForDisplay(filterFinancialYear)} (${ffmAchievedFyPercentage.toFixed(1)}% of Target MCV)`}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {`${formatFYForDisplay(filterFinancialYear)} (${ffmAchievedFyPercentage.toFixed(1)}% of Target MCV)`}
+                  </p>
+                )}
               </>
             )}
           </CardContent>
