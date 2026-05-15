@@ -93,8 +93,11 @@ export function MonthlyTargetsTab({
   mode: "existing" | "new_cross_sell";
 }) {
   const { filterFinancialYear, selectedTeam } = useOutletContext<TargetsOutletContext>();
-  const { hasRole, loading, userRoles, user, canMutatePortal, isSuperAdmin, team: userTeam } = useAuth();
+  const { hasRole, loading, userRoles, user, fullName, canMutatePortal, isSuperAdmin, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
+  /** KAM role without manager/superadmin — scoped to own targets only. */
+  const isKamOnly =
+    hasRole("kam") && !hasRole("manager") && !hasRole("superadmin");
   const { toast } = useToast();
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -202,7 +205,7 @@ export function MonthlyTargetsTab({
       // If user is a KAM, filter by their KAM ID
       let mandatesQuery = applyMandateTeamFilter(supabase
         .from("mandates")
-        .select("id, project_code, project_name, kam_id, type, new_sales_owner, lifecycle_status"));
+        .select("id, project_code, project_name, kam_id, account_id, type, new_sales_owner, lifecycle_status"));
       
       if (currentIsKAM && currentUser?.id) {
         mandatesQuery = mandatesQuery.eq("kam_id", currentUser.id);
@@ -348,6 +351,16 @@ export function MonthlyTargetsTab({
         }
       }
 
+      // Include KAM names from mandates for pipeline grid rows
+      (allMandatesData || []).forEach((mandate: any) => {
+        if (mandate.kam_id && mandateKamMap[mandate.kam_id]) {
+          kamMap[mandate.kam_id] = mandateKamMap[mandate.kam_id];
+        }
+      });
+      allAccountsData.forEach((account: any) => {
+        accountMap[account.id] = account.name || "Unknown";
+      });
+
       // Add account, mandate, and KAM names to targets (for form editing)
       const targetsWithNames = (data || []).map((target: any) => ({
         ...target,
@@ -374,31 +387,40 @@ export function MonthlyTargetsTab({
 
       // Get KAM's mandate IDs and account IDs for filtering
       const kamMandateIds = currentIsKAM && currentUser?.id ? new Set((allMandatesData || []).map((m: any) => m.id)) : null;
-      const kamAccountIds = currentIsKAM && currentUser?.id ? new Set((allAccountsData || []).map((a: any) => a.id)) : null;
 
-      // Filter targets if user is a KAM
-      let filteredTargets = data || [];
-      filteredTargets = filteredTargets.filter((target: any) => {
+      const teamScopedView =
+        Boolean(effectiveTeam) && !(isSuperAdmin && selectedTeam === "all");
+
+      // Scope table rows: KAM sees own pipeline targets; team filter applies to managers/admins
+      let filteredTargets = (data || []).filter((target: any) => {
         if (target.target_type === "existing" && target.mandate_id) {
+          if (currentIsKAM && currentUser?.id) {
+            return kamMandateIds?.has(target.mandate_id) || false;
+          }
           return teamMandateIds.has(target.mandate_id);
         }
         if (target.target_type === "new_cross_sell" && target.kam_id && target.account_id) {
-          return teamKamAccountRelations.has(`${target.kam_id}_${target.account_id}`);
+          if (currentIsKAM && currentUser?.id) {
+            return target.kam_id === currentUser.id;
+          }
+          if (teamScopedView) {
+            return teamKamAccountRelations.has(
+              `${target.kam_id}_${target.account_id}`
+            );
+          }
+          return true;
         }
         return false;
       });
-      if (currentIsKAM && currentUser?.id) {
-        filteredTargets = filteredTargets.filter((target: any) => {
-          // For existing targets: only include if mandate belongs to KAM
-          if (target.target_type === "existing" && target.mandate_id) {
-            return kamMandateIds?.has(target.mandate_id) || false;
+
+      // Seed pipeline rows from mandate KAM–account links (not only existing targets)
+      if (mode === "new_cross_sell") {
+        (allMandatesData || []).forEach((mandate: any) => {
+          if (!mandate.kam_id || !mandate.account_id) return;
+          if (currentIsKAM && currentUser?.id && mandate.kam_id !== currentUser.id) {
+            return;
           }
-          // For cross-sell targets: only include if KAM matches and account is linked to KAM
-          else if (target.target_type === "new_cross_sell" && target.account_id && target.kam_id) {
-            return target.kam_id === currentUser.id && (kamAccountIds?.has(target.account_id) || false);
-          }
-          // Skip targets that don't match KAM's mandates/accounts
-          return false;
+          kamAccountComboSet.add(`${mandate.kam_id}_${mandate.account_id}`);
         });
       }
 
@@ -426,10 +448,13 @@ export function MonthlyTargetsTab({
       // Build list of unique KAM-account combinations with names
       const kamAccountCombos: Array<{ kamId: string; kamName: string; accountId: string; accountName: string }> = [];
       kamAccountComboSet.forEach((compositeKey) => {
-        const [kamId, accountId] = compositeKey.split('_');
+        const sep = compositeKey.indexOf("_");
+        if (sep === -1) return;
+        const kamId = compositeKey.slice(0, sep);
+        const accountId = compositeKey.slice(sep + 1);
         kamAccountCombos.push({
           kamId,
-          kamName: kamMap[kamId] || "Unknown KAM",
+          kamName: kamMap[kamId] || mandateKamMap[kamId] || "Unknown KAM",
           accountId,
           accountName: accountMap[accountId] || "Unknown Account",
         });
@@ -595,13 +620,16 @@ export function MonthlyTargetsTab({
   useEffect(() => {
     if (!loading && userRoles.length > 0 && user !== undefined) {
       fetchMonthlyTargets();
-      if (!isKAM) {
-        fetchKams();
-      }
-      if (isKAM && user?.id) {
+      if (isKamOnly && user?.id) {
+        setKams([{ id: user.id, full_name: fullName || "You" }]);
         fetchAccountsByKam(user.id);
       } else {
-        fetchAccounts();
+        fetchKams();
+        if (isKAM && user?.id) {
+          fetchAccountsByKam(user.id);
+        } else {
+          fetchAccounts();
+        }
       }
       fetchMandates();
     }
@@ -783,9 +811,18 @@ export function MonthlyTargetsTab({
 
   useEffect(() => {
     if (formDialogOpen) {
-      setFormData((prev) => ({ ...prev, targetType: mode }));
+      setFormData((prev) => ({
+        ...prev,
+        targetType: mode,
+        ...(isKamOnly && user?.id && mode === "new_cross_sell"
+          ? { kamId: user.id }
+          : {}),
+      }));
+      if (isKamOnly && user?.id && mode === "new_cross_sell") {
+        fetchAccountsByKam(user.id);
+      }
     }
-  }, [formDialogOpen, mode]);
+  }, [formDialogOpen, mode, isKamOnly, user?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -804,7 +841,7 @@ export function MonthlyTargetsTab({
       }
 
       if (mode === "new_cross_sell") {
-        if (!formData.kamId) {
+        if (!isKamOnly && !formData.kamId) {
           toast({
             title: "Validation Error",
             description: "Please select a KAM for new cross sell target.",
@@ -867,9 +904,13 @@ export function MonthlyTargetsTab({
 
         if (mode === "existing" && formData.mandateId) {
           checkQuery = checkQuery.eq("mandate_id", formData.mandateId).not("mandate_id", "is", null);
-        } else if (mode === "new_cross_sell" && formData.kamId && formData.accountId) {
+        } else if (
+          mode === "new_cross_sell" &&
+          (formData.kamId || (isKamOnly && user?.id)) &&
+          formData.accountId
+        ) {
           checkQuery = checkQuery
-            .eq("kam_id", formData.kamId)
+            .eq("kam_id", isKamOnly && user?.id ? user.id : formData.kamId)
             .eq("account_id", formData.accountId)
             .not("kam_id", "is", null)
             .not("account_id", "is", null);
@@ -908,7 +949,7 @@ export function MonthlyTargetsTab({
       if (mode === "new_cross_sell") {
         targetData.account_id = formData.accountId;
         targetData.mandate_id = null;
-        targetData.kam_id = formData.kamId;
+        targetData.kam_id = isKamOnly && user?.id ? user.id : formData.kamId;
         targetData.nso_mail_id = null;
       } else if (mode === "existing") {
         targetData.mandate_id = formData.mandateId;
@@ -931,8 +972,7 @@ export function MonthlyTargetsTab({
       // Update or insert into monthly_targets table
       let error;
       if (editingTarget) {
-        // Update existing target
-        const { error: updateError } = await supabase
+        const { data: updatedRows, error: updateError } = await supabase
           .from("monthly_targets")
           .update({
             month: targetData.month,
@@ -945,18 +985,29 @@ export function MonthlyTargetsTab({
             kam_id: targetData.kam_id,
             nso_mail_id: targetData.nso_mail_id,
           })
-          .eq("id", editingTarget.id);
-        
+          .eq("id", editingTarget.id)
+          .select("id");
+
         error = updateError;
+        if (!error && (!updatedRows || updatedRows.length === 0)) {
+          throw new Error(
+            "Update was not applied. You may not have permission to edit this target."
+          );
+        }
       } else {
-        // Insert new target
-        const { error: insertError } = await supabase
+        const { data: insertedRows, error: insertError } = await supabase
           .from("monthly_targets")
-          .insert([targetData]);
-        
+          .insert([targetData])
+          .select("id");
+
         error = insertError;
+        if (!error && (!insertedRows || insertedRows.length === 0)) {
+          throw new Error(
+            "Save was not applied. You may not have permission to create this target."
+          );
+        }
       }
-      
+
       if (error) {
         // If table doesn't exist, show a helpful message
         if (error.code === "42P01" || error.message.includes("does not exist")) {
@@ -1027,6 +1078,9 @@ export function MonthlyTargetsTab({
     kams.forEach((kam) => {
       kamNameMap[kam.id] = kam.full_name;
     });
+    if (isKamOnly && user?.id) {
+      kamNameMap[user.id] = fullName || "You";
+    }
 
     // Create a map of Account IDs to Account names
     const accountNameMap: Record<string, string> = {};
@@ -1204,6 +1258,11 @@ export function MonthlyTargetsTab({
         kamMap[kam.full_name] = kam.id;
         kamMapNormalized[normalizedName] = kam.id;
       });
+      if (isKamOnly && user?.id && fullName) {
+        kamMap[fullName.trim()] = user.id;
+        kamMap[fullName] = user.id;
+        kamMapNormalized[fullName.trim().toLowerCase()] = user.id;
+      }
 
       // Fetch mandates fresh from database for validation
       const mandateCodes = selectedTargetType === "existing"
@@ -1326,6 +1385,8 @@ export function MonthlyTargetsTab({
             const kamId = kamMap[kamName] || kamMapNormalized[normalizedKamName];
             if (!kamId) {
               errors.push(`KAM "${kamName}" does not exist`);
+            } else if (isKamOnly && user?.id && kamId !== user.id) {
+              errors.push("You can only set pipeline targets for your own KAM account");
             }
           }
 
@@ -1471,6 +1532,11 @@ export function MonthlyTargetsTab({
         kamMap[kam.full_name] = kam.id;
         kamMapNormalized[normalizedName] = kam.id;
       });
+      if (isKamOnly && user?.id && fullName) {
+        kamMap[fullName.trim()] = user.id;
+        kamMap[fullName] = user.id;
+        kamMapNormalized[fullName.trim().toLowerCase()] = user.id;
+      }
 
       // Fetch mandates fresh from database
       const mandateCodes = selectedTargetType === "existing"
@@ -1524,7 +1590,7 @@ export function MonthlyTargetsTab({
               financial_year: financialYear,
               target,
               target_type: "new_cross_sell" as const,
-              kam_id: kamId,
+              kam_id: isKamOnly && user?.id ? user.id : kamId,
               account_id: accountId,
               mandate_id: null,
               created_by: user.id,
@@ -1576,20 +1642,32 @@ export function MonthlyTargetsTab({
         const { data: existing } = await query.maybeSingle();
 
         if (existing) {
-          // Update existing target
-          const { error: updateError } = await supabase
+          const { data: updatedRows, error: updateError } = await supabase
             .from("monthly_targets")
             .update({
               target: target.target,
               financial_year: target.financial_year,
             })
-            .eq("id", existing.id);
-          
+            .eq("id", existing.id)
+            .select("id");
+
           if (updateError) throw updateError;
+          if (!updatedRows || updatedRows.length === 0) {
+            throw new Error(
+              "One or more updates were not applied. You may not have permission to edit these targets."
+            );
+          }
         } else {
-          // Insert new target
-          const { error: insertError } = await supabase.from("monthly_targets").insert([target]);
+          const { data: insertedRows, error: insertError } = await supabase
+            .from("monthly_targets")
+            .insert([target])
+            .select("id");
           if (insertError) throw insertError;
+          if (!insertedRows || insertedRows.length === 0) {
+            throw new Error(
+              "One or more rows were not saved. You may not have permission to create these targets."
+            );
+          }
         }
       }
 
@@ -1768,6 +1846,14 @@ export function MonthlyTargetsTab({
               <div className="grid gap-4 py-4">
                 {mode === "new_cross_sell" ? (
                   <>
+                    {isKamOnly ? (
+                      <div className="grid gap-2">
+                        <Label>KAM</Label>
+                        <p className="text-sm text-muted-foreground">
+                          {fullName || "Your account"}
+                        </p>
+                      </div>
+                    ) : (
                     <div className="grid gap-2">
                       <Label htmlFor="kamId">KAM *</Label>
                       <Select
@@ -1793,14 +1879,15 @@ export function MonthlyTargetsTab({
                         </SelectContent>
                       </Select>
                     </div>
-                    {formData.kamId && (
+                    )}
+                    {(formData.kamId || isKamOnly) && (
                       <div className="grid gap-2">
                         <Label htmlFor="accountId">Account *</Label>
                         <Select
                           value={formData.accountId}
                           onValueChange={(value) => handleInputChange("accountId", value)}
                           required
-                          disabled={!formData.kamId || loadingAccounts}
+                          disabled={(!formData.kamId && !isKamOnly) || loadingAccounts}
                         >
                           <SelectTrigger id="accountId">
                             <SelectValue placeholder="Select account" />
@@ -1976,7 +2063,7 @@ export function MonthlyTargetsTab({
                     !formData.year ||
                     !formData.target ||
                     (mode === "new_cross_sell" &&
-                      (!formData.kamId || !formData.accountId)) ||
+                      ((!formData.kamId && !isKamOnly) || !formData.accountId)) ||
                     (mode === "existing" && !formData.mandateId)
                   }
                 >

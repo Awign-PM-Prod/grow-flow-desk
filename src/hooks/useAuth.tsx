@@ -59,6 +59,15 @@ export type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** Remove persisted Supabase session keys when signOut does not clear storage in time. */
+function clearSupabaseAuthStorage() {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith("sb-") && key.includes("auth")) {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -70,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isInitializedRef = useRef(false);
   /** Last user id we applied to state; avoids full-app "loading" on token refresh / duplicate auth events when tab regains focus. */
   const lastUserIdRef = useRef<string | null>(null);
+  const isSigningOutRef = useRef(false);
 
   const fetchUserRoles = useCallback(async (userId: string) => {
     try {
@@ -108,6 +118,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        if (isSigningOutRef.current) {
+          if (event === "SIGNED_OUT" || !session) {
+            isSigningOutRef.current = false;
+            lastUserIdRef.current = null;
+            setSession(null);
+            setUser(null);
+            setUserRoles([]);
+            setFullName(null);
+            setTeam(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        if (event === "SIGNED_OUT") {
+          lastUserIdRef.current = null;
+          setSession(null);
+          setUser(null);
+          setUserRoles([]);
+          setFullName(null);
+          setTeam(null);
+          setLoading(false);
+          return;
+        }
+
         if (event === "INITIAL_SESSION") {
           if (!isInitializedRef.current) {
             setSession(session);
@@ -178,33 +213,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id, fetchUserRoles]);
 
   const signOut = useCallback(async () => {
+    isSigningOutRef.current = true;
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        // Fallback to local sign-out so client session is always cleared.
-        const { error: localError } = await supabase.auth.signOut({ scope: "local" });
-        if (localError) {
-          console.error("Sign out error:", localError);
-        }
-      }
-    } catch (error: unknown) {
-      // Network/API failure should not block local logout.
+      // Clear local session first so storage cannot resurrect the user on /auth.
       const { error: localError } = await supabase.auth.signOut({ scope: "local" });
       if (localError) {
-        console.error("Sign out error:", localError);
-      } else {
-        console.error("Sign out fallback used after error:", error);
+        console.error("Local sign out error:", localError);
+        clearSupabaseAuthStorage();
       }
-    } finally {
-      lastUserIdRef.current = null;
-      setSession(null);
-      setUser(null);
-      setUserRoles([]);
-      setFullName(null);
-      setLoading(false);
-      navigate("/auth", { replace: true });
+      // Revoke refresh token on server when possible (non-blocking).
+      void supabase.auth.signOut({ scope: "global" }).catch(() => {});
+    } catch (error: unknown) {
+      console.error("Sign out error:", error);
+      clearSupabaseAuthStorage();
     }
+
+    const { data: { session: lingering } } = await supabase.auth.getSession();
+    if (lingering) {
+      clearSupabaseAuthStorage();
+    }
+
+    lastUserIdRef.current = null;
+    setSession(null);
+    setUser(null);
+    setUserRoles([]);
+    setFullName(null);
+    setTeam(null);
+    setLoading(false);
+    isSigningOutRef.current = false;
+    navigate("/auth", { replace: true });
   }, [navigate]);
 
   const hasRole = useCallback(

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +22,7 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth();
 
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
@@ -51,13 +53,11 @@ export default function Auth() {
       return;
     }
 
-    // Check if user is already logged in
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && !isPasswordRecovery) {
-        navigate("/dashboard");
-      }
-    });
-  }, [navigate, toast]);
+    // Redirect only when auth context confirms a user (avoids stale getSession after sign-out).
+    if (!authLoading && user && !isPasswordRecovery) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate, toast, authLoading, user, isPasswordRecovery]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
