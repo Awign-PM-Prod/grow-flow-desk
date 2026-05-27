@@ -75,7 +75,7 @@ const industrySubCategories: Record<string, string[]> = {
 };
 
 export default function Accounts() {
-  const { canMutatePortal, isSuperAdmin } = useAuth();
+  const { canMutatePortal, canSelectAllTeams } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -573,7 +573,7 @@ export default function Accounts() {
   });
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || filterAccountName || filterCountry || filterIndustry || filterSubCategory || filterRevenue || filterMCVTier || filterCompanyTier || (isSuperAdmin && filterTeam !== "all");
+  const hasActiveFilters = searchTerm || filterAccountName || filterCountry || filterIndustry || filterSubCategory || filterRevenue || filterMCVTier || filterCompanyTier || (canSelectAllTeams && filterTeam !== "all");
   
   // Get unique account names and countries for filters
   const uniqueAccountNames = Array.from(new Set((accounts || []).map((acc) => acc.name).filter(Boolean))).sort();
@@ -1537,7 +1537,7 @@ export default function Accounts() {
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="space-y-3">
-                <div className={`grid grid-cols-1 md:grid-cols-3 ${filterIndustry ? (isSuperAdmin ? "lg:grid-cols-9" : "lg:grid-cols-8") : (isSuperAdmin ? "lg:grid-cols-8" : "lg:grid-cols-7")} gap-3`}>
+                <div className={`grid grid-cols-1 md:grid-cols-3 ${filterIndustry ? (canSelectAllTeams ? "lg:grid-cols-9" : "lg:grid-cols-8") : (canSelectAllTeams ? "lg:grid-cols-8" : "lg:grid-cols-7")} gap-3`}>
                   <Input
                     placeholder="Search all fields..."
                     value={searchTerm}
@@ -1673,7 +1673,7 @@ export default function Accounts() {
                       <SelectItem value="Tier 2">Tier 2</SelectItem>
                     </SelectContent>
                   </Select>
-                  {isSuperAdmin && (
+                  {canSelectAllTeams && (
                     <Select value={filterTeam} onValueChange={(value) => setFilterTeam(value as "all" | "ce" | "staffing" | "experts")}>
                       <SelectTrigger className={`text-left ${filterTeam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                         <SelectValue placeholder="All Teams" />

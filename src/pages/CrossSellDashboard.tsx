@@ -3,30 +3,25 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { formatNumber } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { ALL_LOB_OPTIONS, getAllowedLobOptions } from "@/lib/teamLob";
 
-// All LoB options
-const lobOptions = [
-  "Diligence & Audit",
-  "New Business Development",
-  "Digital Gigs",
-  "Awign Expert",
-  "Last Mile Operations",
-  "Invigilation & Proctoring",
-  "Staffing",
-  "Others",
-];
+const lobOptions = [...ALL_LOB_OPTIONS];
 
 export default function CrossSellDashboard() {
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, team, canSelectAllTeams } = useAuth();
+  const chartLobOptions = useMemo(
+    () => getAllowedLobOptions(lobOptions, team, canSelectAllTeams),
+    [team, canSelectAllTeams],
+  );
   const isKAM = hasRole("kam");
-  const isAdmin = hasRole("superadmin") || hasRole("leadership") || hasRole("manager");
+  const isAdmin = hasRole("superadmin") || hasRole("team_admin") || hasRole("leadership") || hasRole("manager");
   
   const [loading, setLoading] = useState(true);
   const [conversionTableData, setConversionTableData] = useState<Array<{
@@ -850,7 +845,7 @@ export default function CrossSellDashboard() {
       console.log("Fetching LoB Sales Performance...", { isKAM, isAdmin, userId: user?.id, filterKam });
       const fyDateRange = getFinancialYearDateRange(performanceDashboardFY);
       const currentIsKAM = hasRole("kam");
-      const currentIsAdmin = hasRole("superadmin") || hasRole("leadership") || hasRole("manager");
+      const currentIsAdmin = hasRole("superadmin") || hasRole("team_admin") || hasRole("leadership") || hasRole("manager");
       
       // Fetch LoB Sales Performance data from mandates monthly records
       // Only consider mandates with type = "Existing"
@@ -882,7 +877,7 @@ export default function CrossSellDashboard() {
 
       // Initialize all LoBs from the mandate form with 0 values
       const lobData: Record<string, { targetMpv: number; achievedMpv: number }> = {};
-      lobOptions.forEach((lob) => {
+      chartLobOptions.forEach((lob) => {
         lobData[lob] = { targetMpv: 0, achievedMpv: 0 };
       });
 
@@ -923,7 +918,7 @@ export default function CrossSellDashboard() {
       }
 
       // Convert to array with all 8 LoBs from the mandate form, maintaining the exact order
-      const formattedLobData = lobOptions.map((lob) => ({
+      const formattedLobData = chartLobOptions.map((lob) => ({
         lob,
         targetMpv: lobData[lob]?.targetMpv || 0,
         achievedMpv: lobData[lob]?.achievedMpv || 0,
@@ -934,7 +929,7 @@ export default function CrossSellDashboard() {
     } catch (error) {
       console.error("Error fetching LoB sales performance:", error);
       // Initialize with all LoBs with 0 values even on error
-      const emptyLobData = lobOptions.map((lob) => ({
+      const emptyLobData = chartLobOptions.map((lob) => ({
         lob,
         targetMpv: 0,
         achievedMpv: 0,
@@ -948,7 +943,7 @@ export default function CrossSellDashboard() {
       console.log("Fetching KAM Sales Performance...", { isKAM, isAdmin, userId: user?.id, filterKam });
       const fyDateRange = getFinancialYearDateRange(performanceDashboardFY);
       const currentIsKAM = hasRole("kam");
-      const currentIsAdmin = hasRole("superadmin") || hasRole("leadership") || hasRole("manager");
+      const currentIsAdmin = hasRole("superadmin") || hasRole("team_admin") || hasRole("leadership") || hasRole("manager");
       
       // Fetch KAM Sales Performance data from mandates monthly records
       // Only consider mandates with type = "Existing"
@@ -1047,7 +1042,7 @@ export default function CrossSellDashboard() {
             return kamId === user.id;
           }
           // If admin, show all KAMs (even with 0 data)
-          const currentIsAdmin = hasRole("superadmin") || hasRole("leadership") || hasRole("manager");
+          const currentIsAdmin = hasRole("superadmin") || hasRole("team_admin") || hasRole("leadership") || hasRole("manager");
           if (currentIsAdmin) {
             return true;
           }

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import type { Team } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,12 +27,10 @@ import { z } from "zod";
 const inviteSchema = z.object({
   email: z.string().trim().email("Invalid email address").max(255, "Email must be less than 255 characters"),
   fullName: z.string().trim().min(1, "Name is required").max(100, "Name must be less than 100 characters"),
-  role: z.enum(["kam", "manager", "leadership", "superadmin", "nso"], {
+  role: z.enum(["kam", "manager", "leadership", "superadmin", "team_admin", "nso"], {
     errorMap: () => ({ message: "Please select a valid role" }),
   }),
-  team: z.enum(["ce", "staffing", "experts"], {
-    errorMap: () => ({ message: "Please select a valid team" }),
-  }),
+  team: z.enum(["ce", "staffing", "experts"]).optional(),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -41,6 +40,8 @@ const inviteSchema = z.object({
 
 interface InviteUserDialogProps {
   onUserInvited: () => void;
+  lockedTeam?: Team | null;
+  isGlobalAdmin?: boolean;
 }
 
 const parseEdgeFunctionError = async (
@@ -115,16 +116,30 @@ const parseEdgeFunctionError = async (
   return errWithContext.message || "Failed to invite user";
 };
 
-export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
+export function InviteUserDialog({
+  onUserInvited,
+  lockedTeam = null,
+  isGlobalAdmin = true,
+}: InviteUserDialogProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<string>("");
-  const [team, setTeam] = useState<string>("");
+  const [team, setTeam] = useState<string>(lockedTeam ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (lockedTeam) {
+      setTeam(lockedTeam);
+    }
+  }, [lockedTeam, open]);
+
+  const assignableRoles = isGlobalAdmin
+    ? ["kam", "manager", "leadership", "team_admin", "superadmin", "nso"]
+    : ["kam", "manager", "leadership", "team_admin", "nso"];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,11 +147,23 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
 
     try {
       // Validate inputs
+      const effectiveTeam = lockedTeam ?? (role === "superadmin" ? undefined : team);
+
+      if (role !== "superadmin" && !effectiveTeam) {
+        toast({
+          title: "Validation Error",
+          description: "Please select a team for this role",
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
       const validationResult = inviteSchema.safeParse({
         email,
         fullName,
         role,
-        team,
+        team: effectiveTeam,
         password,
         confirmPassword,
       });
@@ -158,7 +185,7 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
           email: validationResult.data.email,
           full_name: validationResult.data.fullName,
           role: validationResult.data.role,
-          team: validationResult.data.team,
+          team: validationResult.data.team ?? null,
           password: validationResult.data.password,
         },
       });
@@ -250,34 +277,56 @@ export function InviteUserDialog({ onUserInvited }: InviteUserDialogProps) {
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="kam">Key Account Manager (KAM)</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="leadership">Leadership</SelectItem>
-                  <SelectItem value="superadmin">Super Admin</SelectItem>
-                  <SelectItem value="nso">New Sales Officer (NSO)</SelectItem>
+                  {assignableRoles.includes("kam") && (
+                    <SelectItem value="kam">Key Account Manager (KAM)</SelectItem>
+                  )}
+                  {assignableRoles.includes("manager") && (
+                    <SelectItem value="manager">Manager</SelectItem>
+                  )}
+                  {assignableRoles.includes("leadership") && (
+                    <SelectItem value="leadership">Leadership</SelectItem>
+                  )}
+                  {assignableRoles.includes("team_admin") && (
+                    <SelectItem value="team_admin">Team Admin</SelectItem>
+                  )}
+                  {assignableRoles.includes("superadmin") && (
+                    <SelectItem value="superadmin">Super Admin</SelectItem>
+                  )}
+                  {assignableRoles.includes("nso") && (
+                    <SelectItem value="nso">New Sales Officer (NSO)</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 {role === "kam" && "Can manage their own accounts and contacts"}
                 {role === "manager" && "Can view and manage team performance"}
                 {role === "leadership" && "Can view organization-wide metrics"}
+                {role === "team_admin" && "Full admin access scoped to their assigned team"}
                 {role === "superadmin" && "Full access including user management"}
                 {role === "nso" && "Read-only access to mandates and related data where they are assigned as NSO"}
               </p>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="team">Team *</Label>
-              <Select value={team} onValueChange={setTeam} required>
-                <SelectTrigger id="team">
-                  <SelectValue placeholder="Select a team" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ce">CE</SelectItem>
-                  <SelectItem value="staffing">Staffing</SelectItem>
-                  <SelectItem value="experts">Experts</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {role !== "superadmin" && (
+              <div className="grid gap-2">
+                <Label htmlFor="team">Team *</Label>
+                {lockedTeam ? (
+                  <div className="rounded-md bg-muted px-3 py-2 text-sm capitalize">
+                    {lockedTeam}
+                  </div>
+                ) : (
+                  <Select value={team} onValueChange={setTeam} required>
+                    <SelectTrigger id="team">
+                      <SelectValue placeholder="Select a team" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ce">CE</SelectItem>
+                      <SelectItem value="staffing">Staffing</SelectItem>
+                      <SelectItem value="experts">Experts</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
             <div className="grid gap-2">
               <Label htmlFor="password">Password *</Label>
               <Input

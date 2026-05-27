@@ -93,7 +93,7 @@ export function MonthlyTargetsTab({
   mode: "existing" | "new_cross_sell";
 }) {
   const { filterFinancialYear, selectedTeam } = useOutletContext<TargetsOutletContext>();
-  const { hasRole, loading, userRoles, user, fullName, canMutatePortal, isSuperAdmin, team: userTeam } = useAuth();
+  const { hasRole, loading, userRoles, user, fullName, canMutatePortal, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
   /** KAM role without manager/superadmin — scoped to own targets only. */
   const isKamOnly =
@@ -151,10 +151,10 @@ export function MonthlyTargetsTab({
   const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const effectiveTeam =
-    isSuperAdmin && selectedTeam !== "all" ? selectedTeam : userTeam;
+    canSelectAllTeams && selectedTeam !== "all" ? selectedTeam : userTeam;
 
   const applyMandateTeamFilter = (query: any) => {
-    if (isSuperAdmin && selectedTeam === "all") return query;
+    if (canSelectAllTeams && selectedTeam === "all") return query;
     if (!effectiveTeam) return query;
     return query.eq("team", effectiveTeam);
   };
@@ -389,7 +389,7 @@ export function MonthlyTargetsTab({
       const kamMandateIds = currentIsKAM && currentUser?.id ? new Set((allMandatesData || []).map((m: any) => m.id)) : null;
 
       const teamScopedView =
-        Boolean(effectiveTeam) && !(isSuperAdmin && selectedTeam === "all");
+        Boolean(effectiveTeam) && !(canSelectAllTeams && selectedTeam === "all");
 
       // Scope table rows: KAM sees own pipeline targets; team filter applies to managers/admins
       let filteredTargets = (data || []).filter((target: any) => {
@@ -635,7 +635,7 @@ export function MonthlyTargetsTab({
     }
     // Omit `user` from deps: session refresh replaces the object reference with the same id and would refetch on every tab focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userRoles.length, filterFinancialYear, isKAM, user?.id, mode, selectedTeam, effectiveTeam, isSuperAdmin]);
+  }, [loading, userRoles.length, filterFinancialYear, isKAM, user?.id, mode, selectedTeam, effectiveTeam, canSelectAllTeams]);
 
   // Calculate Financial Year when month or year changes
   useEffect(() => {

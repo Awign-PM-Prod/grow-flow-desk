@@ -30,7 +30,7 @@ const tabInactiveClass =
   "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground";
 
 export function TargetsLayout() {
-  const { hasRole, loading, userRoles, user } = useAuth();
+  const { hasRole, loading, userRoles, user, canSelectAllTeams, team: userTeam } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isSuperAdmin = hasRole("superadmin");
@@ -45,11 +45,19 @@ export function TargetsLayout() {
   const fyOptions = useMemo(() => listFYKeysDescending(12), []);
 
   useEffect(() => {
+    if (canSelectAllTeams) return;
+    if (userTeam) {
+      setSelectedTeam(userTeam);
+    }
+  }, [canSelectAllTeams, userTeam]);
+
+  useEffect(() => {
     if (!loading && userRoles.length > 0 && user !== undefined) {
       const hasAccess =
         hasRole("manager") ||
         hasRole("leadership") ||
         hasRole("superadmin") ||
+        hasRole("team_admin") ||
         hasRole("kam");
       if (!hasAccess) {
         navigate("/dashboard");
@@ -72,6 +80,7 @@ export function TargetsLayout() {
     hasRole("manager") ||
     hasRole("leadership") ||
     hasRole("superadmin") ||
+    hasRole("team_admin") ||
     hasRole("kam");
 
   if (!hasAccess) {
@@ -132,7 +141,7 @@ export function TargetsLayout() {
             ) : null}
           </nav>
           <div className="flex items-center gap-2">
-            {isSuperAdmin ? (
+            {canSelectAllTeams ? (
               <Select value={selectedTeam} onValueChange={(v) => setSelectedTeam(v as "all" | "ce" | "staffing" | "experts")}>
                 <SelectTrigger className="w-[160px] sm:w-[180px]">
                   <SelectValue placeholder="Team" />

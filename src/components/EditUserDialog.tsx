@@ -19,59 +19,97 @@ import {
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { parseEdgeFunctionError } from "@/lib/edge-function-errors";
+import type { Team } from "@/hooks/useAuth";
+
+type AppRole = "kam" | "manager" | "leadership" | "superadmin" | "team_admin" | "nso";
 
 interface EditUserDialogProps {
   user: {
     id: string;
     email: string;
-    role: string;
+    role: string | null;
+    team: string | null;
     full_name?: string;
   } | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUserUpdated: () => void;
+  lockedTeam?: Team | null;
+  isGlobalAdmin?: boolean;
 }
 
-export function EditUserDialog({ user, open, onOpenChange, onUserUpdated }: EditUserDialogProps) {
+const ALL_ROLES: AppRole[] = ["kam", "manager", "leadership", "superadmin", "team_admin", "nso"];
+const TEAM_SCOPED_ROLES: AppRole[] = ["kam", "manager", "leadership", "team_admin", "nso"];
+const VALID_TEAMS: Team[] = ["ce", "staffing", "experts"];
+
+export function EditUserDialog({
+  user,
+  open,
+  onOpenChange,
+  onUserUpdated,
+  lockedTeam = null,
+  isGlobalAdmin = true,
+}: EditUserDialogProps) {
   const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState<string>("");
+  const [role, setRole] = useState<AppRole | "">("");
+  const [team, setTeam] = useState<Team | "">("");
   const { toast } = useToast();
+
+  const assignableRoles = isGlobalAdmin ? ALL_ROLES : TEAM_SCOPED_ROLES;
 
   useEffect(() => {
     if (user) {
-      setRole(user.role);
+      const userRole = ALL_ROLES.includes(user.role as AppRole) ? (user.role as AppRole) : "";
+      setRole(assignableRoles.includes(userRole as AppRole) ? userRole : "");
+      if (lockedTeam) {
+        setTeam(lockedTeam);
+      } else if (user.role === "superadmin") {
+        setTeam("");
+      } else {
+        setTeam(VALID_TEAMS.includes(user.team as Team) ? (user.team as Team) : "");
+      }
     }
-  }, [user]);
+  }, [user, lockedTeam, assignableRoles]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !role) return;
+
+    const effectiveTeam = lockedTeam ?? (role === "superadmin" ? null : team);
+    if (role !== "superadmin" && !effectiveTeam) return;
 
     setLoading(true);
 
     try {
-      // Update the role in the profiles table
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
-          role: role as "kam" | "manager" | "leadership" | "superadmin" | "nso",
-        })
-        .eq("id", user.id);
+      const { data, error } = await supabase.functions.invoke("update-user", {
+        body: {
+          user_id: user.id,
+          role,
+          team: effectiveTeam,
+        },
+      });
 
-      if (updateError) throw updateError;
+      if (error) {
+        throw new Error(await parseEdgeFunctionError(error, data));
+      }
+
+      if (data && typeof data === "object" && "error" in data && data.error) {
+        throw new Error(String(data.error));
+      }
 
       toast({
         title: "Success!",
-        description: `User role updated successfully.`,
+        description: "User updated successfully.",
       });
 
       onOpenChange(false);
       onUserUpdated();
-    } catch (error: any) {
-      console.error("Error updating user role:", error);
+    } catch (error: unknown) {
+      console.error("Error updating user:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to update user role. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to update user. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -81,14 +119,16 @@ export function EditUserDialog({ user, open, onOpenChange, onUserUpdated }: Edit
 
   if (!user) return null;
 
+  const showTeamField = role !== "superadmin";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Edit User Role</DialogTitle>
+            <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>
-              Update the role for {user.full_name || user.email}
+              Update role and team for {user.full_name || user.email}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -100,19 +140,53 @@ export function EditUserDialog({ user, open, onOpenChange, onUserUpdated }: Edit
             </div>
             <div className="grid gap-2">
               <Label htmlFor="edit-role">Role *</Label>
-              <Select value={role} onValueChange={setRole} required>
+              <Select value={role} onValueChange={(v) => setRole(v as AppRole)} required>
                 <SelectTrigger id="edit-role">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="kam">Key Account Manager (KAM)</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="leadership">Leadership</SelectItem>
-                  <SelectItem value="superadmin">Super Admin</SelectItem>
-                  <SelectItem value="nso">New Sales Officer (NSO)</SelectItem>
+                  {assignableRoles.includes("kam") && (
+                    <SelectItem value="kam">Key Account Manager (KAM)</SelectItem>
+                  )}
+                  {assignableRoles.includes("manager") && (
+                    <SelectItem value="manager">Manager</SelectItem>
+                  )}
+                  {assignableRoles.includes("leadership") && (
+                    <SelectItem value="leadership">Leadership</SelectItem>
+                  )}
+                  {assignableRoles.includes("team_admin") && (
+                    <SelectItem value="team_admin">Team Admin</SelectItem>
+                  )}
+                  {assignableRoles.includes("superadmin") && (
+                    <SelectItem value="superadmin">Super Admin</SelectItem>
+                  )}
+                  {assignableRoles.includes("nso") && (
+                    <SelectItem value="nso">New Sales Officer (NSO)</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
+            {showTeamField && (
+              <div className="grid gap-2">
+                <Label htmlFor="edit-team">Team *</Label>
+                {lockedTeam ? (
+                  <div className="rounded-md bg-muted px-3 py-2 text-sm capitalize">
+                    {lockedTeam}
+                  </div>
+                ) : (
+                  <Select value={team} onValueChange={(v) => setTeam(v as Team)} required>
+                    <SelectTrigger id="edit-team">
+                      <SelectValue placeholder="Select a team" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ce">CE</SelectItem>
+                      <SelectItem value="staffing">Staffing</SelectItem>
+                      <SelectItem value="experts">Experts</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -123,14 +197,17 @@ export function EditUserDialog({ user, open, onOpenChange, onUserUpdated }: Edit
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || !role}>
+            <Button
+              type="submit"
+              disabled={loading || !role || (showTeamField && !lockedTeam && !team)}
+            >
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Updating...
                 </>
               ) : (
-                "Update Role"
+                "Save Changes"
               )}
             </Button>
           </DialogFooter>

@@ -13,9 +13,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  getAllowedLobOptions,
+  getFixedLobForTeam,
+} from "@/lib/teamLob";
+import { LobFormField } from "@/components/LobFormField";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText, Calendar as CalendarIcon, BookOpen } from "lucide-react";
 import { format } from "date-fns";
@@ -43,6 +48,7 @@ import { Trash2 } from "lucide-react";
 
 interface DealFormData {
   salesModuleName: string;
+  tentativeProjectName: string;
   kamId: string;
   accountId: string;
   spocId: string;
@@ -262,7 +268,12 @@ const getStatusBadgeStyle = (status: string): { variant: "default" | "secondary"
 };
 
 export default function Pipeline() {
-  const { canMutatePortal } = useAuth();
+  const { canMutatePortal, team, canSelectAllTeams } = useAuth();
+  const allLobOptions = useMemo(() => Object.keys(lobUseCaseMapping), []);
+  const allowedLobOptions = useMemo(
+    () => getAllowedLobOptions(allLobOptions, team, canSelectAllTeams),
+    [allLobOptions, team, canSelectAllTeams],
+  );
   const [loading, setLoading] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -310,6 +321,7 @@ export default function Pipeline() {
 
   const [formData, setFormData] = useState<DealFormData>({
     salesModuleName: "",
+    tentativeProjectName: "",
     kamId: "",
     accountId: "",
     spocId: "",
@@ -410,6 +422,7 @@ export default function Pipeline() {
     // Exclude status field (defaults to "Listed" for new deals)
     const templateHeaders = [
       { key: "kam_name", label: "KAM Name" },
+      { key: "tentative_project_name", label: "Tentative Project Name" },
       { key: "account_name", label: "Account Name" },
       { key: "spoc_name", label: "SPOC Name" },
       { key: "spoc2_name", label: "SPOC 2 Name" },
@@ -616,8 +629,8 @@ export default function Pipeline() {
         // Validate LoB
         if (!row["LoB"] || row["LoB"].trim() === "") {
           errors.push("LoB is required");
-        } else if (!lobOptions.includes(row["LoB"])) {
-          errors.push(`Invalid LoB. Must be one of: ${lobOptions.join(", ")}`);
+        } else if (!allowedLobOptions.includes(row["LoB"])) {
+          errors.push(`Invalid LoB. Must be one of: ${allowedLobOptions.join(", ")}`);
         } else {
           const selectedLob = row["LoB"];
           const validUseCases = getUseCasesForLob(selectedLob);
@@ -836,6 +849,7 @@ export default function Pipeline() {
 
         return {
           sales_module_name: salesModuleName,
+          tentative_project_name: row["Tentative Project Name"]?.trim() || null,
           kam_id: kamMap[row["KAM Name"]],
           account_id: accountMap[row["Account Name"]],
           spoc_id: spocMap[`${row["SPOC Name"]}`] || null,
@@ -1117,6 +1131,7 @@ export default function Pipeline() {
       const csvData = dataToExport.map((deal: any) => ({
         id: deal.id || "",
         sales_module_name: deal.sales_module_name || "",
+        tentative_project_name: deal.tentative_project_name || "",
         kam_id: deal.kam_id || "",
         kam_name: deal.profiles?.full_name || "",
         account_id: deal.account_id || "",
@@ -1377,6 +1392,30 @@ export default function Pipeline() {
     }
   }, [formData.lob]);
 
+  useEffect(() => {
+    if (formData.lob && !allowedLobOptions.includes(formData.lob)) {
+      setFormData((prev) => ({
+        ...prev,
+        lob: "",
+        useCase: "",
+        subUseCase: "",
+      }));
+    }
+  }, [allowedLobOptions, formData.lob]);
+
+  useEffect(() => {
+    const fixed = getFixedLobForTeam(team, canSelectAllTeams);
+    if (!fixed || !formDialogOpen) return;
+    if (formData.lob !== fixed) {
+      setFormData((prev) => ({
+        ...prev,
+        lob: fixed,
+        useCase: "",
+        subUseCase: "",
+      }));
+    }
+  }, [team, canSelectAllTeams, formDialogOpen, formData.lob]);
+
   // Reset Sub Use Case when Use Case changes
   useEffect(() => {
     if (formData.lob && formData.useCase) {
@@ -1454,6 +1493,7 @@ export default function Pipeline() {
 
       const dealData = {
         sales_module_name: formData.salesModuleName,
+        tentative_project_name: sanitizeValue(formData.tentativeProjectName),
         kam_id: sanitizeValue(formData.kamId),
         account_id: sanitizeValue(formData.accountId),
         spoc_id: sanitizeValue(formData.spocId),
@@ -1565,6 +1605,7 @@ export default function Pipeline() {
       // Reset form
       setFormData({
         salesModuleName: "",
+        tentativeProjectName: "",
         kamId: "",
         accountId: "",
         spocId: "",
@@ -1618,6 +1659,7 @@ export default function Pipeline() {
     // Set form data
     setFormData({
       salesModuleName: deal.sales_module_name || "",
+      tentativeProjectName: deal.tentative_project_name || "",
       kamId: deal.kam_id || "",
       accountId: deal.account_id || "",
       spocId: deal.spoc_id || "",
@@ -1677,6 +1719,7 @@ export default function Pipeline() {
     try {
       const updateData: any = {
         sales_module_name: formData.salesModuleName,
+        tentative_project_name: sanitizeValue(formData.tentativeProjectName),
         kam_id: formData.kamId || null,
         account_id: formData.accountId || null,
         spoc_id: formData.spocId || null,
@@ -2318,6 +2361,7 @@ export default function Pipeline() {
           setSelectedDeal(null);
           setFormData({
             salesModuleName: "",
+            tentativeProjectName: "",
             kamId: "",
             accountId: "",
             spocId: "",
@@ -2425,6 +2469,15 @@ export default function Pipeline() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="tentativeProjectName">Tentative Project Name</Label>
+                    <Input
+                      id="tentativeProjectName"
+                      value={formData.tentativeProjectName}
+                      onChange={(e) => handleInputChange("tentativeProjectName", e.target.value)}
+                      placeholder="Enter tentative project name"
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -2482,27 +2535,13 @@ export default function Pipeline() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lob">
-                      LoB <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.lob}
-                      onValueChange={(value) => handleInputChange("lob", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select LoB" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {lobOptions.map((lob) => (
-                          <SelectItem key={lob} value={lob}>
-                            {lob}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <LobFormField
+                    value={formData.lob}
+                    onChange={(value) => handleInputChange("lob", value)}
+                    allowedLobOptions={allowedLobOptions}
+                    team={team}
+                    isGlobalAdmin={canSelectAllTeams}
+                  />
                   <div className="space-y-2">
                     <Label htmlFor="spocId">
                       SPOC <span className="text-destructive">*</span>
@@ -3116,7 +3155,7 @@ export default function Pipeline() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All LoB</SelectItem>
-                    {lobOptions.map((lob) => (
+                    {allowedLobOptions.map((lob) => (
                       <SelectItem key={lob} value={lob}>
                         {lob}
                       </SelectItem>
@@ -3398,6 +3437,10 @@ export default function Pipeline() {
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">Sales Module Name:</Label>
                       <p className="mt-1">{selectedDealForView.sales_module_name || "N/A"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-medium text-muted-foreground">Tentative Project Name:</Label>
+                      <p className="mt-1">{selectedDealForView.tentative_project_name || "N/A"}</p>
                     </div>
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">KAM:</Label>

@@ -27,29 +27,14 @@ import {
   getMonthYearPairsForFY,
 } from "./targets/financialYearUtils";
 import { isMandateActiveAsOf } from "@/lib/mandateLifecycleLog";
+import {
+  ALL_LOB_OPTIONS,
+  getAllowedLobOptions,
+  getDefaultDashboardLobs,
+  getLobDashboardCategories,
+} from "@/lib/teamLob";
 
-// All LoB options
-const lobOptions = [
-  "Diligence & Audit",
-  "New Business Development",
-  "Digital Gigs",
-  "Awign Expert",
-  "Last Mile Operations",
-  "Invigilation & Proctoring",
-  "Staffing",
-  "Others",
-];
-
-/** Dashboard LoB filter: team categories (select category = all LoBs in that team). */
-const lobDashboardCategories: { id: string; label: string; lobs: string[] }[] = [
-  { id: "staffing", label: "Staffing", lobs: ["Staffing"] },
-  { id: "experts", label: "Experts", lobs: ["Awign Expert"] },
-  {
-    id: "ce",
-    label: "CE",
-    lobs: lobOptions.filter((l) => l !== "Staffing" && l !== "Awign Expert"),
-  },
-];
+const lobOptions = [...ALL_LOB_OPTIONS];
 
 function lobCategorySelectionState(
   selected: string[],
@@ -122,9 +107,19 @@ const managerTargetValueForMandateFilter = (
 };
 
 export default function Dashboard() {
-  const { user, hasRole, isNSO, isSuperAdmin, team: userTeam } = useAuth();
+  const { user, hasRole, isNSO, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
   const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts" | null>(null);
+
+  const lobDashboardCategories = useMemo(
+    () => getLobDashboardCategories(userTeam, canSelectAllTeams),
+    [userTeam, canSelectAllTeams],
+  );
+
+  const dashboardLobOptions = useMemo(
+    () => getAllowedLobOptions(lobOptions, userTeam, canSelectAllTeams),
+    [userTeam, canSelectAllTeams],
+  );
   const [loading, setLoading] = useState(true);
   /** Active mandates in scope (filters applied); shown as x in the Active Mandates card. */
   const [activeMandatesCount, setActiveMandatesCount] = useState(0);
@@ -182,7 +177,8 @@ export default function Dashboard() {
     countDiff: string; 
     prevRev: string; 
     currRev: string; 
-    revDiff: string; 
+    revDiff: string;
+    revDiffNumeric: number;
     prevAcc: number; 
     currAcc: number; 
     accDiff: string 
@@ -238,15 +234,22 @@ export default function Dashboard() {
   /** Mandates with lifecycle_status = Inactive — their monthly_targets rows are excluded from rollups. */
   const inactiveMandateIdsRef = useRef<Set<string>>(new Set());
 
-  // Default dashboard team scope to the user's own team; superadmins can switch.
+  // Default dashboard team scope to the user's own team; global superadmins can switch.
   useEffect(() => {
-    if (isSuperAdmin) {
+    if (canSelectAllTeams) {
       setSelectedTeam((prev) => prev ?? "all");
       return;
     }
     if (!userTeam) return;
     setSelectedTeam((prev) => prev ?? userTeam);
-  }, [isSuperAdmin, userTeam]);
+  }, [canSelectAllTeams, userTeam]);
+
+  // Scope LoB filter to team (CE excludes Staffing/Experts; staffing/experts auto-select)
+  useEffect(() => {
+    if (canSelectAllTeams) return;
+    const defaults = getDefaultDashboardLobs(userTeam, canSelectAllTeams);
+    setSelectedLobs(defaults);
+  }, [canSelectAllTeams, userTeam]);
 
   // Set filterKam to current user's ID when they're a KAM
   useEffect(() => {
@@ -762,14 +765,10 @@ export default function Dashboard() {
       d.currAcc.forEach((id) => totalCurrAccSet.add(id));
     });
 
-    // Format performance data for display
+    // Format performance data for display (L / Cr, aligned with dashboard currency labels)
     const formatRevenue = (value: number): string => {
       if (value === 0) return "₹0";
-      const inLakhs = value / 100000;
-      if (inLakhs >= 1) {
-        return `₹${inLakhs.toFixed(1)}L`;
-      }
-      return `₹${Math.round(value).toLocaleString("en-IN")}`;
+      return formatCurrencyLabel(value);
     };
 
     const formatDiff = (curr: number, prev: number): string => {
@@ -777,31 +776,52 @@ export default function Dashboard() {
       return diff >= 0 ? `+${diff}` : `${diff}`;
     };
 
+    const formatRevenueDiff = (
+      curr: number,
+      prev: number,
+    ): { display: string; value: number } => {
+      const diff = curr - prev;
+      if (diff === 0) return { display: "₹0", value: 0 };
+      const sign = diff > 0 ? "+" : "-";
+      return {
+        display: `${sign}${formatCurrencyLabel(Math.abs(diff))}`,
+        value: diff,
+      };
+    };
+
     return [
-      ...performanceData.map((d) => ({
-        group: d.group,
-        prevCount: d.prevCount,
-        currCount: d.currCount,
-        countDiff: formatDiff(d.currCount, d.prevCount),
-        prevRev: formatRevenue(d.prevRev),
-        currRev: formatRevenue(d.currRev),
-        revDiff: formatDiff(d.currRev, d.prevRev),
-        prevAcc: d.prevAcc.size,
-        currAcc: d.currAcc.size,
-        accDiff: formatDiff(d.currAcc.size, d.prevAcc.size),
-      })),
-      {
-        group: "Total",
-        prevCount: totalPrevCount,
-        currCount: totalCurrCount,
-        countDiff: formatDiff(totalCurrCount, totalPrevCount),
-        prevRev: formatRevenue(totalPrevRev),
-        currRev: formatRevenue(totalCurrRev),
-        revDiff: formatDiff(totalCurrRev, totalPrevRev),
-        prevAcc: totalPrevAccSet.size,
-        currAcc: totalCurrAccSet.size,
-        accDiff: formatDiff(totalCurrAccSet.size, totalPrevAccSet.size),
-      },
+      ...performanceData.map((d) => {
+        const revDiff = formatRevenueDiff(d.currRev, d.prevRev);
+        return {
+          group: d.group,
+          prevCount: d.prevCount,
+          currCount: d.currCount,
+          countDiff: formatDiff(d.currCount, d.prevCount),
+          prevRev: formatRevenue(d.prevRev),
+          currRev: formatRevenue(d.currRev),
+          revDiff: revDiff.display,
+          revDiffNumeric: revDiff.value,
+          prevAcc: d.prevAcc.size,
+          currAcc: d.currAcc.size,
+          accDiff: formatDiff(d.currAcc.size, d.prevAcc.size),
+        };
+      }),
+      (() => {
+        const revDiff = formatRevenueDiff(totalCurrRev, totalPrevRev);
+        return {
+          group: "Total",
+          prevCount: totalPrevCount,
+          currCount: totalCurrCount,
+          countDiff: formatDiff(totalCurrCount, totalPrevCount),
+          prevRev: formatRevenue(totalPrevRev),
+          currRev: formatRevenue(totalCurrRev),
+          revDiff: revDiff.display,
+          revDiffNumeric: revDiff.value,
+          prevAcc: totalPrevAccSet.size,
+          currAcc: totalCurrAccSet.size,
+          accDiff: formatDiff(totalCurrAccSet.size, totalPrevAccSet.size),
+        };
+      })(),
     ];
   }, [
     rawAllMandates,
@@ -3488,7 +3508,7 @@ export default function Dashboard() {
         </Button>
         
         <div className="flex items-center gap-4">
-        {isSuperAdmin && (
+        {canSelectAllTeams && (
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Team</span>
             <Select
@@ -3539,6 +3559,11 @@ export default function Dashboard() {
           </SelectContent>
         </Select>
 
+        {!canSelectAllTeams && dashboardLobOptions.length === 1 ? (
+          <div className="flex h-9 min-w-[200px] items-center rounded-md border bg-muted/50 px-3 text-sm">
+            <span className="truncate">{dashboardLobOptions[0]}</span>
+          </div>
+        ) : (
         <Popover open={lobFilterOpen} onOpenChange={setLobFilterOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -3648,6 +3673,7 @@ export default function Dashboard() {
             </Command>
           </PopoverContent>
         </Popover>
+        )}
 
         {/* Status Filter */}
         <Select value={filterUpsellStatus} onValueChange={(value) => setFilterUpsellStatus(value)}>
@@ -5126,25 +5152,27 @@ export default function Dashboard() {
                 </TableRow>
               ) : (
                 upsellPerformance.map((row, idx) => {
-                  const getDiffColor = (diff: string) => {
-                    const numValue = parseInt(diff);
+                  const getDiffColor = (numValue: number) => {
                     if (numValue > 0) return "text-green-600 font-semibold";
                     if (numValue < 0) return "text-red-600 font-semibold";
                     return "text-yellow-600 font-semibold";
                   };
+
+                  const countDiffNum = row.currCount - row.prevCount;
+                  const accDiffNum = row.currAcc - row.prevAcc;
 
                   return (
                     <TableRow key={idx}>
                       <TableCell className="font-medium">{row.group}</TableCell>
                       <TableCell>{row.prevCount}</TableCell>
                       <TableCell>{row.currCount}</TableCell>
-                      <TableCell className={`${getDiffColor(row.countDiff)} border-r`}>{row.countDiff}</TableCell>
+                      <TableCell className={`${getDiffColor(countDiffNum)} border-r`}>{row.countDiff}</TableCell>
                       <TableCell>{row.prevRev}</TableCell>
                       <TableCell>{row.currRev}</TableCell>
-                      <TableCell className={`${getDiffColor(row.revDiff)} border-r`}>{row.revDiff}</TableCell>
+                      <TableCell className={`${getDiffColor(row.revDiffNumeric)} border-r`}>{row.revDiff}</TableCell>
                       <TableCell>{row.prevAcc}</TableCell>
                       <TableCell>{row.currAcc}</TableCell>
-                      <TableCell className={getDiffColor(row.accDiff)}>{row.accDiff}</TableCell>
+                      <TableCell className={getDiffColor(accDiffNum)}>{row.accDiff}</TableCell>
                     </TableRow>
                   );
                 })

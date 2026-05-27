@@ -28,6 +28,8 @@ function roleLabel(role: UserRole | undefined): string {
       return "Leadership";
     case "superadmin":
       return "Super Admin";
+    case "team_admin":
+      return "Team Admin";
     case "nso":
       return "NSO";
     default:
@@ -35,7 +37,7 @@ function roleLabel(role: UserRole | undefined): string {
   }
 }
 
-const APP_ROLES: UserRole[] = ["kam", "manager", "leadership", "superadmin", "nso"];
+const APP_ROLES: UserRole[] = ["kam", "manager", "leadership", "superadmin", "team_admin", "nso"];
 
 function coerceAppRole(value: unknown): UserRole | undefined {
   if (typeof value !== "string") return undefined;
@@ -60,7 +62,7 @@ export function AppSidebar() {
     isKAM,
     isManager,
     isLeadership,
-    isSuperAdmin,
+    isAdminUser,
     signOut,
     user,
     userRoles,
@@ -131,12 +133,12 @@ export function AppSidebar() {
       title: "User Management",
       url: "/admin/users",
       icon: UserCog,
-      roles: ["superadmin"],
+      roles: ["superadmin", "team_admin"],
     },
   ];
 
   const canAccessItem = (itemRoles: string[]) => {
-    if (isSuperAdmin) return true;
+    if (isAdminUser) return true;
     if (resolvedRole === "nso" && itemRoles.includes("nso")) return true;
     if (isLeadership && itemRoles.includes("leadership")) return true;
     if (isManager && itemRoles.includes("manager")) return true;
@@ -197,7 +199,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {isSuperAdmin && (
+        {isAdminUser && (
           <SidebarGroup>
             <SidebarGroupLabel>Administration</SidebarGroupLabel>
             <SidebarGroupContent>

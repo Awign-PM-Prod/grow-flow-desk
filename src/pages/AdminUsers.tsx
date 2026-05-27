@@ -1,46 +1,59 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth, type Team } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserCog, Loader2, Mail, Users } from "lucide-react";
+import { Search, UserCog, Loader2, Mail, Users, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { InviteUserDialog } from "@/components/InviteUserDialog";
 import { EditUserDialog } from "@/components/EditUserDialog";
+import { DeleteUserDialog } from "@/components/DeleteUserDialog";
 import { UserInviteInfo } from "@/components/UserInviteInfo";
 
 interface UserData {
   id: string;
   email: string;
   full_name?: string;
-  role: string;
-  team: string;
+  role: string | null;
+  team: string | null;
   created_at: string;
   last_sign_in_at?: string;
 }
 
+function formatTeamCell(user: UserData): string {
+  if (user.role === "superadmin") return "—";
+  return user.team || "—";
+}
+
 export default function AdminUsers() {
   const navigate = useNavigate();
-  const { isSuperAdmin, loading: authLoading } = useAuth();
+  const { canManageUsers, isSuperAdmin, isTeamAdmin, team: adminTeam, loading: authLoading } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [teamFilter, setTeamFilter] = useState<"all" | "ce" | "staffing" | "experts">("all");
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deletingUser, setDeletingUser] = useState<UserData | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sendingResetEmail, setSendingResetEmail] = useState<string | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (isTeamAdmin && adminTeam) {
+      setTeamFilter(adminTeam);
+    }
+  }, [isTeamAdmin, adminTeam]);
 
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      
-      // Fetch all profiles with their roles
+
       const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
         .select("id, email, full_name, created_at, role, team");
@@ -53,21 +66,18 @@ export default function AdminUsers() {
         return;
       }
 
-      // Map profiles to users data
-      const usersData: UserData[] = profiles.map(profile => {
-        return {
-          id: profile.id,
-          email: profile.email,
-          full_name: profile.full_name || undefined,
-          role: profile.role || "No Role",
-          team: profile.team || "unknown",
-          created_at: profile.created_at,
-          last_sign_in_at: undefined,
-        };
-      });
+      const usersData: UserData[] = profiles.map((profile) => ({
+        id: profile.id,
+        email: profile.email,
+        full_name: profile.full_name || undefined,
+        role: profile.role,
+        team: profile.team,
+        created_at: profile.created_at,
+        last_sign_in_at: undefined,
+      }));
 
       setUsers(usersData);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error fetching users:", error);
       toast({
         title: "Error",
@@ -81,14 +91,14 @@ export default function AdminUsers() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isSuperAdmin) {
+    if (!canManageUsers) {
       navigate("/dashboard", { replace: true });
       return;
     }
     fetchUsers();
-  }, [authLoading, isSuperAdmin, navigate]);
+  }, [authLoading, canManageUsers, navigate]);
 
-  if (authLoading || !isSuperAdmin) {
+  if (authLoading || !canManageUsers) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -96,7 +106,15 @@ export default function AdminUsers() {
     );
   }
 
-  const filteredUsers = users.filter((user) => {
+  const visibleUsers = users.filter((user) => {
+    if (isTeamAdmin) {
+      if (user.role === "superadmin") return false;
+      if (adminTeam && user.team !== adminTeam) return false;
+    }
+    return true;
+  });
+
+  const filteredUsers = visibleUsers.filter((user) => {
     const matchesSearch =
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (user.full_name && user.full_name.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -104,17 +122,26 @@ export default function AdminUsers() {
     return matchesSearch && matchesTeam;
   });
 
-  const getRoleBadge = (role: string) => {
+  const getRoleBadge = (role: string | null) => {
+    if (!role) {
+      return <Badge variant="destructive">No Role</Badge>;
+    }
     const variants: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
       superadmin: { label: "Super Admin", variant: "default" },
+      team_admin: { label: "Team Admin", variant: "default" },
       leadership: { label: "Leadership", variant: "secondary" },
       manager: { label: "Manager", variant: "outline" },
       kam: { label: "KAM", variant: "outline" },
       nso: { label: "NSO", variant: "secondary" },
     };
-    
-    const roleConfig = variants[role] || { label: role, variant: "destructive" };
+
+    const roleConfig = variants[role] || { label: role, variant: "destructive" as const };
     return <Badge variant={roleConfig.variant}>{roleConfig.label}</Badge>;
+  };
+
+  const handleDeleteUser = (user: UserData) => {
+    setDeletingUser(user);
+    setDeleteDialogOpen(true);
   };
 
   const handleEditUser = (user: UserData) => {
@@ -144,11 +171,11 @@ export default function AdminUsers() {
         title: "Success!",
         description: `Password reset link sent to ${user.email}`,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error sending password reset:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to send password reset link",
+        description: error instanceof Error ? error.message : "Failed to send password reset link",
         variant: "destructive",
       });
     } finally {
@@ -156,25 +183,35 @@ export default function AdminUsers() {
     }
   };
 
+  const lockedTeam = isTeamAdmin ? (adminTeam as Team | null) : null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
           <p className="text-muted-foreground">
-            Manage users and their role assignments.
+            {isTeamAdmin
+              ? `Manage users on the ${adminTeam?.toUpperCase() ?? ""} team.`
+              : "Manage users and their role assignments."}
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => navigate("/admin/nso")}
-          >
-            <Users className="h-4 w-4" />
-            NSO users
-          </Button>
-          <InviteUserDialog onUserInvited={fetchUsers} />
+          {isSuperAdmin && (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => navigate("/admin/nso")}
+            >
+              <Users className="h-4 w-4" />
+              NSO users
+            </Button>
+          )}
+          <InviteUserDialog
+            onUserInvited={fetchUsers}
+            lockedTeam={lockedTeam}
+            isGlobalAdmin={isSuperAdmin}
+          />
         </div>
       </div>
 
@@ -183,19 +220,21 @@ export default function AdminUsers() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>All Users</CardTitle>
+            <CardTitle>{isTeamAdmin ? "Team Users" : "All Users"}</CardTitle>
             <div className="flex items-center gap-3">
-              <Select value={teamFilter} onValueChange={(v) => setTeamFilter(v as any)}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Team" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All teams</SelectItem>
-                  <SelectItem value="ce">CE</SelectItem>
-                  <SelectItem value="staffing">Staffing</SelectItem>
-                  <SelectItem value="experts">Experts</SelectItem>
-                </SelectContent>
-              </Select>
+              {isSuperAdmin && (
+                <Select value={teamFilter} onValueChange={(v) => setTeamFilter(v as typeof teamFilter)}>
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue placeholder="Team" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All teams</SelectItem>
+                    <SelectItem value="ce">CE</SelectItem>
+                    <SelectItem value="staffing">Staffing</SelectItem>
+                    <SelectItem value="experts">Experts</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
               <div className="relative w-64">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -246,17 +285,17 @@ export default function AdminUsers() {
                       </TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell>{getRoleBadge(user.role)}</TableCell>
-                      <TableCell className="capitalize">{user.team}</TableCell>
+                      <TableCell className="capitalize">{formatTeamCell(user)}</TableCell>
                       <TableCell>
-                        {user.last_sign_in_at 
+                        {user.last_sign_in_at
                           ? new Date(user.last_sign_in_at).toLocaleDateString()
                           : "Never"}
                       </TableCell>
                       <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button 
-                            variant="ghost" 
+                          <Button
+                            variant="ghost"
                             size="sm"
                             onClick={() => handleEditUser(user)}
                           >
@@ -277,6 +316,15 @@ export default function AdminUsers() {
                               </>
                             )}
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteUser(user)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Delete
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -293,6 +341,16 @@ export default function AdminUsers() {
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
         onUserUpdated={fetchUsers}
+        lockedTeam={lockedTeam}
+        isGlobalAdmin={isSuperAdmin}
+      />
+
+      <DeleteUserDialog
+        user={deletingUser}
+        allUsers={visibleUsers}
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onUserDeleted={fetchUsers}
       />
     </div>
   );

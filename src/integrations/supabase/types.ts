@@ -557,6 +557,7 @@ export type Database = {
           spoc3_id: string | null
           status: Database["public"]["Enums"]["pipeline_status"]
           sub_use_case: Database["public"]["Enums"]["sub_use_case"]
+          tentative_project_name: string | null
           updated_at: string
           use_case: Database["public"]["Enums"]["use_case"]
         }
@@ -593,6 +594,7 @@ export type Database = {
           spoc3_id?: string | null
           status?: Database["public"]["Enums"]["pipeline_status"]
           sub_use_case: Database["public"]["Enums"]["sub_use_case"]
+          tentative_project_name?: string | null
           updated_at?: string
           use_case: Database["public"]["Enums"]["use_case"]
         }
@@ -629,6 +631,7 @@ export type Database = {
           spoc3_id?: string | null
           status?: Database["public"]["Enums"]["pipeline_status"]
           sub_use_case?: Database["public"]["Enums"]["sub_use_case"]
+          tentative_project_name?: string | null
           updated_at?: string
           use_case?: Database["public"]["Enums"]["use_case"]
         }
@@ -714,7 +717,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "kam" | "manager" | "leadership" | "superadmin" | "nso"
+      app_role: "kam" | "manager" | "leadership" | "superadmin" | "team_admin" | "nso"
       awign_share_percent: "Below 70%" | "70% & Above"
       client_budget_trend: "Increase" | "Same" | "Decrease"
       company_size_tier: "Tier 1" | "Tier 2"
@@ -921,7 +924,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["kam", "manager", "leadership", "superadmin", "nso"],
+      app_role: ["kam", "manager", "leadership", "superadmin", "team_admin", "nso"],
       awign_share_percent: ["Below 70%", "70% & Above"],
       client_budget_trend: ["Increase", "Same", "Decrease"],
       company_size_tier: ["Tier 1", "Tier 2"],

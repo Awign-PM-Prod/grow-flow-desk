@@ -57,6 +57,13 @@ import {
   computeStaffingGrossMarginTypeB,
   computeStaffingGrossMarginTypeC,
 } from "@/lib/staffingGrossMargin";
+import {
+  getAllowedLobOptions,
+  getFixedLobForTeam,
+  normalizeLobForTeam,
+  resolveTeamFromLob,
+} from "@/lib/teamLob";
+import { LobFormField } from "@/components/LobFormField";
 import type { Json } from "@/integrations/supabase/types";
 
 type ViewMode = "form" | "view";
@@ -277,22 +284,6 @@ const extractYearFromFinancialYear = (financialYear: string): number => {
   return match ? parseInt(match[1], 10) : new Date().getFullYear();
 };
 
-const normalizeLobForTeam = (lob: string | null | undefined): string => {
-  return (lob || "").toLowerCase().trim().replace(/\s+/g, " ");
-};
-
-const resolveTeamFromLob = (
-  lob: string | null | undefined
-): "ce" | "staffing" | "experts" => {
-  const normalizedLob = normalizeLobForTeam(lob);
-  if (normalizedLob === "staffing") {
-    return "staffing";
-  }
-  if (normalizedLob === "awign expert" || normalizedLob === "awign experts") {
-    return "experts";
-  }
-  return "ce";
-};
 
 const normalizeMandateLabel = (value: string | null | undefined): string => {
   return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -322,12 +313,12 @@ const calculateRevenueSectionType = (
 };
 
 export default function Mandates() {
-  const { user, hasRole, canMutatePortal, team } = useAuth();
+  const { user, hasRole, canMutatePortal, team, canSelectAllTeams } = useAuth();
   const isKAM = hasRole("kam");
   const isNSO = hasRole("nso");
-  const isSuperAdmin = hasRole("superadmin");
+  const isGlobalAdmin = hasRole("superadmin");
   const canToggleMandateLifecycle =
-    hasRole("superadmin") || hasRole("manager") || hasRole("kam");
+    hasRole("superadmin") || hasRole("team_admin") || hasRole("manager") || hasRole("kam");
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
@@ -443,29 +434,17 @@ export default function Mandates() {
   const [mcvCsvFileToUpload, setMcvCsvFileToUpload] = useState<File | null>(null);
 
   const allLobOptions = useMemo(() => Object.keys(lobUseCaseMapping), []);
-  const allowedLobOptions = useMemo(() => {
-    if (isSuperAdmin || !isKAM) return allLobOptions;
+  const allowedLobOptions = useMemo(
+    () => getAllowedLobOptions(allLobOptions, team, canSelectAllTeams),
+    [allLobOptions, team, canSelectAllTeams],
+  );
 
-    if (team === "staffing") {
-      return allLobOptions.filter((lob) => normalizeLobForTeam(lob) === "staffing");
+  const filterLobOptions = useMemo(() => {
+    if (canSelectAllTeams) {
+      return availableLobs.length > 0 ? availableLobs : allowedLobOptions;
     }
-
-    if (team === "experts") {
-      return allLobOptions.filter((lob) => {
-        const normalizedLob = normalizeLobForTeam(lob);
-        return normalizedLob === "awign expert" || normalizedLob === "awign experts";
-      });
-    }
-
-    if (team === "ce") {
-      return allLobOptions.filter((lob) => {
-        const normalizedLob = normalizeLobForTeam(lob);
-        return normalizedLob !== "staffing" && normalizedLob !== "awign expert" && normalizedLob !== "awign experts";
-      });
-    }
-
-    return allLobOptions;
-  }, [allLobOptions, isKAM, isSuperAdmin, team]);
+    return allowedLobOptions;
+  }, [canSelectAllTeams, availableLobs, allowedLobOptions]);
 
   const isStaffingLobSelected = normalizeLobForTeam(formData.lob) === "staffing";
   const staffingNeedsSubUseCase = isStaffingLobSelected && formData.useCase === "Retail Branding";
@@ -840,6 +819,20 @@ export default function Mandates() {
       }));
     }
   }, [allowedLobOptions, formData.lob]);
+
+  // Prefill LoB for staffing / experts teams (no dropdown)
+  useEffect(() => {
+    const fixed = getFixedLobForTeam(team, canSelectAllTeams);
+    if (!fixed || !formDialogOpen) return;
+    if (formData.lob !== fixed) {
+      setFormData((prev) => ({
+        ...prev,
+        lob: fixed,
+        useCase: "",
+        subUseCase: "",
+      }));
+    }
+  }, [team, canSelectAllTeams, formDialogOpen, formData.lob]);
 
   // Reset Sub Use Case when Use Case changes
   useEffect(() => {
@@ -3211,7 +3204,7 @@ export default function Mandates() {
     filterUpsellStatus !== "all" ||
     filterRetentionType !== "all" ||
     filterLifecycleStatus !== "all" ||
-    (isSuperAdmin && filterTeam !== "all");
+    (canSelectAllTeams && filterTeam !== "all");
 
   return (
     <div className="space-y-6">
@@ -3344,27 +3337,19 @@ export default function Mandates() {
                       required
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lob">
-                      LoB (Vertical) <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.lob}
-                      onValueChange={(value) => handleInputChange("lob", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select LoB" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {allowedLobOptions.map((lob) => (
-                          <SelectItem key={lob} value={lob}>
-                            {lob}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <LobFormField
+                    id="lob"
+                    label={
+                      <>
+                        LoB (Vertical) <span className="text-destructive">*</span>
+                      </>
+                    }
+                    value={formData.lob}
+                    onChange={(value) => handleInputChange("lob", value)}
+                    allowedLobOptions={allowedLobOptions}
+                    team={team}
+                    isGlobalAdmin={canSelectAllTeams}
+                  />
                   <div className="space-y-2">
                     <Label htmlFor="projectName">
                       Project Name <span className="text-destructive">*</span>
@@ -4237,7 +4222,7 @@ export default function Mandates() {
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="space-y-3">
-              <div className={`grid grid-cols-1 md:grid-cols-3 ${isSuperAdmin ? "lg:grid-cols-10" : "lg:grid-cols-9"} gap-3`}>
+              <div className={`grid grid-cols-1 md:grid-cols-3 ${canSelectAllTeams ? "lg:grid-cols-10" : "lg:grid-cols-9"} gap-3`}>
               <Input
                   placeholder="Search all fields..."
                 value={searchTerm}
@@ -4384,7 +4369,7 @@ export default function Mandates() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All LoB</SelectItem>
-                    {availableLobs.map((lob) => (
+                    {filterLobOptions.map((lob) => (
                       <SelectItem key={lob} value={lob}>
                         {lob}
                       </SelectItem>
@@ -4447,7 +4432,7 @@ export default function Mandates() {
                     <SelectItem value="Inactive">Inactive Mandates</SelectItem>
                   </SelectContent>
                 </Select>
-                {isSuperAdmin && (
+                {canSelectAllTeams && (
                   <Select value={filterTeam} onValueChange={(value) => setFilterTeam(value as "all" | "ce" | "staffing" | "experts")}>
                     <SelectTrigger className={`text-left ${filterTeam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                       <SelectValue placeholder="All Teams" />
@@ -4822,25 +4807,28 @@ export default function Mandates() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">LoB (Vertical):</Label>
                       {isEditMode ? (
-                        <Select
+                        <LobFormField
+                          label={
+                            <span className="font-medium text-muted-foreground">
+                              LoB (Vertical):
+                            </span>
+                          }
                           value={editMandateData.lob}
-                          onValueChange={(value) => setEditMandateData({ ...editMandateData, lob: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select LoB" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {allowedLobOptions.map((lob) => (
-                              <SelectItem key={lob} value={lob}>
-                                {lob}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          onChange={(value) =>
+                            setEditMandateData({ ...editMandateData, lob: value })
+                          }
+                          allowedLobOptions={allowedLobOptions}
+                          team={team}
+                          isGlobalAdmin={canSelectAllTeams}
+                        />
                       ) : (
-                        <p className="mt-1">{selectedMandate.lob || "N/A"}</p>
+                        <>
+                          <Label className="font-medium text-muted-foreground">
+                            LoB (Vertical):
+                          </Label>
+                          <p className="mt-1">{selectedMandate.lob || "N/A"}</p>
+                        </>
                       )}
                     </div>
                     <div className="space-y-2">

@@ -5,3 +5,9 @@ verify_jwt = true
 
 [functions.send-password-reset]
 verify_jwt = true
+
+[functions.update-user]
+verify_jwt = true
+
+[functions.delete-user]
+verify_jwt = true

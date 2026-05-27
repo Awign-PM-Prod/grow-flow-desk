@@ -69,7 +69,7 @@ const normalizeTeamValue = (
 
 export function OverallTargetsTab() {
   const { filterFinancialYear, selectedTeam } = useOutletContext<TargetsOutletContext>();
-  const { canMutatePortal, isSuperAdmin, team: userTeam } = useAuth();
+  const { canMutatePortal, canSelectAllTeams, team: userTeam } = useAuth();
   const { toast } = useToast();
 
   const [rows, setRows] = useState<ManagerTargetRow[]>([]);
@@ -96,9 +96,9 @@ export function OverallTargetsTab() {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const effectiveTeam =
-    isSuperAdmin && selectedTeam !== "all" ? selectedTeam : userTeam;
+    canSelectAllTeams && selectedTeam !== "all" ? selectedTeam : userTeam;
   const canMutateToolbar = canMutatePortal;
-  const canMutateRows = canMutatePortal && !(isSuperAdmin && selectedTeam === "all");
+  const canMutateRows = canMutatePortal && !(canSelectAllTeams && selectedTeam === "all");
 
   const monthColumns = useMemo(
     () => getFinancialYearMonths(filterFinancialYear),

@@ -13,8 +13,8 @@ const corsHeaders = {
 interface InviteUserRequest {
   email: string;
   full_name: string;
-  role: "kam" | "manager" | "leadership" | "superadmin" | "nso";
-  team: "ce" | "staffing" | "experts";
+  role: "kam" | "manager" | "leadership" | "superadmin" | "team_admin" | "nso";
+  team?: "ce" | "staffing" | "experts" | null;
   password: string;
 }
 
@@ -49,39 +49,58 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Unauthorized");
     }
 
-    // Check if user has superadmin role
     const { data: userProfile, error: roleError } = await supabaseAdmin
       .from("profiles")
-      .select("role")
+      .select("role, team")
       .eq("id", user.id)
       .single();
 
-    if (roleError || userProfile?.role !== "superadmin") {
-      throw new Error("Only superadmins can invite users");
+    const callerRole = userProfile?.role;
+    const isGlobalAdmin = callerRole === "superadmin";
+    const isTeamAdmin = callerRole === "team_admin";
+
+    if (roleError || (!isGlobalAdmin && !isTeamAdmin)) {
+      throw new Error("Only admins can invite users");
     }
 
     const { email, full_name, role, team, password }: InviteUserRequest = await req.json();
 
     console.log("Inviting user:", { email, full_name, role, team });
 
-    // Validate input
-    if (!email || !full_name || !role || !team || !password) {
+    if (!email || !full_name || !role || !password) {
       throw new Error("Missing required fields");
     }
 
-    // Validate password length
     if (password.length < 8) {
       throw new Error("Password must be at least 8 characters");
     }
 
-    const validRoles = ["kam", "manager", "leadership", "superadmin", "nso"];
+    const validRoles = ["kam", "manager", "leadership", "superadmin", "team_admin", "nso"];
     if (!validRoles.includes(role)) {
       throw new Error("Invalid role");
     }
 
+    if (!isGlobalAdmin) {
+      if (role === "superadmin") {
+        throw new Error("Team admins cannot invite super admin users");
+      }
+    }
+
+    const resolvedTeam =
+      role === "superadmin"
+        ? null
+        : isGlobalAdmin
+        ? team ?? null
+        : userProfile?.team ?? null;
+
     const validTeams = ["ce", "staffing", "experts"];
-    if (!validTeams.includes(team)) {
-      throw new Error("Invalid team");
+    if (role !== "superadmin") {
+      if (!resolvedTeam || !validTeams.includes(resolvedTeam)) {
+        throw new Error("A valid team is required for this role");
+      }
+      if (!isGlobalAdmin && resolvedTeam !== userProfile?.team) {
+        throw new Error("Team admins can only invite users to their own team");
+      }
     }
 
     // Check if user already exists.
@@ -129,7 +148,7 @@ const handler = async (req: Request): Promise<Response> => {
       user_metadata: {
         full_name,
         role,
-        team,
+        team: resolvedTeam,
       },
     });
 
@@ -152,7 +171,7 @@ const handler = async (req: Request): Promise<Response> => {
           email,
           full_name,
           role,
-          team,
+          team: resolvedTeam,
         },
         { onConflict: "id" },
       );
@@ -181,11 +200,12 @@ const handler = async (req: Request): Promise<Response> => {
     console.log("Verify URL:", verifyUrl);
 
     // Send invitation email
-    const roleLabels: Record<InviteUserRequest["role"], string> = {
+    const roleLabels: Record<string, string> = {
       kam: "Key Account Manager",
       manager: "Manager",
       leadership: "Leadership",
       superadmin: "Super Admin",
+      team_admin: "Team Admin",
       nso: "New Sales Officer",
     };
 

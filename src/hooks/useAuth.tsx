@@ -12,7 +12,7 @@ import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 
-export type UserRole = "kam" | "manager" | "leadership" | "superadmin" | "nso";
+export type UserRole = "kam" | "manager" | "leadership" | "superadmin" | "team_admin" | "nso";
 export type Team = "ce" | "staffing" | "experts";
 
 /** Map profiles.role (or JWT metadata) to a canonical app role. */
@@ -26,6 +26,7 @@ function normalizeProfileRole(raw: unknown): UserRole | null {
   if (compact === "manager") return "manager";
   if (compact === "leadership") return "leadership";
   if (compact === "superadmin") return "superadmin";
+  if (compact === "teamadmin") return "team_admin";
   if (compact === "nso") return "nso";
   return null;
 }
@@ -47,7 +48,16 @@ export type AuthContextValue = {
   loading: boolean;
   signOut: () => Promise<void>;
   hasRole: (role: UserRole) => boolean;
+  /** Global superadmin — all teams */
   isSuperAdmin: boolean;
+  /** Team-scoped admin — same powers as superadmin within assigned team */
+  isTeamAdmin: boolean;
+  /** Superadmin or team admin */
+  isAdminUser: boolean;
+  /** Can open user management (superadmin: all teams; team admin: own team) */
+  canManageUsers: boolean;
+  /** Can pick "All teams" in team filters (superadmin only) */
+  canSelectAllTeams: boolean;
   isLeadership: boolean;
   isManager: boolean;
   isKAM: boolean;
@@ -253,13 +263,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo((): AuthContextValue => {
     const isSuperAdmin = hasRole("superadmin");
+    const isTeamAdmin = hasRole("team_admin");
+    const isAdminUser = isSuperAdmin || isTeamAdmin;
     const sessionRole = roleFromSessionUser(user);
     const readOnlyFromSession =
       userRoles.length === 0 &&
       (sessionRole === "leadership" || sessionRole === "nso");
     const isNSO = hasRole("nso");
     const isReadOnlyLeadership =
-      !isSuperAdmin &&
+      !isAdminUser &&
       (hasRole("leadership") || isNSO || readOnlyFromSession);
     return {
       user,
@@ -271,13 +283,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       hasRole,
       isSuperAdmin,
+      isTeamAdmin,
+      isAdminUser,
+      canManageUsers: isAdminUser,
+      canSelectAllTeams: isSuperAdmin,
       isLeadership: hasRole("leadership") || isSuperAdmin,
-      isManager: hasRole("manager") || hasRole("leadership") || isSuperAdmin,
+      isManager: hasRole("manager") || hasRole("leadership") || isSuperAdmin || isTeamAdmin,
       isKAM:
         hasRole("kam") ||
         hasRole("manager") ||
         hasRole("leadership") ||
-        isSuperAdmin,
+        isSuperAdmin ||
+        isTeamAdmin,
       isReadOnlyLeadership,
       isNSO,
       canMutatePortal: !loading && !isReadOnlyLeadership,
