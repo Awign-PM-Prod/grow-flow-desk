@@ -32,7 +32,7 @@ export function resolveTeamFromLob(
   return "ce";
 }
 
-/** Superadmin: all LoBs. CE: exclude Staffing & Awign Expert. Staffing/Experts: single LoB. */
+/** Superadmin: all LoBs. CE: all except Awign Expert (includes Staffing). Staffing/Experts: single LoB. */
 export function getAllowedLobOptions(
   allLobs: readonly string[],
   team: Team | null,
@@ -56,11 +56,41 @@ export function getAllowedLobOptions(
   if (team === "ce") {
     return allLobs.filter((lob) => {
       const n = normalizeLobForTeam(lob);
-      return n !== "staffing" && n !== "awign expert" && n !== "awign experts";
+      return n !== "awign expert" && n !== "awign experts";
     });
   }
 
   return [...allLobs];
+}
+
+export function isValidTeam(value: string | null | undefined): value is Team {
+  return value === "ce" || value === "staffing" || value === "experts";
+}
+
+/** Mandate team from creator profile (KAM) or selected KAM (admin/manager). */
+export function resolveMandateTeam(args: {
+  creatorIsKam: boolean;
+  creatorTeam: Team | null;
+  selectedKamId: string | null | undefined;
+  kamTeamById: Record<string, Team | null | undefined>;
+}): Team | null {
+  if (args.creatorIsKam) {
+    return args.creatorTeam;
+  }
+  const kamId = args.selectedKamId?.trim();
+  if (kamId) {
+    const kamTeam = args.kamTeamById[kamId];
+    if (isValidTeam(kamTeam)) {
+      return kamTeam;
+    }
+  }
+  return args.creatorTeam;
+}
+
+export function shouldShowStaffingMandateFields(
+  effectiveTeam: Team | null,
+): boolean {
+  return effectiveTeam === "staffing";
 }
 
 /** When set, LoB is fixed (no dropdown) for staffing / experts teams. */
@@ -81,6 +111,37 @@ export function isLobLockedForTeam(
   return getFixedLobForTeam(team, isGlobalAdmin) !== null;
 }
 
+/** LoB list for dashboard charts and LoB filter, scoped by team selector (admin) or user team. */
+export function getChartLobOptionsForDashboard(
+  allLobs: readonly string[],
+  args: {
+    canSelectAllTeams: boolean;
+    selectedTeam: "all" | Team | null;
+    userTeam: Team | null;
+  },
+): string[] {
+  const { canSelectAllTeams, selectedTeam, userTeam } = args;
+  if (canSelectAllTeams) {
+    if (selectedTeam === "all" || !selectedTeam) {
+      return [...allLobs];
+    }
+    return getAllowedLobOptions(allLobs, selectedTeam, false);
+  }
+  return getAllowedLobOptions(allLobs, userTeam, false);
+}
+
+/** Dashboard LoB filter categories; when admin picks a team, only that team's category. */
+export function getLobDashboardCategoriesForFilter(
+  userTeam: Team | null,
+  canSelectAllTeams: boolean,
+  selectedTeam: "all" | Team | null,
+): { id: string; label: string; lobs: string[] }[] {
+  if (canSelectAllTeams && selectedTeam && selectedTeam !== "all") {
+    return getLobDashboardCategories(selectedTeam, false);
+  }
+  return getLobDashboardCategories(userTeam, canSelectAllTeams);
+}
+
 /** Dashboard LoB filter categories scoped by team. */
 export function getLobDashboardCategories(
   team: Team | null,
@@ -92,9 +153,7 @@ export function getLobDashboardCategories(
     {
       id: "ce",
       label: "CE",
-      lobs: ALL_LOB_OPTIONS.filter(
-        (l) => l !== STAFFING_LOB && l !== EXPERTS_LOB,
-      ),
+      lobs: ALL_LOB_OPTIONS.filter((l) => l !== EXPERTS_LOB),
     },
   ];
 

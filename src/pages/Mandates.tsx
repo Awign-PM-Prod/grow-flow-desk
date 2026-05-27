@@ -57,11 +57,14 @@ import {
   computeStaffingGrossMarginTypeB,
   computeStaffingGrossMarginTypeC,
 } from "@/lib/staffingGrossMargin";
+import type { Team } from "@/hooks/useAuth";
 import {
   getAllowedLobOptions,
   getFixedLobForTeam,
+  isValidTeam,
   normalizeLobForTeam,
-  resolveTeamFromLob,
+  resolveMandateTeam,
+  shouldShowStaffingMandateFields,
 } from "@/lib/teamLob";
 import { LobFormField } from "@/components/LobFormField";
 import type { Json } from "@/integrations/supabase/types";
@@ -322,7 +325,9 @@ export default function Mandates() {
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
-  const [kams, setKams] = useState<{ id: string; full_name: string }[]>([]);
+  const [kams, setKams] = useState<
+    { id: string; full_name: string; team: Team | null }[]
+  >([]);
   const [nsos, setNsos] = useState<{ id: string; email: string; full_name: string | null }[]>([]);
   const [formData, setFormData] = useState<MandateFormData>({
     projectCode: "",
@@ -446,11 +451,48 @@ export default function Mandates() {
     return allowedLobOptions;
   }, [canSelectAllTeams, availableLobs, allowedLobOptions]);
 
+  const kamTeamById = useMemo(() => {
+    const map: Record<string, Team | null> = {};
+    kams.forEach((kam) => {
+      map[kam.id] = isValidTeam(kam.team) ? kam.team : null;
+    });
+    return map;
+  }, [kams]);
+
+  const createEffectiveTeam = useMemo(
+    () =>
+      resolveMandateTeam({
+        creatorIsKam: isKAM,
+        creatorTeam: team,
+        selectedKamId: formData.kamId,
+        kamTeamById,
+      }),
+    [isKAM, team, formData.kamId, kamTeamById],
+  );
+
+  const editEffectiveTeam = useMemo(
+    () =>
+      editMandateData
+        ? resolveMandateTeam({
+            creatorIsKam: isKAM,
+            creatorTeam: team,
+            selectedKamId: editMandateData.kamId,
+            kamTeamById,
+          })
+        : null,
+    [isKAM, team, editMandateData, kamTeamById],
+  );
+
+  const showStaffingMandateFields = shouldShowStaffingMandateFields(
+    createEffectiveTeam,
+  );
+
   const isStaffingLobSelected = normalizeLobForTeam(formData.lob) === "staffing";
-  const staffingNeedsSubUseCase = isStaffingLobSelected && formData.useCase === "Retail Branding";
+  const staffingNeedsSubUseCase =
+    isStaffingLobSelected && formData.useCase === "Retail Branding";
   /** Staffing revenue fields depend on use case / sub use case; other form sections stay visible. */
   const staffingRevenueReady =
-    !isStaffingLobSelected ||
+    !showStaffingMandateFields ||
     (!!formData.useCase && (!staffingNeedsSubUseCase || !!formData.subUseCase));
   const staffingRevenueSectionType =
     calculateRevenueSectionType(formData.useCase, formData.subUseCase) || "";
@@ -539,12 +581,18 @@ export default function Mandates() {
         // Fetch KAMs (users with kam role)
         const { data: kamData, error: kamError } = await supabase
           .from("profiles")
-          .select("id, full_name")
+          .select("id, full_name, team")
           .eq("role", "kam")
           .order("full_name");
 
         if (kamData && !kamError) {
-          setKams(kamData);
+          setKams(
+            kamData.map((kam) => ({
+              id: kam.id,
+              full_name: kam.full_name || "Unknown",
+              team: isValidTeam(kam.team) ? kam.team : null,
+            })),
+          );
         } else {
           // If no KAMs found or error, set empty array
           setKams([]);
@@ -590,7 +638,7 @@ export default function Mandates() {
 
   useEffect(() => {
     if (
-      isStaffingLobSelected &&
+      showStaffingMandateFields &&
       staffingRevenueReady &&
       (staffingRevenueSectionType === "A" ||
         staffingRevenueSectionType === "B" ||
@@ -610,20 +658,20 @@ export default function Mandates() {
   }, [
     formData.revenueMonthlyVolume,
     formData.revenueCommercialPerHead,
-    isStaffingLobSelected,
+    showStaffingMandateFields,
     staffingRevenueReady,
     staffingRevenueSectionType,
   ]);
 
   useEffect(() => {
-    if (!isStaffingLobSelected || !staffingRevenueReady || staffingRevenueSectionType !== "A") return;
+    if (!showStaffingMandateFields || !staffingRevenueReady || staffingRevenueSectionType !== "A") return;
     setFormData((prev) => ({
       ...prev,
       revenueMcv: staffingMcvCalculated.toString(),
       revenueAcv: staffingAcvCalculated.toString(),
     }));
   }, [
-    isStaffingLobSelected,
+    showStaffingMandateFields,
     staffingRevenueReady,
     staffingRevenueSectionType,
     staffingMcvCalculated,
@@ -631,7 +679,7 @@ export default function Mandates() {
   ]);
 
   useEffect(() => {
-    if (!isStaffingLobSelected || !staffingRevenueReady || staffingRevenueSectionType !== "B") return;
+    if (!showStaffingMandateFields || !staffingRevenueReady || staffingRevenueSectionType !== "B") return;
     const nextMcv = staffingBMcvCalculatedB.toString();
     const nextAcv = staffingBAcvCalculatedB.toString();
     setFormData((prev) => {
@@ -639,7 +687,7 @@ export default function Mandates() {
       return { ...prev, staffingBMcv: nextMcv, staffingBAcv: nextAcv };
     });
   }, [
-    isStaffingLobSelected,
+    showStaffingMandateFields,
     staffingRevenueReady,
     staffingRevenueSectionType,
     staffingBMcvCalculatedB,
@@ -647,14 +695,14 @@ export default function Mandates() {
   ]);
 
   useEffect(() => {
-    if (!isStaffingLobSelected || !staffingRevenueReady || staffingRevenueSectionType !== "C") return;
+    if (!showStaffingMandateFields || !staffingRevenueReady || staffingRevenueSectionType !== "C") return;
     setFormData((prev) => ({
       ...prev,
       revenueMcv: staffingCMcvCalculated.toString(),
       revenueAcv: staffingCAcvCalculatedC.toString(),
     }));
   }, [
-    isStaffingLobSelected,
+    showStaffingMandateFields,
     staffingRevenueReady,
     staffingRevenueSectionType,
     staffingCMcvCalculated,
@@ -1287,11 +1335,11 @@ export default function Mandates() {
         throw new Error("You must be logged in to create a mandate");
       }
 
-      if (isStaffingLobSelected && !staffingRevenueReady) {
+      if (showStaffingMandateFields && !staffingRevenueReady) {
         throw new Error("Select the Use Case and Sub Use Case (if applicable) before saving.");
       }
 
-      if (isStaffingLobSelected && staffingRevenueSectionType === "A") {
+      if (showStaffingMandateFields && staffingRevenueSectionType === "A") {
         const requiredStaffingFields = [
           formData.staffingHeadcount,
           formData.staffingSalaryPayouts,
@@ -1308,7 +1356,7 @@ export default function Mandates() {
         }
       }
 
-      if (isStaffingLobSelected && staffingRevenueSectionType === "B") {
+      if (showStaffingMandateFields && staffingRevenueSectionType === "B") {
         const requiredStaffingBFields = [
           formData.staffingBNumStores,
           formData.staffingBCostPerStore,
@@ -1320,7 +1368,7 @@ export default function Mandates() {
         }
       }
 
-      if (isStaffingLobSelected && staffingRevenueSectionType === "C") {
+      if (showStaffingMandateFields && staffingRevenueSectionType === "C") {
         const requiredStaffingCFields = [
           formData.staffingCOneTimeSetupFee,
           formData.staffingCMonthlyRecurringFees,
@@ -1418,123 +1466,123 @@ export default function Mandates() {
         
         // Revenue Info
         revenue_monthly_volume:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingHeadcountValue
-            : isStaffingLobSelected && staffingRevenueSectionType === "B"
+            : showStaffingMandateFields && staffingRevenueSectionType === "B"
               ? staffingBNumStoresValue
-              : isStaffingLobSelected && staffingRevenueSectionType === "C"
+              : showStaffingMandateFields && staffingRevenueSectionType === "C"
                 ? staffingCOneTimeSetupValue
                 : (formData.revenueMonthlyVolume ? parseFloat(formData.revenueMonthlyVolume) : null),
         revenue_commercial_per_head:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingSalaryPayoutsValue
-            : isStaffingLobSelected && staffingRevenueSectionType === "B"
+            : showStaffingMandateFields && staffingRevenueSectionType === "B"
               ? staffingBCostPerStoreValue
-              : isStaffingLobSelected && staffingRevenueSectionType === "C"
+              : showStaffingMandateFields && staffingRevenueSectionType === "C"
                 ? null
                 : (formData.revenueCommercialPerHead ? parseFloat(formData.revenueCommercialPerHead) : null),
         revenue_mcv:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingMcvCalculated
-            : isStaffingLobSelected && staffingRevenueSectionType === "B"
+            : showStaffingMandateFields && staffingRevenueSectionType === "B"
               ? staffingBMcvValue
-              : isStaffingLobSelected && staffingRevenueSectionType === "C"
+              : showStaffingMandateFields && staffingRevenueSectionType === "C"
                 ? staffingCMcvSubmitValue
                 : (formData.revenueMcv ? parseFloat(formData.revenueMcv) : null),
         revenue_acv:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingAcvCalculated
-            : isStaffingLobSelected && staffingRevenueSectionType === "B"
+            : showStaffingMandateFields && staffingRevenueSectionType === "B"
               ? staffingBAcvValue
-              : isStaffingLobSelected && staffingRevenueSectionType === "C"
+              : showStaffingMandateFields && staffingRevenueSectionType === "C"
                 ? staffingCAcvSubmitValue
                 : (formData.revenueAcv ? parseFloat(formData.revenueAcv) : null),
         revenue_prj_type:
-          isStaffingLobSelected &&
+          showStaffingMandateFields &&
           (staffingRevenueSectionType === "A" ||
             staffingRevenueSectionType === "B" ||
             staffingRevenueSectionType === "C")
             ? null
             : ensureEnumValue(formData.revenuePrjType, ['Recurring', 'One-time']),
         staffing_headcount:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingHeadcountValue
             : null,
         staffing_salary_payouts:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingSalaryPayoutsValue
             : null,
         staffing_program_management:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingProgramManagementValue
             : null,
         staffing_saas_usage_fee:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingSaasUsageFeeValue
             : null,
         staffing_monthly_agency_fee_percent:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingMonthlyAgencyFeePercentValue
             : null,
         staffing_sales_force_automation_setup_fee:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingSalesForceAutomationSetupFeeValue
             : null,
         staffing_recruitment_cost:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? staffingRecruitmentCostValue
             : null,
         staffing_misc_recurring:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? (formData.staffingMiscRecurring ? staffingMiscRecurringValue : null)
             : null,
         staffing_misc_one_time:
-          isStaffingLobSelected && staffingRevenueSectionType === "A"
+          showStaffingMandateFields && staffingRevenueSectionType === "A"
             ? (formData.staffingMiscOneTime ? staffingMiscOneTimeValue : null)
             : null,
         staffing_active_months_per_year:
-          isStaffingLobSelected &&
+          showStaffingMandateFields &&
           (staffingRevenueSectionType === "A" ||
             staffingRevenueSectionType === "B" ||
             staffingRevenueSectionType === "C")
             ? staffingActiveMonthsPerYearValue
             : null,
         staffing_gm_percent:
-          isStaffingLobSelected &&
+          showStaffingMandateFields &&
           (staffingRevenueSectionType === "A" ||
             staffingRevenueSectionType === "B" ||
             staffingRevenueSectionType === "C")
             ? (parseFloat(formData.staffingGmPercent) || 0)
             : null,
         staffing_gross_margin:
-          isStaffingLobSelected &&
+          showStaffingMandateFields &&
           (staffingRevenueSectionType === "A" ||
             staffingRevenueSectionType === "B" ||
             staffingRevenueSectionType === "C")
             ? staffingGrossMarginSubmitValue
             : null,
         staffing_b_num_stores:
-          isStaffingLobSelected && staffingRevenueSectionType === "B"
+          showStaffingMandateFields && staffingRevenueSectionType === "B"
             ? staffingBNumStoresValue
             : null,
         staffing_b_cost_per_store:
-          isStaffingLobSelected && staffingRevenueSectionType === "B"
+          showStaffingMandateFields && staffingRevenueSectionType === "B"
             ? staffingBCostPerStoreValue
             : null,
         staffing_b_mcv:
-          isStaffingLobSelected && staffingRevenueSectionType === "B"
+          showStaffingMandateFields && staffingRevenueSectionType === "B"
             ? staffingBMcvValue
             : null,
         staffing_b_acv:
-          isStaffingLobSelected && staffingRevenueSectionType === "B"
+          showStaffingMandateFields && staffingRevenueSectionType === "B"
             ? staffingBAcvValue
             : null,
         staffing_c_one_time_setup_fee:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
+          showStaffingMandateFields && staffingRevenueSectionType === "C"
             ? staffingCOneTimeSetupValue
             : null,
         staffing_c_monthly_recurring_fees:
-          isStaffingLobSelected && staffingRevenueSectionType === "C"
+          showStaffingMandateFields && staffingRevenueSectionType === "C"
             ? staffingCMonthlyRecurringFeesValue
             : null,
         
@@ -1560,13 +1608,26 @@ export default function Mandates() {
         
         // Upsell Action Status
         upsell_action_status: ensureEnumValue(formData.upsellActionStatus, ['Not Started', 'Ongoing', 'Done']),
-        revenue_section_type: calculateRevenueSectionType(formData.useCase, formData.subUseCase),
+        revenue_section_type: showStaffingMandateFields
+          ? calculateRevenueSectionType(formData.useCase, formData.subUseCase)
+          : null,
         
         // Metadata
         created_by: user.id,
         lifecycle_status: "Active",
-        team: resolveTeamFromLob(normalizedLob),
+        team: resolveMandateTeam({
+          creatorIsKam: isKAM,
+          creatorTeam: team,
+          selectedKamId: formData.kamId,
+          kamTeamById,
+        }),
       };
+
+      if (!mandateData.team) {
+        throw new Error(
+          "Could not determine mandate team. Ensure the KAM has a team assigned on their profile.",
+        );
+      }
 
       const { error: insertError } = await supabase
         .from("mandates")
@@ -1863,13 +1924,17 @@ export default function Mandates() {
       const kamNames = [...new Set(csvData.map((row: any) => row["KAM Name"]).filter(Boolean))];
       const { data: kamData } = await supabase
         .from("profiles")
-        .select("id, full_name")
+        .select("id, full_name, team")
         .eq("role", "kam")
         .in("full_name", kamNames);
 
       const kamMap: Record<string, string> = {};
+      const kamTeamByIdFromCsv: Record<string, Team> = {};
       kamData?.forEach((kam) => {
         kamMap[kam.full_name] = kam.id;
+        if (isValidTeam(kam.team)) {
+          kamTeamByIdFromCsv[kam.id] = kam.team;
+        }
       });
 
       // Get existing project codes from database to check for duplicates
@@ -1916,6 +1981,9 @@ export default function Mandates() {
         }
         if (kamName && !kamId) {
           errors.push(`KAM "${kamName}" does not exist`);
+        }
+        if (kamId && !kamTeamByIdFromCsv[kamId]) {
+          errors.push(`KAM "${kamName}" does not have a team assigned`);
         }
 
         if (!accountName || accountName.trim() === "") {
@@ -2023,13 +2091,17 @@ export default function Mandates() {
       const kamNames = [...new Set(csvData.map((row: any) => row["KAM Name"]).filter(Boolean))];
       const { data: kamData } = await supabase
         .from("profiles")
-        .select("id, full_name")
+        .select("id, full_name, team")
         .eq("role", "kam")
         .in("full_name", kamNames);
 
       const kamMap: Record<string, string> = {};
+      const kamTeamByIdFromCsv: Record<string, Team> = {};
       kamData?.forEach((kam) => {
         kamMap[kam.full_name] = kam.id;
+        if (isValidTeam(kam.team)) {
+          kamTeamByIdFromCsv[kam.id] = kam.team;
+        }
       });
 
       // Filter out invalid rows
@@ -2260,13 +2332,21 @@ export default function Mandates() {
 
         batch.forEach((mandate: any) => {
           const existingId = existingMandateMap[mandate.project_code];
+          const kamIdForTeam = mandate.kam_id as string | undefined;
+          const mandateTeam =
+            kamIdForTeam && kamTeamByIdFromCsv[kamIdForTeam]
+              ? kamTeamByIdFromCsv[kamIdForTeam]
+              : null;
           const mandateWithMappedTeam = {
             ...mandate,
-            team: resolveTeamFromLob(mandate.lob),
-            revenue_section_type: calculateRevenueSectionType(
-              mandate.use_case,
-              mandate.sub_use_case
-            ),
+            team: mandateTeam,
+            revenue_section_type:
+              mandateTeam === "staffing"
+                ? calculateRevenueSectionType(
+                    mandate.use_case,
+                    mandate.sub_use_case,
+                  )
+                : null,
           };
           if (existingId) {
             // Update existing
@@ -3018,11 +3098,27 @@ export default function Mandates() {
         retention_type: ensureEnumValue(editMandateData.retentionType, ['Star', 'A', 'B', 'C', 'D', 'E', 'NI']),
         upsell_action_status: ensureEnumValue(editMandateData.upsellActionStatus, ['Not Started', 'Ongoing', 'Done']),
       };
-      updateData.team = resolveTeamFromLob(updateData.lob);
-      updateData.revenue_section_type = calculateRevenueSectionType(
-        editMandateData.useCase,
-        editMandateData.subUseCase
+      const updatedTeam = resolveMandateTeam({
+        creatorIsKam: isKAM,
+        creatorTeam: team,
+        selectedKamId: editMandateData.kamId,
+        kamTeamById,
+      });
+      if (!updatedTeam) {
+        throw new Error(
+          "Could not determine mandate team. Ensure the KAM has a team assigned on their profile.",
+        );
+      }
+      updateData.team = updatedTeam;
+      const editShowsStaffingFields = shouldShowStaffingMandateFields(
+        editEffectiveTeam,
       );
+      updateData.revenue_section_type = editShowsStaffingFields
+        ? calculateRevenueSectionType(
+            editMandateData.useCase,
+            editMandateData.subUseCase,
+          )
+        : null;
 
       const { error } = await supabase
         .from("mandates")
@@ -3447,7 +3543,7 @@ export default function Mandates() {
                       </Select>
                     )}
                   </div>
-                  {isStaffingLobSelected && (
+                  {showStaffingMandateFields && (
                     <div className="space-y-2">
                       <Label htmlFor="revenueSectionType">Revenue Section Type</Label>
                       <Input
@@ -3753,7 +3849,7 @@ export default function Mandates() {
               <Card className="border-purple-200 bg-purple-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-purple-900">Revenue Info</h3>
-                  {isStaffingLobSelected ? (
+                  {showStaffingMandateFields ? (
                     !staffingRevenueReady ? (
                       <div className="text-sm text-muted-foreground">
                         Select the Use Case and Sub Use Case (if applicable).

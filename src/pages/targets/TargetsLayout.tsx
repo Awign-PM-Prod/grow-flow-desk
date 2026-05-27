@@ -1,5 +1,6 @@
 import { useAuth } from "@/hooks/useAuth";
 import { NavLink } from "@/components/NavLink";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -15,12 +16,14 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import { formatFYLabel, getCurrentFYKey, listFYKeysDescending } from "./financialYearUtils";
 
 export type TargetsOutletContext = {
   filterFinancialYear: string;
   setFilterFinancialYear: (v: string) => void;
   selectedTeam: "all" | "ce" | "staffing" | "experts";
+  filterKam: string;
 };
 
 const tabClass =
@@ -34,6 +37,8 @@ export function TargetsLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const isSuperAdmin = hasRole("superadmin");
+  const isKamOnly =
+    hasRole("kam") && !hasRole("manager") && !hasRole("superadmin");
 
   const [filterFinancialYear, setFilterFinancialYear] = useState<string>(() =>
     getCurrentFYKey()
@@ -41,8 +46,14 @@ export function TargetsLayout() {
   const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts">(
     "all"
   );
+  const [filterKam, setFilterKam] = useState("all");
+  const [kamSearch, setKamSearch] = useState("");
+  const [filterKams, setFilterKams] = useState<Array<{ id: string; full_name: string }>>([]);
 
   const fyOptions = useMemo(() => listFYKeysDescending(12), []);
+
+  const kamTeamFilter =
+    canSelectAllTeams && selectedTeam !== "all" ? selectedTeam : userTeam;
 
   useEffect(() => {
     if (canSelectAllTeams) return;
@@ -50,6 +61,37 @@ export function TargetsLayout() {
       setSelectedTeam(userTeam);
     }
   }, [canSelectAllTeams, userTeam]);
+
+  useEffect(() => {
+    setFilterKam("all");
+  }, [selectedTeam]);
+
+  useEffect(() => {
+    if (isKamOnly) return;
+
+    const fetchFilterKams = async () => {
+      let query = supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .not("full_name", "is", null)
+        .order("full_name");
+
+      if (kamTeamFilter) {
+        query = query.eq("team", kamTeamFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error("Error fetching KAMs for filter:", error);
+        setFilterKams([]);
+        return;
+      }
+      setFilterKams(data || []);
+    };
+
+    void fetchFilterKams();
+  }, [isKamOnly, kamTeamFilter]);
 
   useEffect(() => {
     if (!loading && userRoles.length > 0 && user !== undefined) {
@@ -102,7 +144,12 @@ export function TargetsLayout() {
     filterFinancialYear,
     setFilterFinancialYear,
     selectedTeam,
+    filterKam,
   };
+
+  const filteredKamOptions = filterKams.filter((kam) =>
+    (kam.full_name || "").toLowerCase().includes(kamSearch.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -140,7 +187,7 @@ export function TargetsLayout() {
               </NavLink>
             ) : null}
           </nav>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {canSelectAllTeams ? (
               <Select value={selectedTeam} onValueChange={(v) => setSelectedTeam(v as "all" | "ce" | "staffing" | "experts")}>
                 <SelectTrigger className="w-[160px] sm:w-[180px]">
@@ -151,6 +198,41 @@ export function TargetsLayout() {
                   <SelectItem value="ce">CE</SelectItem>
                   <SelectItem value="staffing">Staffing</SelectItem>
                   <SelectItem value="experts">Experts</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : null}
+            {!isKamOnly ? (
+              <Select value={filterKam} onValueChange={setFilterKam}>
+                <SelectTrigger
+                  className={cn(
+                    "w-[160px] sm:w-[200px]",
+                    filterKam !== "all" && "border-blue-500 bg-blue-50/50"
+                  )}
+                >
+                  <SelectValue placeholder="All KAMs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <div className="px-2 pb-2">
+                    <Input
+                      placeholder="Search KAM..."
+                      value={kamSearch}
+                      onChange={(e) => setKamSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="h-8"
+                    />
+                  </div>
+                  <SelectItem value="all">All KAMs</SelectItem>
+                  {filteredKamOptions.map((kam) => (
+                    <SelectItem key={kam.id} value={kam.id}>
+                      {kam.full_name}
+                    </SelectItem>
+                  ))}
+                  {filterKams.length > 0 && filteredKamOptions.length === 0 ? (
+                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                      No KAMs found
+                    </div>
+                  ) : null}
                 </SelectContent>
               </Select>
             ) : null}

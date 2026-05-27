@@ -29,9 +29,9 @@ import {
 import { isMandateActiveAsOf } from "@/lib/mandateLifecycleLog";
 import {
   ALL_LOB_OPTIONS,
-  getAllowedLobOptions,
+  getChartLobOptionsForDashboard,
   getDefaultDashboardLobs,
-  getLobDashboardCategories,
+  getLobDashboardCategoriesForFilter,
 } from "@/lib/teamLob";
 
 const lobOptions = [...ALL_LOB_OPTIONS];
@@ -111,15 +111,27 @@ export default function Dashboard() {
   const isKAM = hasRole("kam");
   const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts" | null>(null);
 
-  const lobDashboardCategories = useMemo(
-    () => getLobDashboardCategories(userTeam, canSelectAllTeams),
-    [userTeam, canSelectAllTeams],
+  const chartLobOptions = useMemo(
+    () =>
+      getChartLobOptionsForDashboard(lobOptions, {
+        canSelectAllTeams,
+        selectedTeam,
+        userTeam,
+      }),
+    [canSelectAllTeams, selectedTeam, userTeam],
   );
 
-  const dashboardLobOptions = useMemo(
-    () => getAllowedLobOptions(lobOptions, userTeam, canSelectAllTeams),
-    [userTeam, canSelectAllTeams],
+  const lobDashboardCategories = useMemo(
+    () =>
+      getLobDashboardCategoriesForFilter(
+        userTeam,
+        canSelectAllTeams,
+        selectedTeam,
+      ),
+    [userTeam, canSelectAllTeams, selectedTeam],
   );
+
+  const dashboardLobOptions = chartLobOptions;
   const [loading, setLoading] = useState(true);
   /** Active mandates in scope (filters applied); shown as x in the Active Mandates card. */
   const [activeMandatesCount, setActiveMandatesCount] = useState(0);
@@ -244,12 +256,22 @@ export default function Dashboard() {
     setSelectedTeam((prev) => prev ?? userTeam);
   }, [canSelectAllTeams, userTeam]);
 
-  // Scope LoB filter to team (CE excludes Staffing/Experts; staffing/experts auto-select)
+  // Scope LoB filter to team (CE excludes Experts only; staffing/experts auto-select)
   useEffect(() => {
     if (canSelectAllTeams) return;
     const defaults = getDefaultDashboardLobs(userTeam, canSelectAllTeams);
     setSelectedLobs(defaults);
   }, [canSelectAllTeams, userTeam]);
+
+  // When admin changes team, drop LoB selections outside that team's LoBs
+  useEffect(() => {
+    if (!canSelectAllTeams) return;
+    setSelectedLobs((prev) => {
+      const pruned = prev.filter((l) => chartLobOptions.includes(l));
+      if (pruned.length === prev.length) return prev;
+      return pruned;
+    });
+  }, [canSelectAllTeams, chartLobOptions]);
 
   // Set filterKam to current user's ID when they're a KAM
   useEffect(() => {
@@ -1049,7 +1071,7 @@ export default function Dashboard() {
       ).length;
 
       const mandatesPerLobCounts: Record<string, number> = {};
-      lobOptions.forEach((l) => {
+      chartLobOptions.forEach((l) => {
         mandatesPerLobCounts[l] = 0;
       });
       rows.forEach((m: any) => {
@@ -1063,10 +1085,16 @@ export default function Dashboard() {
           return;
         }
         const raw = (m.lob && String(m.lob).trim()) || "";
-        const key = raw && lobOptions.includes(raw) ? raw : "Others";
+        const key =
+          raw && chartLobOptions.includes(raw)
+            ? raw
+            : chartLobOptions.includes("Others")
+              ? "Others"
+              : null;
+        if (!key) return;
         mandatesPerLobCounts[key] = (mandatesPerLobCounts[key] ?? 0) + 1;
       });
-      const mandatesPerLobFormatted = lobOptions
+      const mandatesPerLobFormatted = chartLobOptions
         .map((lob) => ({
           lob,
           count: mandatesPerLobCounts[lob] ?? 0,
@@ -1372,7 +1400,7 @@ export default function Dashboard() {
       // Initialize all LoBs from the mandate form with 0 values
       // Always show all 8 LoBs from the mandate form, regardless of database records
       const lobData: Record<string, { targetMpv: number; achievedMpv: number }> = {};
-      lobOptions.forEach((lob) => {
+      chartLobOptions.forEach((lob) => {
         lobData[lob] = { targetMpv: 0, achievedMpv: 0 };
       });
 
@@ -1505,7 +1533,7 @@ export default function Dashboard() {
       }
 
       // Convert to array with all 8 LoBs from the mandate form, maintaining the exact order
-      const formattedLobData = lobOptions.map((lob) => ({
+      const formattedLobData = chartLobOptions.map((lob) => ({
         lob,
         targetMpv: lobData[lob]?.targetMpv || 0,
         achievedMpv: lobData[lob]?.achievedMpv || 0,
@@ -1518,14 +1546,19 @@ export default function Dashboard() {
       setLobSalesPerformance(totalCount === 0 ? [] : formattedLobData);
 
       const maxMcvByLob: Record<string, number> = {};
-      lobOptions.forEach((l) => {
+      chartLobOptions.forEach((l) => {
         maxMcvByLob[l] = 0;
       });
       if (!lobMandatesError && lobMandatesData && lobMandatesData.length > 0) {
         lobMandatesData.forEach((mandate: any) => {
           const lobRaw = (mandate.lob && String(mandate.lob).trim()) || "";
           const lobKey =
-            lobRaw && lobOptions.includes(lobRaw) ? lobRaw : "Others";
+            lobRaw && chartLobOptions.includes(lobRaw)
+              ? lobRaw
+              : chartLobOptions.includes("Others")
+                ? "Others"
+                : null;
+          if (!lobKey) return;
           const monthlyData = mandate.monthly_data;
           if (
             !monthlyData ||
@@ -1552,7 +1585,7 @@ export default function Dashboard() {
             (maxMcvByLob[lobKey] ?? 0) + maxAchievedForMandate;
         });
       }
-      const maxMcvPerLobFormatted = lobOptions
+      const maxMcvPerLobFormatted = chartLobOptions
         .map((lob) => ({
           lob,
           sumMaxMcv: maxMcvByLob[lob] ?? 0,
@@ -3617,13 +3650,13 @@ export default function Dashboard() {
                           setSelectedLobs((prev) => {
                             const allIn = cat.lobs.every((l) => prev.includes(l));
                             if (allIn) {
-                              return lobOptions.filter(
+                              return chartLobOptions.filter(
                                 (l) => prev.includes(l) && !cat.lobs.includes(l),
                               );
                             }
                             const merged = new Set(prev);
                             cat.lobs.forEach((l) => merged.add(l));
-                            return lobOptions.filter((l) => merged.has(l));
+                            return chartLobOptions.filter((l) => merged.has(l));
                           });
                         }}
                       >
@@ -3647,9 +3680,9 @@ export default function Dashboard() {
                           onSelect={() => {
                             setSelectedLobs((prev) => {
                               if (prev.includes(lob)) {
-                                return lobOptions.filter((l) => prev.includes(l) && l !== lob);
+                                return chartLobOptions.filter((l) => prev.includes(l) && l !== lob);
                               }
-                              return lobOptions.filter((l) => prev.includes(l) || l === lob);
+                              return chartLobOptions.filter((l) => prev.includes(l) || l === lob);
                             });
                           }}
                         >

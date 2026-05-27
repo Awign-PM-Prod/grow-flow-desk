@@ -92,7 +92,8 @@ export function MonthlyTargetsTab({
 }: {
   mode: "existing" | "new_cross_sell";
 }) {
-  const { filterFinancialYear, selectedTeam } = useOutletContext<TargetsOutletContext>();
+  const { filterFinancialYear, selectedTeam, filterKam } =
+    useOutletContext<TargetsOutletContext>();
   const { hasRole, loading, userRoles, user, fullName, canMutatePortal, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
   /** KAM role without manager/superadmin — scoped to own targets only. */
@@ -209,6 +210,8 @@ export function MonthlyTargetsTab({
       
       if (currentIsKAM && currentUser?.id) {
         mandatesQuery = mandatesQuery.eq("kam_id", currentUser.id);
+      } else if (filterKam !== "all") {
+        mandatesQuery = mandatesQuery.eq("kam_id", filterKam);
       }
       
       const { data: allMandatesData } = await mandatesQuery.order("project_code");
@@ -391,18 +394,31 @@ export function MonthlyTargetsTab({
       const teamScopedView =
         Boolean(effectiveTeam) && !(canSelectAllTeams && selectedTeam === "all");
 
+      const matchesKamFilter = (kamId: string | null | undefined) => {
+        if (filterKam === "all") return true;
+        return kamId === filterKam;
+      };
+
       // Scope table rows: KAM sees own pipeline targets; team filter applies to managers/admins
       let filteredTargets = (data || []).filter((target: any) => {
         if (target.target_type === "existing" && target.mandate_id) {
           if (currentIsKAM && currentUser?.id) {
             return kamMandateIds?.has(target.mandate_id) || false;
           }
-          return teamMandateIds.has(target.mandate_id);
+          if (!teamMandateIds.has(target.mandate_id)) return false;
+          if (filterKam !== "all") {
+            const mandate = (allMandatesData || []).find(
+              (m: any) => m.id === target.mandate_id
+            );
+            return matchesKamFilter(mandate?.kam_id);
+          }
+          return true;
         }
         if (target.target_type === "new_cross_sell" && target.kam_id && target.account_id) {
           if (currentIsKAM && currentUser?.id) {
             return target.kam_id === currentUser.id;
           }
+          if (!matchesKamFilter(target.kam_id)) return false;
           if (teamScopedView) {
             return teamKamAccountRelations.has(
               `${target.kam_id}_${target.account_id}`
@@ -420,6 +436,7 @@ export function MonthlyTargetsTab({
           if (currentIsKAM && currentUser?.id && mandate.kam_id !== currentUser.id) {
             return;
           }
+          if (!matchesKamFilter(mandate.kam_id)) return;
           kamAccountComboSet.add(`${mandate.kam_id}_${mandate.account_id}`);
         });
       }
@@ -635,7 +652,7 @@ export function MonthlyTargetsTab({
     }
     // Omit `user` from deps: session refresh replaces the object reference with the same id and would refetch on every tab focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userRoles.length, filterFinancialYear, isKAM, user?.id, mode, selectedTeam, effectiveTeam, canSelectAllTeams]);
+  }, [loading, userRoles.length, filterFinancialYear, isKAM, user?.id, mode, selectedTeam, effectiveTeam, canSelectAllTeams, filterKam]);
 
   // Calculate Financial Year when month or year changes
   useEffect(() => {
