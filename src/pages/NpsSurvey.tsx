@@ -14,6 +14,7 @@ import {
   isNpsFormComplete,
   NPS_LEADERSHIP_OPTIONS,
   NPS_REFERRAL_OPTIONS,
+  NPS_SERVICE_SATISFACTION_FIELDS,
   POC_SATISFACTION_FIELDS,
   type NpsFormState,
 } from "@/lib/nps";
@@ -193,24 +194,15 @@ export default function NpsSurvey() {
               <CardTitle className="text-lg">Service satisfaction</CardTitle>
             </CardHeader>
             <CardContent className="space-y-8">
-              <RatingScale
-                label="How satisfied are you with Awign's services?"
-                value={form.satisfaction_services}
-                onChange={(v) => updateForm("satisfaction_services", v)}
-                required
-              />
-              <RatingScale
-                label="How satisfied are you on Project Execution?"
-                value={form.satisfaction_project_execution}
-                onChange={(v) => updateForm("satisfaction_project_execution", v)}
-                required
-              />
-              <RatingScale
-                label="How do you rate Awign's Gig Workforce Quality?"
-                value={form.gig_workforce_quality}
-                onChange={(v) => updateForm("gig_workforce_quality", v)}
-                required
-              />
+              {NPS_SERVICE_SATISFACTION_FIELDS.map((field) => (
+                <RatingScale
+                  key={field.key}
+                  label={field.label}
+                  value={form[field.key]}
+                  onChange={(v) => updateForm(field.key, v)}
+                  required
+                />
+              ))}
             </CardContent>
           </Card>
 
