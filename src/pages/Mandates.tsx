@@ -20,6 +20,8 @@ import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown, 
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { getAppSiteUrl } from "@/lib/app-site-url";
 import { HighlightedText } from "@/components/HighlightedText";
+import { TablePaginationBar } from "@/components/TablePaginationBar";
+import { useTablePagination } from "@/hooks/useTablePagination";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
@@ -3340,6 +3342,9 @@ export default function Mandates() {
     );
   });
 
+  const mandatesPagination = useTablePagination(filteredMandates);
+  const tableMandates = mandatesPagination.paginatedItems;
+
   // Check if any filters are active
   const hasActiveFilters =
     searchTerm ||
@@ -4607,11 +4612,24 @@ export default function Mandates() {
 
           {/* Table */}
           <Card>
-            <CardContent className="pt-6">
+            <CardContent className="pt-6 space-y-4">
+              {mandatesPagination.enabled && (
+                <TablePaginationBar
+                  totalItems={mandatesPagination.totalItems}
+                  page={mandatesPagination.page}
+                  pageSize={mandatesPagination.pageSize}
+                  totalPages={mandatesPagination.totalPages}
+                  startIndex={mandatesPagination.startIndex}
+                  onPageChange={mandatesPagination.setPage}
+                  onPageSizeChange={mandatesPagination.setPageSize}
+                  itemLabel="mandates"
+                />
+              )}
               <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                      <TableHead className="w-12 text-center">S.No.</TableHead>
                       <TableHead>Project Code</TableHead>
                       <TableHead>Project Name</TableHead>
                       <TableHead>Account</TableHead>
@@ -4629,7 +4647,7 @@ export default function Mandates() {
             <TableBody>
                     {loadingMandates ? (
                       <TableRow>
-                        <TableCell colSpan={12} className="text-center py-8">
+                        <TableCell colSpan={13} className="text-center py-8">
                           <div className="flex items-center justify-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-muted-foreground">Loading mandates...</span>
@@ -4638,13 +4656,16 @@ export default function Mandates() {
                       </TableRow>
                     ) : filteredMandates.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                           No mandates found
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredMandates.map((mandate) => (
+                      tableMandates.map((mandate, index) => (
                 <TableRow key={mandate.id}>
+                          <TableCell className="text-center text-muted-foreground tabular-nums">
+                            {mandatesPagination.startIndex + index + 1}
+                          </TableCell>
                           <TableCell className="font-medium"><HighlightedText text={mandate.projectCode} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={mandate.projectName} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={mandate.account} searchTerm={searchTerm} /></TableCell>
@@ -4750,6 +4771,18 @@ export default function Mandates() {
             </TableBody>
           </Table>
               </div>
+              {mandatesPagination.enabled && (
+                <TablePaginationBar
+                  totalItems={mandatesPagination.totalItems}
+                  page={mandatesPagination.page}
+                  pageSize={mandatesPagination.pageSize}
+                  totalPages={mandatesPagination.totalPages}
+                  startIndex={mandatesPagination.startIndex}
+                  onPageChange={mandatesPagination.setPage}
+                  onPageSizeChange={mandatesPagination.setPageSize}
+                  itemLabel="mandates"
+                />
+              )}
         </CardContent>
       </Card>
         </>

@@ -26,6 +26,8 @@ import { Loader2, Download, Upload, FileText, Calendar as CalendarIcon, BookOpen
 import { format } from "date-fns";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { HighlightedText } from "@/components/HighlightedText";
+import { TablePaginationBar } from "@/components/TablePaginationBar";
+import { useTablePagination } from "@/hooks/useTablePagination";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
@@ -2268,6 +2270,9 @@ export default function Pipeline() {
       return 0;
     });
 
+  const dealsPagination = useTablePagination(filteredDeals);
+  const tableDeals = dealsPagination.paginatedItems;
+
   // Check if any filters are active
   const hasActiveFilters = searchTerm || filterAccount !== "all" || filterKam !== "all" || filterLob !== "all" || filterStatus !== "all" || filterExpectedContractSignDateRange !== undefined;
 
@@ -3276,11 +3281,24 @@ export default function Pipeline() {
 
         {/* Table */}
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-6 space-y-4">
+            {dealsPagination.enabled && (
+              <TablePaginationBar
+                totalItems={dealsPagination.totalItems}
+                page={dealsPagination.page}
+                pageSize={dealsPagination.pageSize}
+                totalPages={dealsPagination.totalPages}
+                startIndex={dealsPagination.startIndex}
+                onPageChange={dealsPagination.setPage}
+                onPageSizeChange={dealsPagination.setPageSize}
+                itemLabel="deals"
+              />
+            )}
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12 text-center">S.No.</TableHead>
                     <TableHead>Sales Module Name</TableHead>
                     <TableHead>Account</TableHead>
                     <TableHead>KAM</TableHead>
@@ -3295,7 +3313,7 @@ export default function Pipeline() {
                 <TableBody>
                   {loadingDeals ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8">
+                      <TableCell colSpan={10} className="text-center py-8">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="text-muted-foreground">Loading deals...</span>
@@ -3304,13 +3322,16 @@ export default function Pipeline() {
                     </TableRow>
                   ) : filteredDeals.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                         No deals found
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredDeals.map((deal) => (
+                    tableDeals.map((deal, index) => (
                       <TableRow key={deal.id}>
+                        <TableCell className="text-center text-muted-foreground tabular-nums">
+                          {dealsPagination.startIndex + index + 1}
+                        </TableCell>
                         <TableCell className="font-medium"><HighlightedText text={deal.sales_module_name || "N/A"} searchTerm={searchTerm} /></TableCell>
                         <TableCell><HighlightedText text={deal.account || "N/A"} searchTerm={searchTerm} /></TableCell>
                         <TableCell><HighlightedText text={deal.kam || "N/A"} searchTerm={searchTerm} /></TableCell>
@@ -3392,6 +3413,18 @@ export default function Pipeline() {
                 </TableBody>
               </Table>
             </div>
+            {dealsPagination.enabled && (
+              <TablePaginationBar
+                totalItems={dealsPagination.totalItems}
+                page={dealsPagination.page}
+                pageSize={dealsPagination.pageSize}
+                totalPages={dealsPagination.totalPages}
+                startIndex={dealsPagination.startIndex}
+                onPageChange={dealsPagination.setPage}
+                onPageSizeChange={dealsPagination.setPageSize}
+                itemLabel="deals"
+              />
+            )}
           </CardContent>
         </Card>
       </div>
