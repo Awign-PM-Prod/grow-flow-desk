@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown, History } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { getAppSiteUrl } from "@/lib/app-site-url";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
@@ -1323,6 +1324,30 @@ export default function Mandates() {
     return matched || null;
   };
 
+  const sendMandateCreatedEmails = async (params: {
+    accountId: string;
+    mandateName: string;
+    lob: string;
+    kamId: string;
+  }) => {
+    const { data, error } = await supabase.functions.invoke("send-mandate-created-email", {
+      body: {
+        account_id: params.accountId,
+        mandate_name: params.mandateName,
+        lob: params.lob,
+        kam_id: params.kamId,
+        created_on: new Date().toISOString(),
+        site_url: getAppSiteUrl(),
+      },
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    return data as { emails_sent?: number } | null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -1637,9 +1662,35 @@ export default function Mandates() {
         throw insertError;
       }
 
+      let emailNotice = "";
+      if (mandateData.account_id && mandateData.kam_id) {
+        try {
+          const emailResult = await sendMandateCreatedEmails({
+            accountId: mandateData.account_id,
+            mandateName: mandateData.project_name,
+            lob: mandateData.lob,
+            kamId: mandateData.kam_id,
+          });
+          const emailsSent = emailResult?.emails_sent ?? 0;
+          if (emailsSent > 0) {
+            emailNotice = ` Notification sent to ${emailsSent} contact${emailsSent === 1 ? "" : "s"}.`;
+          }
+        } catch (emailError: any) {
+          console.error("Error sending mandate notification emails:", emailError);
+          toast({
+            title: "Mandate saved",
+            description: emailError.message || "Mandate was saved, but notification emails could not be sent.",
+            variant: "destructive",
+          });
+          setFormDialogOpen(false);
+          fetchMandates();
+          return;
+        }
+      }
+
       toast({
         title: "Success!",
-        description: "Mandate saved successfully.",
+        description: `Mandate saved successfully.${emailNotice}`,
       });
 
       // Reset form

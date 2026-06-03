@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText, BookOpen } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import { getAppSiteUrl } from "@/lib/app-site-url";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
@@ -36,6 +37,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 type ViewMode = "form" | "view";
 
@@ -57,7 +59,7 @@ interface ContactFormData {
 }
 
 export default function Contacts() {
-  const { canMutatePortal } = useAuth();
+  const { canMutatePortal, isAdminUser, user, team: userTeam, canManageUsers } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
@@ -79,6 +81,9 @@ export default function Contacts() {
   const [contactToDelete, setContactToDelete] = useState<any | null>(null);
   const [deletingContact, setDeletingContact] = useState(false);
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
+  const [pocUserId, setPocUserId] = useState("");
+  const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
+  const [kamSearch, setKamSearch] = useState("");
 
   // Filters for view mode
   const [searchTerm, setSearchTerm] = useState("");
@@ -112,6 +117,47 @@ export default function Contacts() {
   });
 
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!isAdminUser || !formDialogOpen) return;
+
+    const fetchKams = async () => {
+      let query = supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "kam")
+        .not("full_name", "is", null)
+        .order("full_name");
+
+      if (userTeam) {
+        query = query.eq("team", userTeam);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error("Error fetching KAMs:", error);
+        setKams([]);
+        return;
+      }
+      setKams(data || []);
+    };
+
+    void fetchKams();
+  }, [isAdminUser, formDialogOpen, userTeam]);
+
+  const sendContactWelcomeEmail = async (contactEmail: string, pocId: string) => {
+    const { error } = await supabase.functions.invoke("send-contact-welcome", {
+      body: {
+        contact_email: contactEmail,
+        poc_user_id: pocId,
+        site_url: getAppSiteUrl(),
+      },
+    });
+
+    if (error) {
+      throw error;
+    }
+  };
 
   // Fetch accounts for dropdown
   useEffect(() => {
@@ -188,12 +234,23 @@ export default function Contacts() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const resolvedPocUserId = isAdminUser ? pocUserId : user?.id;
+    if (!resolvedPocUserId) {
+      toast({
+        title: "KAM required",
+        description: "Please select a KAM for the welcome email.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
       
-      if (userError || !user) {
+      if (userError || !currentUser) {
         throw new Error("You must be logged in to create a contact");
       }
 
@@ -212,7 +269,7 @@ export default function Contacts() {
         reports_to: sanitizeValue(formData.reportsTo),
         positioning: formData.positioning,
         awign_champion: formData.awignChampion === "YES",
-        created_by: user.id,
+        created_by: currentUser.id,
       };
 
       const { error: insertError } = await supabase
@@ -221,9 +278,23 @@ export default function Contacts() {
 
       if (insertError) throw insertError;
 
+      try {
+        await sendContactWelcomeEmail(formData.email, resolvedPocUserId);
+      } catch (emailError: any) {
+        console.error("Error sending welcome email:", emailError);
+        toast({
+          title: "Contact saved",
+          description: emailError.message || "Contact was saved, but the welcome email could not be sent.",
+          variant: "destructive",
+        });
+        setFormDialogOpen(false);
+        fetchContacts();
+        return;
+      }
+
       toast({
         title: "Success!",
-        description: "Contact saved successfully.",
+        description: "Contact saved and welcome email sent.",
       });
 
       // Reset form
@@ -243,6 +314,8 @@ export default function Contacts() {
         positioning: "",
         awignChampion: "",
       });
+      setPocUserId("");
+      setKamSearch("");
 
       // Close dialog and refresh contacts list
       setFormDialogOpen(false);
@@ -915,6 +988,7 @@ export default function Contacts() {
       reportsTo: contact.reports_to || "",
       positioning: contact.positioning || "",
       awignChampion: contact.awign_champion ? "YES" : "NO",
+      npsEnabled: Boolean(contact.nps_enabled),
     });
     setIsEditMode(false);
     setDetailsModalOpen(true);
@@ -998,6 +1072,10 @@ export default function Contacts() {
         awign_champion: editContactData.awignChampion === "YES",
       };
 
+      if (canManageUsers) {
+        updateData.nps_enabled = Boolean(editContactData.npsEnabled);
+      }
+
       const { error } = await supabase
         .from("contacts")
         .update(updateData)
@@ -1022,6 +1100,38 @@ export default function Contacts() {
       });
     } finally {
       setUpdatingContact(false);
+    }
+  };
+
+  const handleToggleNpsEnabled = async (contactId: string, enabled: boolean) => {
+    try {
+      const { error } = await supabase
+        .from("contacts")
+        .update({ nps_enabled: enabled })
+        .eq("id", contactId);
+
+      if (error) throw error;
+
+      setContacts((prev) =>
+        prev.map((c) => (c.id === contactId ? { ...c, nps_enabled: enabled } : c)),
+      );
+      if (selectedContact?.id === contactId) {
+        setSelectedContact({ ...selectedContact, nps_enabled: enabled });
+      }
+
+      toast({
+        title: enabled ? "NPS enabled" : "NPS disabled",
+        description: enabled
+          ? "This contact will receive NPS survey emails when sent from the admin panel."
+          : "This contact will no longer receive NPS survey emails.",
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to update NPS setting";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -1120,6 +1230,8 @@ export default function Contacts() {
           });
           setAccountSearch("");
           setReportsToSearch("");
+          setPocUserId("");
+          setKamSearch("");
         }
       }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1127,6 +1239,64 @@ export default function Contacts() {
             <DialogTitle>Add Contact</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-6">
+              {isAdminUser && (
+                <Card className="border-amber-200 bg-amber-50/50">
+                  <CardContent className="pt-6">
+                    <h3 className="font-semibold text-lg mb-4 text-amber-900">Welcome Email</h3>
+                    <div className="space-y-2">
+                      <Label htmlFor="pocUserId">
+                        KAM (Point of Contact) <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={pocUserId}
+                        onValueChange={setPocUserId}
+                        required
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select KAM for welcome email" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <div className="px-2 pb-2">
+                            <Input
+                              placeholder="Search KAMs..."
+                              value={kamSearch}
+                              onChange={(e) => setKamSearch(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              className="h-8"
+                            />
+                          </div>
+                          {kams.length > 0 ? (
+                            kams
+                              .filter((kam) =>
+                                (kam.full_name || "").toLowerCase().includes(kamSearch.toLowerCase())
+                              )
+                              .map((kam) => (
+                                <SelectItem key={kam.id} value={kam.id}>
+                                  {kam.full_name}
+                                </SelectItem>
+                              ))
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              No KAMs available
+                            </div>
+                          )}
+                          {kams.length > 0 && kams.filter((kam) =>
+                            (kam.full_name || "").toLowerCase().includes(kamSearch.toLowerCase())
+                          ).length === 0 && (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              No KAMs found
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-muted-foreground">
+                        This KAM&apos;s name and team will appear in the welcome email sent to the contact.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               {/* 1st Segment: General Information */}
               <Card className="border-blue-200 bg-blue-50/50">
                 <CardContent className="pt-6">
@@ -1578,13 +1748,14 @@ export default function Contacts() {
                     <TableHead>Title</TableHead>
                     <TableHead>Level</TableHead>
                     <TableHead>Awign Champion</TableHead>
+                    {canManageUsers && <TableHead>NPS</TableHead>}
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loadingContacts ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8">
+                      <TableCell colSpan={canManageUsers ? 9 : 8} className="text-center py-8">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="text-muted-foreground">Loading contacts...</span>
@@ -1593,7 +1764,7 @@ export default function Contacts() {
                     </TableRow>
                   ) : filteredContacts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={canManageUsers ? 9 : 8} className="text-center text-muted-foreground py-8">
                         No contacts found
                       </TableCell>
                     </TableRow>
@@ -1609,6 +1780,17 @@ export default function Contacts() {
                         <TableCell><HighlightedText text={contact.title} searchTerm={searchTerm} /></TableCell>
                         <TableCell><HighlightedText text={contact.level} searchTerm={searchTerm} /></TableCell>
                         <TableCell>{contact.awign_champion ? "YES" : "NO"}</TableCell>
+                        {canManageUsers && (
+                          <TableCell>
+                            <Switch
+                              checked={Boolean(contact.nps_enabled)}
+                              onCheckedChange={(checked) =>
+                                void handleToggleNpsEnabled(contact.id, checked)
+                              }
+                              aria-label="Enable NPS surveys"
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="flex gap-2">
                             <Button
@@ -1685,6 +1867,7 @@ export default function Contacts() {
                     reportsTo: selectedContact.reports_to || "",
                     positioning: selectedContact.positioning || "",
                     awignChampion: selectedContact.awign_champion ? "YES" : "NO",
+                    npsEnabled: Boolean(selectedContact.nps_enabled),
                   });
                 }}>
                   Cancel
@@ -2015,6 +2198,36 @@ export default function Contacts() {
                         <p className="mt-1">{selectedContact.awign_champion ? "YES" : "NO"}</p>
                       )}
                     </div>
+                    {canManageUsers && (
+                      <div className="space-y-2 md:col-span-2">
+                        <Label className="font-medium text-muted-foreground">NPS survey enabled:</Label>
+                        {isEditMode ? (
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={Boolean(editContactData.npsEnabled)}
+                              onCheckedChange={(checked) =>
+                                setEditContactData({ ...editContactData, npsEnabled: checked })
+                              }
+                            />
+                            <span className="text-sm text-muted-foreground">
+                              {editContactData.npsEnabled ? "Enabled" : "Disabled"}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 mt-1">
+                            <Switch
+                              checked={Boolean(selectedContact.nps_enabled)}
+                              onCheckedChange={(checked) =>
+                                void handleToggleNpsEnabled(selectedContact.id, checked)
+                              }
+                            />
+                            <span className="text-sm text-muted-foreground">
+                              {selectedContact.nps_enabled ? "Enabled" : "Disabled"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

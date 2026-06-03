@@ -1,6 +1,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.0";
 import { Resend } from "https://esm.sh/resend@4.0.0";
+import {
+  EMAIL_FROM,
+  emailButton,
+  emailInfoBox,
+  emailParagraph,
+  emailSignature,
+  wrapBrandedEmail,
+} from "./email-theme.ts";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 
@@ -16,6 +24,7 @@ interface InviteUserRequest {
   role: "kam" | "manager" | "leadership" | "superadmin" | "team_admin" | "nso";
   team?: "ce" | "staffing" | "experts" | null;
   password: string;
+  site_url?: string;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -63,7 +72,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Only admins can invite users");
     }
 
-    const { email, full_name, role, team, password }: InviteUserRequest = await req.json();
+    const { email, full_name, role, team, password, site_url }: InviteUserRequest = await req.json();
 
     console.log("Inviting user:", { email, full_name, role, team });
 
@@ -209,92 +218,36 @@ const handler = async (req: Request): Promise<Response> => {
       nso: "New Sales Officer",
     };
 
+    const inviteContentHtml = [
+      emailParagraph(`Hi ${full_name},`),
+      emailParagraph(
+        `You've been invited to join <strong>Awign CRM</strong> (Mandates Portal) as a <strong>${roleLabels[role]}</strong>.`,
+      ),
+      emailParagraph(
+        "Your account has been created and is ready to use. Click the button below to verify your account and sign in:",
+      ),
+      emailButton(verifyUrl, "Verify Account"),
+      emailInfoBox(
+        `<strong>Your account details</strong><br><br>
+        Email: ${email}<br>
+        Role: ${roleLabels[role]}<br><br>
+        <strong>Note:</strong> Your password has been set. Sign in with your email and password after verification.`,
+      ),
+      emailParagraph("If you have any questions, please contact your administrator."),
+      emailSignature(["Team Awign CRM"]),
+    ].join("");
+
     const emailResponse = await resend.emails.send({
-      from: "CRM Pro <userinvitation@awign.in>",
+      from: EMAIL_FROM,
       to: [email],
-      subject: "Welcome to CRM Pro - Your Account is Ready",
-      html: `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <style>
-              body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-                line-height: 1.6;
-                color: #333;
-                max-width: 600px;
-                margin: 0 auto;
-                padding: 20px;
-              }
-              .header {
-                background: linear-gradient(135deg, hsl(200, 95%, 45%), hsl(195, 85%, 50%));
-                color: white;
-                padding: 30px;
-                border-radius: 8px 8px 0 0;
-                text-align: center;
-              }
-              .content {
-                background: #f8f9fa;
-                padding: 30px;
-                border-radius: 0 0 8px 8px;
-              }
-              .button {
-                display: inline-block;
-                background: hsl(200, 95%, 45%);
-                color: white;
-                padding: 12px 30px;
-                text-decoration: none;
-                border-radius: 6px;
-                font-weight: 600;
-                margin: 20px 0;
-              }
-              .info-box {
-                background: white;
-                padding: 15px;
-                border-left: 4px solid hsl(200, 95%, 45%);
-                margin: 20px 0;
-              }
-              .footer {
-                text-align: center;
-                margin-top: 30px;
-                color: #666;
-                font-size: 12px;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>Welcome to CRM Pro!</h1>
-            </div>
-            <div class="content">
-              <p>Hi ${full_name},</p>
-              
-              <p>You've been invited to join CRM Pro as a <strong>${roleLabels[role]}</strong>.</p>
-              
-              <p>Your account has been created and is ready to use. Click the button below to verify your account and sign in:</p>
-              
-              <div style="text-align: center;">
-                <a href="${verifyUrl}" class="button">Verify Account</a>
-              </div>
-              
-              <div class="info-box">
-                <strong>Your Account Details:</strong><br>
-                Email: ${email}<br>
-                Role: ${roleLabels[role]}<br>
-                <br>
-                <strong>Note:</strong> Your password has been set. Simply sign in using your email and password to access your account.
-              </div>
-              
-              <p>If you have any questions, please contact your administrator.</p>
-              
-              <p>Best regards,<br>The CRM Pro Team</p>
-            </div>
-            <div class="footer">
-              <p>© 2025 CRM Pro. All rights reserved.</p>
-            </div>
-          </body>
-        </html>
-      `,
+      subject: "Welcome to Awign CRM — Your Account is Ready",
+      html: wrapBrandedEmail({
+        title: "Welcome to Awign CRM",
+        subtitle: "Your account is ready",
+        preheader: "Verify your account to access the Mandates Portal.",
+        contentHtml: inviteContentHtml,
+        siteUrl: site_url,
+      }),
     });
 
     console.log("Email sent successfully:", emailResponse);

@@ -22,6 +22,7 @@ import {
 import { Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { getAppSiteUrl } from "@/lib/app-site-url";
 import { z } from "zod";
 
 const inviteSchema = z.object({
@@ -187,6 +188,7 @@ export function InviteUserDialog({
           role: validationResult.data.role,
           team: validationResult.data.team ?? null,
           password: validationResult.data.password,
+          site_url: getAppSiteUrl(),
         },
       });
 

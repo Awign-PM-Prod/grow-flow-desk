@@ -16,6 +16,8 @@ import { MonthlyTargetsTab } from "./pages/targets/MonthlyTargetsTab";
 import { OverallTargetsTab } from "./pages/targets/OverallTargetsTab";
 import AdminUsers from "./pages/AdminUsers";
 import AdminNSOs from "./pages/AdminNSOs";
+import AdminNps from "./pages/AdminNps";
+import NpsSurvey from "./pages/NpsSurvey";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
@@ -39,6 +41,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/nps/:token" element={<NpsSurvey />} />
           <Route
             path="/dashboard"
             element={
@@ -137,6 +140,16 @@ const App = () => (
               <ProtectedRoute>
                 <AppLayout>
                   <AdminNSOs />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/nps"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <AdminNps />
                 </AppLayout>
               </ProtectedRoute>
             }

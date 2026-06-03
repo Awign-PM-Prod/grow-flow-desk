@@ -11,3 +11,18 @@ verify_jwt = true
 
 [functions.delete-user]
 verify_jwt = true
+
+[functions.send-contact-welcome]
+verify_jwt = true
+
+[functions.send-mandate-created-email]
+verify_jwt = true
+
+[functions.send-nps-surveys]
+verify_jwt = true
+
+[functions.get-nps-survey]
+verify_jwt = false
+
+[functions.submit-nps-survey]
+verify_jwt = false

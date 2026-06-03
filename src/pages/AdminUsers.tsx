@@ -14,6 +14,7 @@ import { InviteUserDialog } from "@/components/InviteUserDialog";
 import { EditUserDialog } from "@/components/EditUserDialog";
 import { DeleteUserDialog } from "@/components/DeleteUserDialog";
 import { UserInviteInfo } from "@/components/UserInviteInfo";
+import { getAppSiteUrl } from "@/lib/app-site-url";
 
 interface UserData {
   id: string;
@@ -162,6 +163,7 @@ export default function AdminUsers() {
         body: {
           email: user.email,
           full_name: user.full_name || user.email,
+          site_url: getAppSiteUrl(),
         },
       });
 

@@ -1,4 +1,4 @@
-import { Building2, Users, FileText, TrendingUp, LayoutDashboard, UserCog, Target, BarChart3, BookOpen } from "lucide-react";
+import { Building2, Users, FileText, TrendingUp, LayoutDashboard, UserCog, Target, BarChart3, BookOpen, ClipboardList } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
   Sidebar,
@@ -133,6 +133,12 @@ export function AppSidebar() {
       title: "User Management",
       url: "/admin/users",
       icon: UserCog,
+      roles: ["superadmin", "team_admin"],
+    },
+    {
+      title: "NPS Surveys",
+      url: "/admin/nps",
+      icon: ClipboardList,
       roles: ["superadmin", "team_admin"],
     },
   ];

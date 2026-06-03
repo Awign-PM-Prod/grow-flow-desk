@@ -1,6 +1,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.0";
 import { Resend } from "https://esm.sh/resend@4.0.0";
+import {
+  EMAIL_FROM,
+  emailButton,
+  emailInfoBox,
+  emailParagraph,
+  emailSignature,
+  wrapBrandedEmail,
+} from "./email-theme.ts";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 
@@ -13,6 +21,7 @@ const corsHeaders = {
 interface PasswordResetRequest {
   email: string;
   full_name: string;
+  site_url?: string;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -57,7 +66,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Only superadmins can send password reset links");
     }
 
-    const { email, full_name }: PasswordResetRequest = await req.json();
+    const { email, full_name, site_url }: PasswordResetRequest = await req.json();
 
     console.log("Sending password reset link to:", email);
 
@@ -85,88 +94,32 @@ const handler = async (req: Request): Promise<Response> => {
     console.log("Action link:", actionLink);
 
     // Send password reset email
+    const resetContentHtml = [
+      emailParagraph(`Hi ${full_name || "there"},`),
+      emailParagraph(
+        "Your administrator has sent you a password reset link for your Awign CRM account.",
+      ),
+      emailParagraph("Click the button below to set up a new password:"),
+      emailButton(actionLink, "Reset Your Password"),
+      emailInfoBox(
+        `<strong>Security notice</strong><br><br>
+        This link will expire in 24 hours for security reasons.<br>
+        If you didn't request this reset, please contact your administrator.`,
+      ),
+      emailSignature(["Team Awign CRM"]),
+    ].join("");
+
     const emailResponse = await resend.emails.send({
-      from: "CRM Pro <userinvitation@awign.in>",
+      from: EMAIL_FROM,
       to: [email],
-      subject: "Password Reset - CRM Pro",
-      html: `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <style>
-              body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-                line-height: 1.6;
-                color: #333;
-                max-width: 600px;
-                margin: 0 auto;
-                padding: 20px;
-              }
-              .header {
-                background: linear-gradient(135deg, hsl(200, 95%, 45%), hsl(195, 85%, 50%));
-                color: white;
-                padding: 30px;
-                border-radius: 8px 8px 0 0;
-                text-align: center;
-              }
-              .content {
-                background: #f8f9fa;
-                padding: 30px;
-                border-radius: 0 0 8px 8px;
-              }
-              .button {
-                display: inline-block;
-                background: hsl(200, 95%, 45%);
-                color: white;
-                padding: 12px 30px;
-                text-decoration: none;
-                border-radius: 6px;
-                font-weight: 600;
-                margin: 20px 0;
-              }
-              .info-box {
-                background: white;
-                padding: 15px;
-                border-left: 4px solid hsl(200, 95%, 45%);
-                margin: 20px 0;
-              }
-              .footer {
-                text-align: center;
-                margin-top: 30px;
-                color: #666;
-                font-size: 12px;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>Password Reset Request</h1>
-            </div>
-            <div class="content">
-              <p>Hi ${full_name || 'there'},</p>
-              
-              <p>Your administrator has sent you a password reset link for your CRM Pro account.</p>
-              
-              <p>Click the button below to set up a new password:</p>
-              
-              <div style="text-align: center;">
-                <a href="${actionLink}" class="button">Reset Your Password</a>
-              </div>
-              
-              <div class="info-box">
-                <strong>Security Notice:</strong><br>
-                This link will expire in 24 hours for security reasons.<br>
-                If you didn't request this reset, please contact your administrator.
-              </div>
-              
-              <p>Best regards,<br>The CRM Pro Team</p>
-            </div>
-            <div class="footer">
-              <p>© 2025 CRM Pro. All rights reserved.</p>
-            </div>
-          </body>
-        </html>
-      `,
+      subject: "Password Reset — Awign CRM",
+      html: wrapBrandedEmail({
+        title: "Password Reset",
+        subtitle: "Set a new password for your account",
+        preheader: "Reset your Awign CRM password using the secure link below.",
+        contentHtml: resetContentHtml,
+        siteUrl: site_url,
+      }),
     });
 
     console.log("Password reset email sent successfully:", emailResponse);
