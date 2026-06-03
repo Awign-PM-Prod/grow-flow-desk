@@ -1,23 +1,51 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2, CheckCircle2 } from "lucide-react";
-import { RatingScale } from "@/components/nps/RatingScale";
+import { NpsDynamicForm } from "@/components/nps/NpsDynamicForm";
 import {
-  emptyNpsFormState,
-  isNpsFormComplete,
-  NPS_LEADERSHIP_OPTIONS,
-  NPS_REFERRAL_OPTIONS,
-  NPS_SERVICE_SATISFACTION_FIELDS,
-  POC_SATISFACTION_FIELDS,
-  type NpsFormState,
-} from "@/lib/nps";
+  emptyAnswersForQuestions,
+  isNpsAnswersComplete,
+  parseQuestionOptions,
+  serializeAnswersForSubmit,
+  validateNpsAnswers,
+  type NpsAnswers,
+  type NpsSurveyFormConfig,
+  type NpsSurveyQuestion,
+} from "@/lib/nps-form";
+
+function parseFormFromApi(data: Record<string, unknown>): {
+  email: string;
+  form: NpsSurveyFormConfig;
+} {
+  const settings = data.settings as Record<string, unknown>;
+  const questions = (data.questions as Record<string, unknown>[]).map((row): NpsSurveyQuestion => ({
+    id: String(row.id),
+    field_key: String(row.field_key),
+    section_title: String(row.section_title ?? ""),
+    label: String(row.label),
+    input_type: row.input_type as NpsSurveyQuestion["input_type"],
+    required: Boolean(row.required),
+    sort_order: Number(row.sort_order),
+    options: parseQuestionOptions(row.options),
+    is_system: Boolean(row.is_system),
+  }));
+
+  return {
+    email: String(data.email ?? ""),
+    form: {
+      settings: {
+        id: 1,
+        title: String(settings?.title ?? "Awign Feedback Survey"),
+        description: String(settings?.description ?? ""),
+        updated_at: "",
+      },
+      questions,
+    },
+  };
+}
 
 export default function NpsSurvey() {
   const { token } = useParams<{ token: string }>();
@@ -26,7 +54,8 @@ export default function NpsSurvey() {
   const [error, setError] = useState<string | null>(null);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState<NpsFormState>(emptyNpsFormState());
+  const [formConfig, setFormConfig] = useState<NpsSurveyFormConfig | null>(null);
+  const [answers, setAnswers] = useState<NpsAnswers>({});
 
   useEffect(() => {
     if (!token) {
@@ -41,20 +70,17 @@ export default function NpsSurvey() {
           body: { token },
         });
 
-        if (fnError) {
-          throw fnError;
-        }
-
-        if (data?.error) {
-          throw new Error(data.error);
-        }
+        if (fnError) throw fnError;
+        if (data?.error) throw new Error(data.error);
 
         if (data?.already_submitted) {
           setAlreadySubmitted(true);
           return;
         }
 
-        setForm(emptyNpsFormState(data.email || ""));
+        const { email, form } = parseFormFromApi(data as Record<string, unknown>);
+        setFormConfig(form);
+        setAnswers(emptyAnswersForQuestions(form.questions, email));
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Unable to load survey";
         setError(message);
@@ -66,16 +92,17 @@ export default function NpsSurvey() {
     void loadSurvey();
   }, [token]);
 
-  const updateForm = <K extends keyof NpsFormState>(key: K, value: NpsFormState[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const handleAnswerChange = (fieldKey: string, value: string | number) => {
+    setAnswers((prev) => ({ ...prev, [fieldKey]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token) return;
+    if (!token || !formConfig) return;
 
-    if (!isNpsFormComplete(form)) {
-      setError("Please answer all required questions.");
+    const validationError = validateNpsAnswers(formConfig.questions, answers);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -83,34 +110,16 @@ export default function NpsSurvey() {
     setError(null);
 
     try {
+      const payload = serializeAnswersForSubmit(formConfig.questions, answers);
       const { data, error: fnError } = await supabase.functions.invoke("submit-nps-survey", {
         body: {
           token,
-          email: form.email.trim(),
-          satisfaction_services: form.satisfaction_services,
-          satisfaction_project_execution: form.satisfaction_project_execution,
-          gig_workforce_quality: form.gig_workforce_quality,
-          poc_overall_communication: form.poc_overall_communication,
-          poc_escalation_handling: form.poc_escalation_handling,
-          poc_availability: form.poc_availability,
-          poc_proactive_approach: form.poc_proactive_approach,
-          poc_timely_response: form.poc_timely_response,
-          poc_requirement_understanding: form.poc_requirement_understanding,
-          referral_intent: form.referral_intent,
-          leadership_meeting: form.leadership_meeting,
-          services_meet_needs: form.services_meet_needs,
-          improve_suggestions: form.improve_suggestions.trim(),
-          other_comments: form.other_comments.trim(),
+          answers: payload,
         },
       });
 
-      if (fnError) {
-        throw fnError;
-      }
-
-      if (data?.error) {
-        throw new Error(data.error);
-      }
+      if (fnError) throw fnError;
+      if (data?.error) throw new Error(data.error);
 
       setSubmitted(true);
     } catch (err: unknown) {
@@ -147,7 +156,7 @@ export default function NpsSurvey() {
     );
   }
 
-  if (error && !form.email) {
+  if (error && !formConfig) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
         <Card className="max-w-md w-full">
@@ -157,160 +166,33 @@ export default function NpsSurvey() {
     );
   }
 
+  if (!formConfig) {
+    return null;
+  }
+
+  const complete = isNpsAnswersComplete(formConfig.questions, answers);
+
   return (
     <div className="min-h-screen bg-muted/30 py-8 px-4">
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-bold tracking-tight">Awign Feedback Survey</h1>
-          <p className="text-muted-foreground">
-            All questions are required. Please rate each item from 1 (Very Unsatisfied) to 5 (Very Satisfied).
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight">{formConfig.settings.title}</h1>
+          {formConfig.settings.description ? (
+            <p className="text-muted-foreground">{formConfig.settings.description}</p>
+          ) : null}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Your details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Label htmlFor="email">
-                  Email ID <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={form.email}
-                  readOnly
-                  className="bg-muted"
-                  required
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Service satisfaction</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-8">
-              {NPS_SERVICE_SATISFACTION_FIELDS.map((field) => (
-                <RatingScale
-                  key={field.key}
-                  label={field.label}
-                  value={form[field.key]}
-                  onChange={(v) => updateForm(field.key, v)}
-                  required
-                />
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">How satisfied were your POC?</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-8">
-              {POC_SATISFACTION_FIELDS.map((field) => (
-                <RatingScale
-                  key={field.key}
-                  label={field.label}
-                  value={form[field.key]}
-                  onChange={(v) => updateForm(field.key, v)}
-                  required
-                />
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Additional questions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-8">
-              <div className="space-y-3">
-                <Label className="text-base font-medium">
-                  Would you refer Awign to other peer groups within or outside your organization?{" "}
-                  <span className="text-destructive">*</span>
-                </Label>
-                <RadioGroup
-                  value={form.referral_intent}
-                  onValueChange={(v) => updateForm("referral_intent", v as NpsFormState["referral_intent"])}
-                  className="flex flex-wrap gap-4"
-                >
-                  {NPS_REFERRAL_OPTIONS.map((option) => (
-                    <div key={option} className="flex items-center space-x-2">
-                      <RadioGroupItem value={option} id={`referral-${option}`} />
-                      <Label htmlFor={`referral-${option}`} className="font-normal cursor-pointer">
-                        {option}
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
-
-              <div className="space-y-3">
-                <Label className="text-base font-medium">
-                  Have you met Awign&apos;s Leadership? <span className="text-destructive">*</span>
-                </Label>
-                <RadioGroup
-                  value={form.leadership_meeting}
-                  onValueChange={(v) => updateForm("leadership_meeting", v as NpsFormState["leadership_meeting"])}
-                  className="space-y-2"
-                >
-                  {NPS_LEADERSHIP_OPTIONS.map((option) => (
-                    <div key={option} className="flex items-center space-x-2">
-                      <RadioGroupItem value={option} id={`leadership-${option}`} />
-                      <Label htmlFor={`leadership-${option}`} className="font-normal cursor-pointer">
-                        {option}
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
-
-              <RatingScale
-                label="How well do our services meet your needs?"
-                value={form.services_meet_needs}
-                onChange={(v) => updateForm("services_meet_needs", v)}
-                required
-              />
-
-              <div className="space-y-2">
-                <Label htmlFor="improve">
-                  What can Awign do better? <span className="text-destructive">*</span>
-                </Label>
-                <Textarea
-                  id="improve"
-                  value={form.improve_suggestions}
-                  onChange={(e) => updateForm("improve_suggestions", e.target.value)}
-                  placeholder="Your suggestions..."
-                  required
-                  rows={4}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="comments">
-                  Do you have any other comments, questions or concerns?{" "}
-                  <span className="text-destructive">*</span>
-                </Label>
-                <Textarea
-                  id="comments"
-                  value={form.other_comments}
-                  onChange={(e) => updateForm("other_comments", e.target.value)}
-                  placeholder="Your comments..."
-                  required
-                  rows={4}
-                />
-              </div>
-            </CardContent>
-          </Card>
+          <NpsDynamicForm
+            questions={formConfig.questions}
+            answers={answers}
+            onAnswerChange={handleAnswerChange}
+          />
 
           {error && <p className="text-sm text-destructive text-center">{error}</p>}
 
           <div className="flex justify-center pb-8">
-            <Button type="submit" size="lg" disabled={submitting || !isNpsFormComplete(form)}>
+            <Button type="submit" size="lg" disabled={submitting || !complete}>
               {submitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

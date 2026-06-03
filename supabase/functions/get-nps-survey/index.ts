@@ -30,24 +30,32 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Survey token is required");
     }
 
-    const { data: invite, error: inviteError } = await supabaseAdmin
-      .from("nps_survey_invites")
-      .select(`
-        id,
-        submitted_at,
-        contact:contacts (
-          email,
-          first_name,
-          last_name
-        )
-      `)
-      .eq("token", token.trim())
-      .maybeSingle();
+    const [inviteRes, settingsRes, questionsRes] = await Promise.all([
+      supabaseAdmin
+        .from("nps_survey_invites")
+        .select(`
+          id,
+          submitted_at,
+          contact:contacts (
+            email,
+            first_name,
+            last_name
+          )
+        `)
+        .eq("token", token.trim())
+        .maybeSingle(),
+      supabaseAdmin.from("nps_survey_settings").select("title, description").eq("id", 1).single(),
+      supabaseAdmin
+        .from("nps_survey_questions")
+        .select("id, field_key, section_title, label, input_type, required, sort_order, options, is_system")
+        .order("sort_order", { ascending: true }),
+    ]);
 
-    if (inviteError) {
-      throw inviteError;
-    }
+    if (inviteRes.error) throw inviteRes.error;
+    if (settingsRes.error) throw settingsRes.error;
+    if (questionsRes.error) throw questionsRes.error;
 
+    const invite = inviteRes.data;
     if (!invite) {
       throw new Error("Invalid or expired survey link");
     }
@@ -62,6 +70,10 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Contact not found for this survey");
     }
 
+    if (!questionsRes.data?.length) {
+      throw new Error("Survey form is not configured");
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -69,6 +81,8 @@ const handler = async (req: Request): Promise<Response> => {
         first_name: contact.first_name,
         last_name: contact.last_name,
         already_submitted: Boolean(invite.submitted_at),
+        settings: settingsRes.data,
+        questions: questionsRes.data,
       }),
       {
         status: 200,

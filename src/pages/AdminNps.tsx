@@ -37,16 +37,27 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { NpsResponseDetailView } from "@/components/nps/NpsResponseDetailView";
 import { convertToCSV, downloadCSV } from "@/lib/csv-export";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, ClipboardList, Download, Loader2, Mail, X } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  ClipboardList,
+  Download,
+  Loader2,
+  Mail,
+  Settings2,
+  X,
+} from "lucide-react";
 import { getAppSiteUrl } from "@/lib/app-site-url";
 import {
+  buildNpsCsvHeaders,
   filterNpsResponses,
-  NPS_RESPONSE_CSV_HEADERS,
+  normalizeAnswersFromDb,
   npsResponsesToCsvRows,
+  parseQuestionOptions,
   type NpsResponseFilters,
   type NpsResponseListRow,
   type NpsResponseRecord,
-} from "@/lib/nps";
+  type NpsSurveyQuestion,
+} from "@/lib/nps-form";
 
 type NpsResponseQueryRow = NpsResponseRecord & {
   contacts: {
@@ -76,10 +87,25 @@ function mapQueryRow(row: NpsResponseQueryRow): NpsResponseListRow {
 
   return {
     ...record,
+    answers: normalizeAnswersFromDb(record.answers),
     contact_name: contactName || null,
     account_id: contact?.account_id ?? account?.id ?? null,
     account_name: account?.name ?? null,
     department: contact?.department ?? null,
+  };
+}
+
+function mapQuestionRow(row: Record<string, unknown>): NpsSurveyQuestion {
+  return {
+    id: String(row.id),
+    field_key: String(row.field_key),
+    section_title: String(row.section_title ?? ""),
+    label: String(row.label),
+    input_type: row.input_type as NpsSurveyQuestion["input_type"],
+    required: Boolean(row.required),
+    sort_order: Number(row.sort_order),
+    options: parseQuestionOptions(row.options),
+    is_system: Boolean(row.is_system),
   };
 }
 
@@ -120,6 +146,7 @@ export default function AdminNps() {
   const [selectedResponse, setSelectedResponse] = useState<NpsResponseListRow | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [filters, setFilters] = useState<NpsResponseFilters>(EMPTY_FILTERS);
+  const [formQuestions, setFormQuestions] = useState<NpsSurveyQuestion[]>([]);
 
   const filteredResponses = useMemo(
     () => filterNpsResponses(responses, filters),
@@ -192,20 +219,7 @@ export default function AdminNps() {
           contact_id,
           email,
           submitted_at,
-          satisfaction_services,
-          satisfaction_project_execution,
-          gig_workforce_quality,
-          poc_overall_communication,
-          poc_escalation_handling,
-          poc_availability,
-          poc_proactive_approach,
-          poc_timely_response,
-          poc_requirement_understanding,
-          referral_intent,
-          leadership_meeting,
-          services_meet_needs,
-          improve_suggestions,
-          other_comments,
+          answers,
           contacts (
             account_id,
             first_name,
@@ -233,6 +247,19 @@ export default function AdminNps() {
     }
   }, [toast]);
 
+  const fetchFormQuestions = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("nps_survey_questions")
+        .select("*")
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      setFormQuestions((data ?? []).map((row) => mapQuestionRow(row as Record<string, unknown>)));
+    } catch (error) {
+      console.error("Error loading NPS form questions:", error);
+    }
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
     if (!canManageUsers) {
@@ -241,7 +268,8 @@ export default function AdminNps() {
     }
     void fetchStats();
     void fetchResponses();
-  }, [authLoading, canManageUsers, navigate, fetchResponses]);
+    void fetchFormQuestions();
+  }, [authLoading, canManageUsers, navigate, fetchResponses, fetchFormQuestions]);
 
   const handleSendSurveys = async () => {
     setSending(true);
@@ -321,7 +349,10 @@ export default function AdminNps() {
       });
       return;
     }
-    const csv = convertToCSV(npsResponsesToCsvRows(rows), NPS_RESPONSE_CSV_HEADERS);
+    const csv = convertToCSV(
+      npsResponsesToCsvRows(rows, formQuestions),
+      buildNpsCsvHeaders(formQuestions),
+    );
     const stamp = new Date().toISOString().slice(0, 10);
     const suffix = filtersActive ? "filtered" : "all";
     downloadCSV(csv, `nps-responses-${suffix}-${stamp}.csv`);
@@ -341,11 +372,17 @@ export default function AdminNps() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">NPS Surveys</h1>
-        <p className="text-muted-foreground">
-          Send feedback surveys to contacts with NPS enabled. Each contact receives a unique survey link.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">NPS Surveys</h1>
+          <p className="text-muted-foreground">
+            Send feedback surveys to contacts with NPS enabled. Each contact receives a unique survey link.
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => navigate("/admin/nps/configure")}>
+          <Settings2 className="mr-2 h-4 w-4" />
+          NPS Form Configuration
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -579,7 +616,8 @@ export default function AdminNps() {
           <div className="py-6">
             {selectedResponse ? (
               <NpsResponseDetailView
-                response={selectedResponse}
+                questions={formQuestions}
+                answers={selectedResponse.answers}
                 contactName={selectedResponse.contact_name}
                 accountName={selectedResponse.account_name}
                 department={selectedResponse.department}

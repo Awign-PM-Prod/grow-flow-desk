@@ -17,6 +17,7 @@ import { OverallTargetsTab } from "./pages/targets/OverallTargetsTab";
 import AdminUsers from "./pages/AdminUsers";
 import AdminNSOs from "./pages/AdminNSOs";
 import AdminNps from "./pages/AdminNps";
+import AdminNpsFormConfig from "./pages/AdminNpsFormConfig";
 import NpsSurvey from "./pages/NpsSurvey";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -150,6 +151,16 @@ const App = () => (
               <ProtectedRoute>
                 <AppLayout>
                   <AdminNps />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/nps/configure"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <AdminNpsFormConfig />
                 </AppLayout>
               </ProtectedRoute>
             }

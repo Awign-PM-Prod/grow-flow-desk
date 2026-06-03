@@ -7,36 +7,72 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const REFERRAL_OPTIONS = ["Yes", "No", "Maybe"] as const;
-const LEADERSHIP_OPTIONS = [
-  "Yes, We have Met Virtually",
-  "Yes, We have met personally",
-  "No",
-] as const;
+type QuestionRow = {
+  field_key: string;
+  label: string;
+  input_type: string;
+  required: boolean;
+  options: unknown;
+};
+
+function parseOptions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((o) => String(o).trim()).filter(Boolean);
+}
+
+function validateAnswers(
+  questions: QuestionRow[],
+  answers: Record<string, unknown>,
+): string | null {
+  for (const q of questions) {
+    const raw = answers[q.field_key];
+    const str = raw === undefined || raw === null ? "" : String(raw).trim();
+
+    if (q.input_type === "rating") {
+      const num = typeof raw === "number" ? raw : Number(str);
+      if (q.required && (!Number.isInteger(num) || num < 1 || num > 5)) {
+        return `"${q.label}" requires a rating from 1 to 5.`;
+      }
+      if (str !== "" && (!Number.isInteger(num) || num < 1 || num > 5)) {
+        return `"${q.label}" must be a rating from 1 to 5.`;
+      }
+      continue;
+    }
+
+    if (q.required && !str) {
+      return `"${q.label}" is required.`;
+    }
+
+    if (q.input_type === "single_choice" && str) {
+      const opts = parseOptions(q.options);
+      if (opts.length > 0 && !opts.includes(str)) {
+        return `"${q.label}" has an invalid selection.`;
+      }
+    }
+  }
+  return null;
+}
+
+function normalizeAnswersForStorage(
+  questions: QuestionRow[],
+  answers: Record<string, unknown>,
+): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  for (const q of questions) {
+    const raw = answers[q.field_key];
+    if (q.input_type === "rating") {
+      const num = typeof raw === "number" ? raw : Number(String(raw ?? "").trim());
+      out[q.field_key] = num;
+    } else {
+      out[q.field_key] = String(raw ?? "").trim();
+    }
+  }
+  return out;
+}
 
 interface SubmitNpsSurveyRequest {
   token: string;
-  email: string;
-  satisfaction_services: number;
-  satisfaction_project_execution: number;
-  gig_workforce_quality: number;
-  poc_overall_communication: number;
-  poc_escalation_handling: number;
-  poc_availability: number;
-  poc_proactive_approach: number;
-  poc_timely_response: number;
-  poc_requirement_understanding: number;
-  referral_intent: string;
-  leadership_meeting: string;
-  services_meet_needs: number;
-  improve_suggestions: string;
-  other_comments: string;
-}
-
-function assertRating(value: number, field: string): void {
-  if (!Number.isInteger(value) || value < 1 || value > 5) {
-    throw new Error(`${field} must be an integer from 1 to 5`);
-  }
+  answers: Record<string, unknown>;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -53,50 +89,37 @@ const handler = async (req: Request): Promise<Response> => {
     });
 
     const body: SubmitNpsSurveyRequest = await req.json();
-    const { token } = body;
+    const { token, answers: rawAnswers } = body;
 
     if (!token?.trim()) {
       throw new Error("Survey token is required");
     }
 
-    const email = body.email?.trim();
-    if (!email) {
+    if (!rawAnswers || typeof rawAnswers !== "object") {
+      throw new Error("Survey answers are required");
+    }
+
+    const { data: questions, error: questionsError } = await supabaseAdmin
+      .from("nps_survey_questions")
+      .select("field_key, label, input_type, required, options")
+      .order("sort_order", { ascending: true });
+
+    if (questionsError) throw questionsError;
+    if (!questions?.length) {
+      throw new Error("Survey form is not configured");
+    }
+
+    const validationError = validateAnswers(questions as QuestionRow[], rawAnswers);
+    if (validationError) {
+      throw new Error(validationError);
+    }
+
+    const emailAnswer = String(rawAnswers.email ?? "").trim();
+    if (!emailAnswer) {
       throw new Error("Email is required");
     }
 
-    const improveSuggestions = body.improve_suggestions?.trim();
-    const otherComments = body.other_comments?.trim();
-    if (!improveSuggestions) {
-      throw new Error("What can Awign do better? is required");
-    }
-    if (!otherComments) {
-      throw new Error("Other comments, questions or concerns is required");
-    }
-
-    if (!REFERRAL_OPTIONS.includes(body.referral_intent as typeof REFERRAL_OPTIONS[number])) {
-      throw new Error("Invalid referral response");
-    }
-
-    if (!LEADERSHIP_OPTIONS.includes(body.leadership_meeting as typeof LEADERSHIP_OPTIONS[number])) {
-      throw new Error("Invalid leadership meeting response");
-    }
-
-    const ratingFields: Array<[number, string]> = [
-      [body.satisfaction_services, "How satisfied are you with Awign's services?"],
-      [body.satisfaction_project_execution, "How satisfied are you on Project Execution?"],
-      [body.gig_workforce_quality, "How do you rate Awign's Gig Workforce Quality?"],
-      [body.poc_overall_communication, "Overall Communication"],
-      [body.poc_escalation_handling, "Escalation Handling"],
-      [body.poc_availability, "Availability"],
-      [body.poc_proactive_approach, "Proactive Approach"],
-      [body.poc_timely_response, "Timely Response"],
-      [body.poc_requirement_understanding, "Project Requirement Understanding"],
-      [body.services_meet_needs, "How well do our services meet your needs?"],
-    ];
-
-    for (const [value, label] of ratingFields) {
-      assertRating(value, label);
-    }
+    const storedAnswers = normalizeAnswersForStorage(questions as QuestionRow[], rawAnswers);
 
     const { data: invite, error: inviteError } = await supabaseAdmin
       .from("nps_survey_invites")
@@ -104,59 +127,32 @@ const handler = async (req: Request): Promise<Response> => {
       .eq("token", token.trim())
       .maybeSingle();
 
-    if (inviteError) {
-      throw inviteError;
-    }
-
-    if (!invite) {
-      throw new Error("Invalid or expired survey link");
-    }
-
-    if (invite.submitted_at) {
-      throw new Error("This survey has already been submitted");
-    }
+    if (inviteError) throw inviteError;
+    if (!invite) throw new Error("Invalid or expired survey link");
+    if (invite.submitted_at) throw new Error("This survey has already been submitted");
 
     const contact = invite.contact as { email: string } | null;
-    if (!contact?.email) {
-      throw new Error("Contact not found");
-    }
+    if (!contact?.email) throw new Error("Contact not found");
 
-    if (contact.email.toLowerCase() !== email.toLowerCase()) {
+    if (contact.email.toLowerCase() !== emailAnswer.toLowerCase()) {
       throw new Error("Email does not match the survey recipient");
     }
 
     const { error: insertError } = await supabaseAdmin.from("nps_responses").insert({
       invite_id: invite.id,
       contact_id: invite.contact_id,
-      email,
-      satisfaction_services: body.satisfaction_services,
-      satisfaction_project_execution: body.satisfaction_project_execution,
-      gig_workforce_quality: body.gig_workforce_quality,
-      poc_overall_communication: body.poc_overall_communication,
-      poc_escalation_handling: body.poc_escalation_handling,
-      poc_availability: body.poc_availability,
-      poc_proactive_approach: body.poc_proactive_approach,
-      poc_timely_response: body.poc_timely_response,
-      poc_requirement_understanding: body.poc_requirement_understanding,
-      referral_intent: body.referral_intent,
-      leadership_meeting: body.leadership_meeting,
-      services_meet_needs: body.services_meet_needs,
-      improve_suggestions: improveSuggestions,
-      other_comments: otherComments,
+      email: emailAnswer,
+      answers: storedAnswers,
     });
 
-    if (insertError) {
-      throw insertError;
-    }
+    if (insertError) throw insertError;
 
     const { error: updateError } = await supabaseAdmin
       .from("nps_survey_invites")
       .update({ submitted_at: new Date().toISOString() })
       .eq("id", invite.id);
 
-    if (updateError) {
-      throw updateError;
-    }
+    if (updateError) throw updateError;
 
     return new Response(
       JSON.stringify({ success: true, message: "Survey submitted successfully" }),
