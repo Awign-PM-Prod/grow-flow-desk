@@ -17,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText, BookOpen } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { getAppSiteUrl } from "@/lib/app-site-url";
+import { isPortalEmailSendingEnabled } from "@/lib/portalEmailSending";
 import { HighlightedText } from "@/components/HighlightedText";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
@@ -146,6 +147,10 @@ export default function Contacts() {
   }, [isAdminUser, formDialogOpen, userTeam]);
 
   const sendContactWelcomeEmail = async (contactEmail: string, pocId: string) => {
+    if (!isPortalEmailSendingEnabled()) {
+      return;
+    }
+
     const { error } = await supabase.functions.invoke("send-contact-welcome", {
       body: {
         contact_email: contactEmail,
@@ -294,7 +299,9 @@ export default function Contacts() {
 
       toast({
         title: "Success!",
-        description: "Contact saved and welcome email sent.",
+        description: isPortalEmailSendingEnabled()
+          ? "Contact saved and welcome email sent."
+          : "Contact saved successfully.",
       });
 
       // Reset form

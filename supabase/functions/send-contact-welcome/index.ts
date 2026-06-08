@@ -21,6 +21,13 @@ const corsHeaders = {
 type AppRole = "kam" | "manager" | "leadership" | "superadmin" | "team_admin" | "nso";
 type Team = "ce" | "staffing" | "experts";
 
+const EMAIL_SKIP_MESSAGE =
+  "Welcome emails are not sent for Staffing or Awign Expert teams";
+
+function isEmailDisabledForTeam(team: Team | null | undefined): boolean {
+  return team === "staffing" || team === "experts";
+}
+
 interface SendContactWelcomeRequest {
   contact_email: string;
   poc_user_id: string;
@@ -172,6 +179,25 @@ const handler = async (req: Request): Promise<Response> => {
       if (!callerTeam || callerTeam !== pocTeam) {
         throw new Error("Team admins can only select KAMs from their own team");
       }
+    }
+
+    const pocTeam = pocProfile.team as Team | null;
+    if (isEmailDisabledForTeam(pocTeam)) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          skipped: true,
+          message: EMAIL_SKIP_MESSAGE,
+          emails_sent: 0,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            ...corsHeaders,
+          },
+        },
+      );
     }
 
     const pocName = pocProfile.full_name?.trim() || "Awign Team";

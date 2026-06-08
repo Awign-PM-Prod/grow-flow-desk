@@ -18,6 +18,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+type Team = "ce" | "staffing" | "experts";
+
 interface SendMandateCreatedEmailRequest {
   account_id: string;
   mandate_name: string;
@@ -25,6 +27,23 @@ interface SendMandateCreatedEmailRequest {
   kam_id: string;
   created_on?: string;
   site_url?: string;
+}
+
+const EMAIL_SKIP_MESSAGE =
+  "Mandate notification emails are not sent for Staffing or Awign Expert teams";
+
+function isEmailDisabledForTeam(team: Team | null | undefined): boolean {
+  return team === "staffing" || team === "experts";
+}
+
+function teamFromLob(lob: string | null | undefined): Team | null {
+  const normalized = (lob || "").toLowerCase().trim().replace(/\s+/g, " ");
+  if (normalized === "staffing") return "staffing";
+  if (normalized === "awign expert" || normalized === "awign experts") {
+    return "experts";
+  }
+  if (normalized) return "ce";
+  return null;
 }
 
 function formatCreatedDate(iso?: string): string {
@@ -129,12 +148,32 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { data: kamProfile, error: kamError } = await supabaseAdmin
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id, full_name, email, team")
       .eq("id", kam_id)
       .single();
 
     if (kamError || !kamProfile) {
       throw new Error("KAM profile not found");
+    }
+
+    const mandateTeam =
+      (kamProfile.team as Team | null) ?? teamFromLob(lob);
+    if (isEmailDisabledForTeam(mandateTeam)) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          skipped: true,
+          message: EMAIL_SKIP_MESSAGE,
+          emails_sent: 0,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            ...corsHeaders,
+          },
+        },
+      );
     }
 
     const pocName = kamProfile.full_name?.trim() || "Awign Team";

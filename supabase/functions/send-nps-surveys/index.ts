@@ -20,6 +20,13 @@ const corsHeaders = {
 
 type Team = "ce" | "staffing" | "experts";
 
+const EMAIL_SKIP_MESSAGE =
+  "NPS survey emails are not sent for Staffing or Awign Expert teams";
+
+function isEmailDisabledForTeam(team: Team | null | undefined): boolean {
+  return team === "staffing" || team === "experts";
+}
+
 function buildNpsEmailHtml(surveyUrl: string, contactName: string, siteUrl?: string): string {
   const greeting = contactName ? `Hi ${contactName},` : "Hi,";
   const contentHtml = [
@@ -94,9 +101,24 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Only admins can send NPS surveys");
     }
 
+    const callerTeam = callerProfile.team as Team | null;
+    if (isTeamAdmin && !isGlobalAdmin && isEmailDisabledForTeam(callerTeam)) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          skipped: true,
+          message: EMAIL_SKIP_MESSAGE,
+          emails_sent: 0,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        },
+      );
+    }
+
     let accountIds: string[] | null = null;
     if (isTeamAdmin && !isGlobalAdmin) {
-      const callerTeam = callerProfile.team as Team | null;
       if (!callerTeam) {
         throw new Error("Team admin has no team assigned");
       }
@@ -130,9 +152,41 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
+    // Superadmin bulk send: only CE-team mandate accounts (exclude staffing / experts).
+    if (isGlobalAdmin) {
+      const { data: ceMandates, error: ceMandatesError } = await supabaseAdmin
+        .from("mandates")
+        .select("account_id")
+        .eq("team", "ce")
+        .not("account_id", "is", null);
+
+      if (ceMandatesError) {
+        throw ceMandatesError;
+      }
+
+      accountIds = [
+        ...new Set(
+          (ceMandates || [])
+            .map((m) => m.account_id as string)
+            .filter(Boolean),
+        ),
+      ];
+
+      if (accountIds.length === 0) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: "No CE team accounts found for NPS",
+            emails_sent: 0,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } },
+        );
+      }
+    }
+
     let contactsQuery = supabaseAdmin
       .from("contacts")
-      .select("id, email, first_name, last_name")
+      .select("id, email, first_name, last_name, account_id")
       .eq("nps_enabled", true);
 
     if (accountIds) {

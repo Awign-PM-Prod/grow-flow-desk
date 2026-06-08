@@ -16,6 +16,10 @@ import { DeleteUserDialog } from "@/components/DeleteUserDialog";
 import { UserInviteInfo } from "@/components/UserInviteInfo";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { formatTeamLabel } from "@/lib/teamLabels";
+import {
+  isPortalEmailSendingEnabled,
+  PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
+} from "@/lib/portalEmailSending";
 
 interface UserData {
   id: string;
@@ -153,6 +157,15 @@ export default function AdminUsers() {
 
   const handleSendPasswordReset = async (user: UserData) => {
     try {
+      if (!isPortalEmailSendingEnabled()) {
+        toast({
+          title: "Email sending disabled",
+          description: PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
+          variant: "destructive",
+        });
+        return;
+      }
+
       setSendingResetEmail(user.id);
 
       const { data: { session } } = await supabase.auth.getSession();

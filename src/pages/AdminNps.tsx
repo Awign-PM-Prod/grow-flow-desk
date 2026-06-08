@@ -48,6 +48,10 @@ import {
 } from "lucide-react";
 import { getAppSiteUrl } from "@/lib/app-site-url";
 import {
+  isPortalEmailSendingEnabled,
+  PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
+} from "@/lib/portalEmailSending";
+import {
   buildNpsCsvHeaders,
   filterNpsResponses,
   normalizeAnswersFromDb,
@@ -272,6 +276,15 @@ export default function AdminNps() {
   }, [authLoading, canManageUsers, navigate, fetchResponses, fetchFormQuestions]);
 
   const handleSendSurveys = async () => {
+    if (!isPortalEmailSendingEnabled()) {
+      toast({
+        title: "Email sending disabled",
+        description: PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSending(true);
     setConfirmOpen(false);
     try {
@@ -417,12 +430,20 @@ export default function AdminNps() {
           <CardDescription>
             Emails are sent to all contacts where <strong>nps_enabled</strong> is turned on.
             Enable NPS per contact from the Contacts page. Each send creates a new survey link.
+            {!isPortalEmailSendingEnabled() && (
+              <> {PORTAL_EMAIL_SENDING_DISABLED_MESSAGE}</>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col sm:flex-row gap-3">
           <Button
             onClick={() => setConfirmOpen(true)}
-            disabled={sending || loadingStats || enabledCount === 0}
+            disabled={
+              sending ||
+              loadingStats ||
+              enabledCount === 0 ||
+              !isPortalEmailSendingEnabled()
+            }
           >
             {sending ? (
               <>

@@ -23,6 +23,10 @@ import { Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { getAppSiteUrl } from "@/lib/app-site-url";
+import {
+  isPortalEmailSendingEnabled,
+  PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
+} from "@/lib/portalEmailSending";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { formatTeamLabel } from "@/lib/teamLabels";
 import { z } from "zod";
@@ -176,6 +180,16 @@ export function InviteUserDialog({
         toast({
           title: "Validation Error",
           description: firstError.message,
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (!isPortalEmailSendingEnabled()) {
+        toast({
+          title: "Email sending disabled",
+          description: PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
           variant: "destructive",
         });
         setLoading(false);

@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown, History } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { getAppSiteUrl } from "@/lib/app-site-url";
+import { isPortalEmailSendingEnabled } from "@/lib/portalEmailSending";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { TablePaginationBar } from "@/components/TablePaginationBar";
 import { useTablePagination } from "@/hooks/useTablePagination";
@@ -69,6 +70,7 @@ import {
   normalizeLobForTeam,
   resolveMandateTeam,
   shouldShowStaffingMandateFields,
+  STAFFING_LOB,
 } from "@/lib/teamLob";
 import { LobFormField } from "@/components/LobFormField";
 import type { Json } from "@/integrations/supabase/types";
@@ -319,6 +321,241 @@ const calculateRevenueSectionType = (
   return null;
 };
 
+type MandateUploadTemplateHeader = { key: string; label: string };
+
+const CE_MANDATE_UPLOAD_TEMPLATE_HEADERS: MandateUploadTemplateHeader[] = [
+  { key: "project_id", label: "Project Code" },
+  { key: "account_name", label: "Account Name" },
+  { key: "kam_name", label: "KAM Name" },
+  { key: "project_name", label: "Project Name" },
+  { key: "lob", label: "LoB (Vertical)" },
+  { key: "type", label: "Type" },
+  { key: "new_sales_owner", label: "New Sales Owner" },
+  { key: "handover_monthly_volume", label: "Handover Monthly Volume" },
+  { key: "handover_commercial_per_head", label: "Handover Commercial per head/task" },
+  { key: "prj_duration_months", label: "PRJ duration in months" },
+  { key: "handover_acv", label: "Handover ACV" },
+  { key: "handover_prj_type", label: "Handover PRJ Type" },
+  { key: "revenue_monthly_volume", label: "Revenue Monthly Volume" },
+  { key: "revenue_commercial_per_head", label: "Revenue Commercial per head/task" },
+  { key: "revenue_acv", label: "Revenue ACV" },
+  { key: "revenue_prj_type", label: "Revenue PRJ Type" },
+  { key: "mandate_health", label: "Mandate Health" },
+  { key: "upsell_constraint", label: "Upsell Constraint" },
+  { key: "upsell_constraint_type", label: "Upsell Constraint Type" },
+  { key: "upsell_constraint_sub", label: "Upsell Constraint Type - Sub" },
+  { key: "upsell_constraint_sub2", label: "Upsell Constraint Type - Sub 2" },
+  { key: "client_budget_trend", label: "Client Budget Trend" },
+  { key: "awign_share_percent", label: "Awign Share %" },
+  { key: "upsell_action_status", label: "Upsell Action Status" },
+  { key: "gap1", label: "" },
+  { key: "gap2", label: "" },
+  { key: "reference_lob", label: "LoB" },
+  { key: "reference_use_case", label: "Use Case" },
+  { key: "reference_sub_use_case", label: "Sub Use Case" },
+  { key: "reference_type", label: "Type" },
+  { key: "reference_prj_type", label: "PRJ Type" },
+  { key: "reference_mandate_health", label: "Mandate Health" },
+  { key: "reference_client_budget_trend", label: "Client Budget Trend" },
+  { key: "reference_upsell_constraint", label: "Upsell Constraint" },
+  { key: "reference_upsell_constraint_type", label: "Upsell Constraint Type" },
+  { key: "reference_upsell_constraint_sub", label: "Upsell Constraint Sub" },
+  { key: "reference_upsell_constraint_sub2", label: "Upsell Constraint Sub2" },
+  { key: "reference_upsell_action_status", label: "Upsell Action Status" },
+];
+
+/** Staffing team bulk upload — matches the staffing mandate create form (no handover / CE revenue). */
+const STAFFING_MANDATE_UPLOAD_TEMPLATE_HEADERS: MandateUploadTemplateHeader[] = [
+  { key: "project_id", label: "Project Code" },
+  { key: "account_name", label: "Account Name" },
+  { key: "kam_name", label: "KAM Name" },
+  { key: "project_name", label: "Project Name" },
+  { key: "lob", label: "LoB (Vertical)" },
+  { key: "use_case", label: "Use Case" },
+  { key: "sub_use_case", label: "Sub Use Case" },
+  { key: "type", label: "Type" },
+  { key: "staffing_headcount", label: "Headcount" },
+  { key: "staffing_salary_payouts", label: "Salary & Payouts" },
+  { key: "staffing_program_management", label: "Program Management" },
+  { key: "staffing_saas_usage_fee", label: "SaaS Usage Fee" },
+  { key: "staffing_monthly_agency_fee_percent", label: "Monthly Agency Fee %" },
+  { key: "staffing_sales_force_automation_setup_fee", label: "Sales Force Automation Setup Fee" },
+  { key: "staffing_recruitment_cost", label: "Recruitment cost" },
+  { key: "staffing_misc_recurring", label: "Miscellaneous - Recurring" },
+  { key: "staffing_misc_one_time", label: "Miscellaneous - One time" },
+  { key: "staffing_b_num_stores", label: "No. of Stores" },
+  { key: "staffing_b_cost_per_store", label: "Cost per Store" },
+  { key: "staffing_c_one_time_setup_fee", label: "One Time Setup Fees" },
+  { key: "staffing_c_monthly_recurring_fees", label: "Monthly Recurring Fees" },
+  { key: "staffing_active_months_per_year", label: "Active Months per year (1-12)" },
+  { key: "staffing_gm_percent", label: "GM %" },
+  { key: "mandate_health", label: "Mandate Health" },
+  { key: "upsell_constraint", label: "Upsell Constraint" },
+  { key: "upsell_constraint_type", label: "Upsell Constraint Type" },
+  { key: "upsell_constraint_sub", label: "Upsell Constraint Type - Sub" },
+  { key: "upsell_constraint_sub2", label: "Upsell Constraint Type - Sub 2" },
+  { key: "client_budget_trend", label: "Client Budget Trend" },
+  { key: "awign_share_percent", label: "Awign Share %" },
+  { key: "upsell_action_status", label: "Upsell Action Status" },
+  { key: "gap1", label: "" },
+  { key: "gap2", label: "" },
+  { key: "reference_revenue_section", label: "Revenue Section Type" },
+  { key: "reference_lob", label: "LoB" },
+  { key: "reference_use_case", label: "Use Case" },
+  { key: "reference_sub_use_case", label: "Sub Use Case" },
+  { key: "reference_type", label: "Type" },
+  { key: "reference_mandate_health", label: "Mandate Health" },
+  { key: "reference_client_budget_trend", label: "Client Budget Trend" },
+  { key: "reference_upsell_constraint", label: "Upsell Constraint" },
+  { key: "reference_upsell_constraint_type", label: "Upsell Constraint Type" },
+  { key: "reference_upsell_constraint_sub", label: "Upsell Constraint Sub" },
+  { key: "reference_upsell_constraint_sub2", label: "Upsell Constraint Sub2" },
+  { key: "reference_upsell_action_status", label: "Upsell Action Status" },
+];
+
+function escapeMandateTemplateCsvValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  const stringValue = String(value);
+  if (stringValue.includes(",") || stringValue.includes("\n") || stringValue.includes('"')) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
+}
+
+function buildLobUseCaseCombinations(lobFilter?: string) {
+  const combinations: Array<{ lob: string; useCase: string; subUseCase: string }> = [];
+  const lobs = lobFilter ? [lobFilter] : Object.keys(lobUseCaseMapping);
+  lobs.forEach((lob) => {
+    const useCases = lobUseCaseMapping[lob];
+    if (!useCases) return;
+    Object.entries(useCases).forEach(([useCase, subUseCases]) => {
+      subUseCases.forEach((subUseCase) => {
+        combinations.push({
+          lob,
+          useCase: useCase === "-" ? "N/A" : useCase,
+          subUseCase: subUseCase === "-" ? "N/A" : subUseCase,
+        });
+      });
+    });
+  });
+  return combinations;
+}
+
+function buildStaffingLobCombinationsWithSection() {
+  return buildLobUseCaseCombinations(STAFFING_LOB).map((combo) => ({
+    ...combo,
+    revenueSection:
+      calculateRevenueSectionType(
+        combo.useCase === "N/A" ? null : combo.useCase,
+        combo.subUseCase === "N/A" ? null : combo.subUseCase,
+      ) ?? "",
+  }));
+}
+
+function buildMandateUploadTemplateCsv(
+  templateHeaders: MandateUploadTemplateHeader[],
+  args: {
+    lobCombinations: Array<{ lob: string; useCase: string; subUseCase: string }>;
+    revenueSectionByRow?: string[];
+  },
+): string {
+  const upsellCombinations: Array<{ constraint: string; type: string; sub: string; sub2: string }> =
+    [];
+  Object.entries(upsellConstraintMapping).forEach(([constraint, types]) => {
+    Object.entries(types).forEach(([type, subs]) => {
+      Object.entries(subs).forEach(([sub, sub2s]) => {
+        if (sub2s.length === 0) {
+          upsellCombinations.push({
+            constraint,
+            type: type === "-" ? "N/A" : type,
+            sub: sub === "-" ? "N/A" : sub,
+            sub2: "Free text",
+          });
+        } else {
+          sub2s.forEach((sub2) => {
+            upsellCombinations.push({
+              constraint,
+              type: type === "-" ? "N/A" : type,
+              sub: sub === "-" ? "N/A" : sub,
+              sub2: sub2 === "-" ? "N/A" : sub2,
+            });
+          });
+        }
+      });
+    });
+  });
+
+  const typeOptions = ["New Acquisition", "New Cross Sell", "Existing"];
+  const prjTypeOptions = ["Recurring", "One-time"];
+  const mandateHealthOptions = ["Exceeds Expectations", "Meets Expectations", "Need Improvement"];
+  const clientBudgetTrendOptions = ["Increase", "Same", "Decrease"];
+  const upsellActionStatusOptions = ["Not Started", "Ongoing", "Done"];
+
+  const colByKey = Object.fromEntries(
+    templateHeaders.map((header, index) => [header.key, index]),
+  );
+  const dataEndIdx = templateHeaders.findIndex((header) => header.key === "gap1");
+
+  const maxRows = Math.max(
+    args.lobCombinations.length,
+    typeOptions.length,
+    prjTypeOptions.length,
+    mandateHealthOptions.length,
+    clientBudgetTrendOptions.length,
+    upsellCombinations.length,
+    upsellActionStatusOptions.length,
+    args.revenueSectionByRow?.length ?? 0,
+  );
+
+  const headerRow = templateHeaders
+    .map((header) => escapeMandateTemplateCsvValue(header.label))
+    .join(",");
+  const referenceRows: string[] = [];
+  referenceRows.push(templateHeaders.map(() => "").join(","));
+
+  for (let i = 0; i < maxRows; i++) {
+    const cells = templateHeaders.map((_, idx) => (idx < dataEndIdx ? "" : ""));
+    const setRef = (key: string, value: string) => {
+      const idx = colByKey[key];
+      if (idx !== undefined) cells[idx] = value;
+    };
+
+    if (i < args.lobCombinations.length) {
+      setRef("reference_lob", args.lobCombinations[i].lob);
+      setRef("reference_use_case", args.lobCombinations[i].useCase);
+      setRef("reference_sub_use_case", args.lobCombinations[i].subUseCase);
+    }
+    if (args.revenueSectionByRow && i < args.revenueSectionByRow.length) {
+      setRef("reference_revenue_section", args.revenueSectionByRow[i]);
+    }
+    if (i < typeOptions.length) setRef("reference_type", typeOptions[i]);
+    if (colByKey.reference_prj_type !== undefined && i < prjTypeOptions.length) {
+      setRef("reference_prj_type", prjTypeOptions[i]);
+    }
+    if (i < mandateHealthOptions.length) {
+      setRef("reference_mandate_health", mandateHealthOptions[i]);
+    }
+    if (i < clientBudgetTrendOptions.length) {
+      setRef("reference_client_budget_trend", clientBudgetTrendOptions[i]);
+    }
+    if (i < upsellCombinations.length) {
+      setRef("reference_upsell_constraint", upsellCombinations[i].constraint);
+      setRef("reference_upsell_constraint_type", upsellCombinations[i].type);
+      setRef("reference_upsell_constraint_sub", upsellCombinations[i].sub);
+      setRef("reference_upsell_constraint_sub2", upsellCombinations[i].sub2);
+    }
+    if (i < upsellActionStatusOptions.length) {
+      setRef("reference_upsell_action_status", upsellActionStatusOptions[i]);
+    }
+
+    referenceRows.push(cells.map(escapeMandateTemplateCsvValue).join(","));
+  }
+
+  return [headerRow, ...referenceRows].join("\n");
+}
+
 export default function Mandates() {
   const { user, hasRole, canMutatePortal, team, canSelectAllTeams } = useAuth();
   const isKAM = hasRole("kam");
@@ -442,17 +679,6 @@ export default function Mandates() {
   const [mcvCsvFileToUpload, setMcvCsvFileToUpload] = useState<File | null>(null);
 
   const allLobOptions = useMemo(() => Object.keys(lobUseCaseMapping), []);
-  const allowedLobOptions = useMemo(
-    () => getAllowedLobOptions(allLobOptions, team, canSelectAllTeams),
-    [allLobOptions, team, canSelectAllTeams],
-  );
-
-  const filterLobOptions = useMemo(() => {
-    if (canSelectAllTeams) {
-      return availableLobs.length > 0 ? availableLobs : allowedLobOptions;
-    }
-    return allowedLobOptions;
-  }, [canSelectAllTeams, availableLobs, allowedLobOptions]);
 
   const kamTeamById = useMemo(() => {
     const map: Record<string, Team | null> = {};
@@ -486,8 +712,48 @@ export default function Mandates() {
     [isKAM, team, editMandateData, kamTeamById],
   );
 
+  /** Superadmin keeps full LoB picker until a KAM (with team) is chosen. */
+  const createLobFormUsesGlobalPicker =
+    canSelectAllTeams && !formData.kamId;
+  const createAllowedLobOptions = useMemo(
+    () =>
+      getAllowedLobOptions(
+        allLobOptions,
+        createEffectiveTeam ?? team,
+        createLobFormUsesGlobalPicker,
+      ),
+    [allLobOptions, createEffectiveTeam, team, createLobFormUsesGlobalPicker],
+  );
+
+  const editLobFormUsesGlobalPicker =
+    canSelectAllTeams && !editMandateData?.kamId;
+  const editAllowedLobOptions = useMemo(
+    () =>
+      getAllowedLobOptions(
+        allLobOptions,
+        editEffectiveTeam ?? team,
+        editLobFormUsesGlobalPicker,
+      ),
+    [allLobOptions, editEffectiveTeam, team, editLobFormUsesGlobalPicker],
+  );
+
+  const allowedLobOptions = useMemo(
+    () => getAllowedLobOptions(allLobOptions, team, canSelectAllTeams),
+    [allLobOptions, team, canSelectAllTeams],
+  );
+
+  const filterLobOptions = useMemo(() => {
+    if (canSelectAllTeams) {
+      return availableLobs.length > 0 ? availableLobs : allowedLobOptions;
+    }
+    return allowedLobOptions;
+  }, [canSelectAllTeams, availableLobs, allowedLobOptions]);
+
   const showStaffingMandateFields = shouldShowStaffingMandateFields(
     createEffectiveTeam,
+  );
+  const editShowStaffingMandateFields = shouldShowStaffingMandateFields(
+    editEffectiveTeam,
   );
 
   const isStaffingLobSelected = normalizeLobForTeam(formData.lob) === "staffing";
@@ -861,7 +1127,8 @@ export default function Mandates() {
   }, [formData.lob]);
 
   useEffect(() => {
-    if (formData.lob && !allowedLobOptions.includes(formData.lob)) {
+    if (!formDialogOpen) return;
+    if (formData.lob && !createAllowedLobOptions.includes(formData.lob)) {
       setFormData((prev) => ({
         ...prev,
         lob: "",
@@ -869,12 +1136,16 @@ export default function Mandates() {
         subUseCase: "",
       }));
     }
-  }, [allowedLobOptions, formData.lob]);
+  }, [createAllowedLobOptions, formData.lob, formDialogOpen]);
 
-  // Prefill LoB for staffing / experts teams (no dropdown)
+  // Prefill / lock LoB from selected KAM's team (staffing / experts) or creator team
   useEffect(() => {
-    const fixed = getFixedLobForTeam(team, canSelectAllTeams);
-    if (!fixed || !formDialogOpen) return;
+    if (!formDialogOpen) return;
+    const fixed = getFixedLobForTeam(
+      createEffectiveTeam ?? team,
+      createLobFormUsesGlobalPicker,
+    );
+    if (!fixed) return;
     if (formData.lob !== fixed) {
       setFormData((prev) => ({
         ...prev,
@@ -883,7 +1154,13 @@ export default function Mandates() {
         subUseCase: "",
       }));
     }
-  }, [team, canSelectAllTeams, formDialogOpen, formData.lob]);
+  }, [
+    createEffectiveTeam,
+    team,
+    createLobFormUsesGlobalPicker,
+    formDialogOpen,
+    formData.lob,
+  ]);
 
   // Reset Sub Use Case when Use Case changes
   useEffect(() => {
@@ -1326,6 +1603,10 @@ export default function Mandates() {
     lob: string;
     kamId: string;
   }) => {
+    if (!isPortalEmailSendingEnabled()) {
+      return { emails_sent: 0, skipped: true };
+    }
+
     const { data, error } = await supabase.functions.invoke("send-mandate-created-email", {
       body: {
         account_id: params.accountId,
@@ -1756,166 +2037,35 @@ export default function Mandates() {
 
   // Fetch mandates from database
   const handleDownloadMandateTemplate = () => {
-    // Helper function to escape CSV values
-    const escapeCSVValue = (value: any): string => {
-      if (value === null || value === undefined) {
-        return "";
-      }
-      const stringValue = String(value);
-      if (stringValue.includes(",") || stringValue.includes("\n") || stringValue.includes('"')) {
-        return `"${stringValue.replace(/"/g, '""')}"`;
-      }
-      return stringValue;
-    };
+    const useStaffingTemplate = team === "staffing";
 
-    const templateHeaders = [
-      { key: "project_id", label: "Project Code" },
-      { key: "account_name", label: "Account Name" },
-      { key: "kam_name", label: "KAM Name" },
-      { key: "project_name", label: "Project Name" },
-      { key: "lob", label: "LoB (Vertical)" },
-      { key: "type", label: "Type" },
-      { key: "new_sales_owner", label: "New Sales Owner" },
-      { key: "handover_monthly_volume", label: "Handover Monthly Volume" },
-      { key: "handover_commercial_per_head", label: "Handover Commercial per head/task" },
-      { key: "prj_duration_months", label: "PRJ duration in months" },
-      { key: "handover_acv", label: "Handover ACV" },
-      { key: "handover_prj_type", label: "Handover PRJ Type" },
-      { key: "revenue_monthly_volume", label: "Revenue Monthly Volume" },
-      { key: "revenue_commercial_per_head", label: "Revenue Commercial per head/task" },
-      { key: "revenue_acv", label: "Revenue ACV" },
-      { key: "revenue_prj_type", label: "Revenue PRJ Type" },
-      { key: "mandate_health", label: "Mandate Health" },
-      { key: "upsell_constraint", label: "Upsell Constraint" },
-      { key: "upsell_constraint_type", label: "Upsell Constraint Type" },
-      { key: "upsell_constraint_sub", label: "Upsell Constraint Type - Sub" },
-      { key: "upsell_constraint_sub2", label: "Upsell Constraint Type - Sub 2" },
-      { key: "client_budget_trend", label: "Client Budget Trend" },
-      { key: "awign_share_percent", label: "Awign Share %" },
-      { key: "upsell_action_status", label: "Upsell Action Status" },
-      { key: "gap1", label: "" },
-      { key: "gap2", label: "" },
-      { key: "reference_lob", label: "LoB" },
-      { key: "reference_use_case", label: "Use Case" },
-      { key: "reference_sub_use_case", label: "Sub Use Case" },
-      { key: "reference_type", label: "Type" },
-      { key: "reference_prj_type", label: "PRJ Type" },
-      { key: "reference_mandate_health", label: "Mandate Health" },
-      { key: "reference_client_budget_trend", label: "Client Budget Trend" },
-      { key: "reference_upsell_constraint", label: "Upsell Constraint" },
-      { key: "reference_upsell_constraint_type", label: "Upsell Constraint Type" },
-      { key: "reference_upsell_constraint_sub", label: "Upsell Constraint Sub" },
-      { key: "reference_upsell_constraint_sub2", label: "Upsell Constraint Sub2" },
-      { key: "reference_upsell_action_status", label: "Upsell Action Status" },
-    ];
-    
-    // Create header row
-    const headerRow = templateHeaders.map((h) => escapeCSVValue(h.label)).join(",");
-    
-    // Create reference data rows
-    const referenceRows: string[] = [];
-    
-    // Add empty row for spacing
-    referenceRows.push(templateHeaders.map(() => "").join(","));
-    
-    // Generate all valid LoB → Use Case → Sub Use Case combinations
-    const lobCombinations: Array<{ lob: string; useCase: string; subUseCase: string }> = [];
-    Object.entries(lobUseCaseMapping).forEach(([lob, useCases]) => {
-      Object.entries(useCases).forEach(([useCase, subUseCases]) => {
-        subUseCases.forEach((subUseCase) => {
-          lobCombinations.push({
-            lob,
-            useCase: useCase === "-" ? "N/A" : useCase,
-            subUseCase: subUseCase === "-" ? "N/A" : subUseCase,
-          });
-        });
+    if (useStaffingTemplate) {
+      const staffingCombos = buildStaffingLobCombinationsWithSection();
+      const csvContent = buildMandateUploadTemplateCsv(
+        STAFFING_MANDATE_UPLOAD_TEMPLATE_HEADERS,
+        {
+          lobCombinations: staffingCombos,
+          revenueSectionByRow: staffingCombos.map((row) => row.revenueSection),
+        },
+      );
+      downloadCSV(csvContent, "mandates_upload_template_staffing.csv");
+      toast({
+        title: "Template Downloaded",
+        description:
+          "Staffing mandate template downloaded. Use the reference columns for valid Use Case / Sub Use Case and Revenue Section Type (A, B, or C).",
       });
-    });
-    
-    // Generate all valid Upsell Constraint combinations
-    const upsellCombinations: Array<{ constraint: string; type: string; sub: string; sub2: string }> = [];
-    Object.entries(upsellConstraintMapping).forEach(([constraint, types]) => {
-      Object.entries(types).forEach(([type, subs]) => {
-        Object.entries(subs).forEach(([sub, sub2s]) => {
-          if (sub2s.length === 0) {
-            // Free text input
-            upsellCombinations.push({
-              constraint,
-              type: type === "-" ? "N/A" : type,
-              sub: sub === "-" ? "N/A" : sub,
-              sub2: "Free text",
-            });
-          } else {
-            sub2s.forEach((sub2) => {
-              if (sub2 !== "-") {
-                upsellCombinations.push({
-                  constraint,
-                  type: type === "-" ? "N/A" : type,
-                  sub: sub === "-" ? "N/A" : sub,
-                  sub2: sub2 === "-" ? "N/A" : sub2,
-                });
-              } else {
-                upsellCombinations.push({
-                  constraint,
-                  type: type === "-" ? "N/A" : type,
-                  sub: sub === "-" ? "N/A" : sub,
-                  sub2: "N/A",
-                });
-              }
-            });
-          }
-        });
-      });
-    });
-    
-    // Other standalone options
-    const typeOptions = ["New Acquisition", "New Cross Sell", "Existing"];
-    const prjTypeOptions = ["Recurring", "One-time"];
-    const mandateHealthOptions = ["Exceeds Expectations", "Meets Expectations", "Need Improvement"];
-    const clientBudgetTrendOptions = ["Increase", "Same", "Decrease"];
-    const upsellActionStatusOptions = ["Not Started", "Ongoing", "Done"];
-    
-    // Find maximum number of rows needed
-    const maxRows = Math.max(
-      lobCombinations.length,
-      typeOptions.length,
-      prjTypeOptions.length,
-      mandateHealthOptions.length,
-      clientBudgetTrendOptions.length,
-      upsellCombinations.length,
-      upsellActionStatusOptions.length
-    );
-    
-    // Create rows with all valid combinations starting from the same row
-    // Note: Options are shifted one column to the right compared to headings
-    for (let i = 0; i < maxRows; i++) {
-      const row = templateHeaders.map((h, idx) => {
-        if (idx < 23) return ""; // Data fields
-        if (idx === 23 || idx === 24) return ""; // Gap columns
-        if (idx === 25) return ""; // LoB heading column - empty
-        if (idx === 26) return i < lobCombinations.length ? lobCombinations[i].lob : ""; // LoB data (shifted right)
-        if (idx === 27) return i < lobCombinations.length ? lobCombinations[i].useCase : ""; // Use Case data (shifted right)
-        if (idx === 28) return i < lobCombinations.length ? lobCombinations[i].subUseCase : ""; // Sub Use Case data (shifted right)
-        if (idx === 29) return i < typeOptions.length ? typeOptions[i] : ""; // Type data (shifted right)
-        if (idx === 30) return i < prjTypeOptions.length ? prjTypeOptions[i] : ""; // PRJ Type data (shifted right)
-        if (idx === 31) return i < mandateHealthOptions.length ? mandateHealthOptions[i] : ""; // Mandate Health data (shifted right)
-        if (idx === 32) return i < clientBudgetTrendOptions.length ? clientBudgetTrendOptions[i] : ""; // Client Budget Trend data (shifted right)
-        if (idx === 33) return i < upsellCombinations.length ? upsellCombinations[i].constraint : ""; // Upsell Constraint data (shifted right)
-        if (idx === 34) return i < upsellCombinations.length ? upsellCombinations[i].type : ""; // Upsell Constraint Type data (shifted right)
-        if (idx === 35) return i < upsellCombinations.length ? upsellCombinations[i].sub : ""; // Upsell Constraint Sub data (shifted right)
-        if (idx === 36) return i < upsellCombinations.length ? upsellCombinations[i].sub2 : ""; // Upsell Constraint Sub2 data (shifted right)
-        if (idx === 37) return i < upsellActionStatusOptions.length ? upsellActionStatusOptions[i] : ""; // Upsell Action Status data (shifted right)
-        return "";
-      }).join(",");
-      referenceRows.push(row);
+      return;
     }
-    
-    const csvContent = [headerRow, ...referenceRows].join("\n");
+
+    const csvContent = buildMandateUploadTemplateCsv(
+      CE_MANDATE_UPLOAD_TEMPLATE_HEADERS,
+      { lobCombinations: buildLobUseCaseCombinations() },
+    );
     downloadCSV(csvContent, "mandates_upload_template.csv");
-    
     toast({
       title: "Template Downloaded",
-      description: "CSV template downloaded. Fill in the data and upload it. Reference data included on the right.",
+      description:
+        "CSV template downloaded. Fill in the data and upload it. Reference data included on the right.",
     });
   };
 
@@ -3522,9 +3672,9 @@ export default function Mandates() {
                     }
                     value={formData.lob}
                     onChange={(value) => handleInputChange("lob", value)}
-                    allowedLobOptions={allowedLobOptions}
-                    team={team}
-                    isGlobalAdmin={canSelectAllTeams}
+                    allowedLobOptions={createAllowedLobOptions}
+                    team={createEffectiveTeam ?? team}
+                    isGlobalAdmin={createLobFormUsesGlobalPicker}
                   />
                   <div className="space-y-2">
                     <Label htmlFor="projectName">
@@ -3756,10 +3906,11 @@ export default function Mandates() {
                 </CardContent>
               </Card>
 
-              {/* 2nd Section: Handover Info */}
-              {(formData.type === "New Acquisition" ||
-                formData.type === "Existing" ||
-                formData.type === "New Cross Sell") && (
+              {/* 2nd Section: Handover Info (CE / experts — not staffing mandate form) */}
+              {!showStaffingMandateFields &&
+                (formData.type === "New Acquisition" ||
+                  formData.type === "Existing" ||
+                  formData.type === "New Cross Sell") && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
@@ -4999,9 +5150,9 @@ export default function Mandates() {
                           onChange={(value) =>
                             setEditMandateData({ ...editMandateData, lob: value })
                           }
-                          allowedLobOptions={allowedLobOptions}
-                          team={team}
-                          isGlobalAdmin={canSelectAllTeams}
+                          allowedLobOptions={editAllowedLobOptions}
+                          team={editEffectiveTeam ?? team}
+                          isGlobalAdmin={editLobFormUsesGlobalPicker}
                         />
                       ) : (
                         <>
@@ -5128,15 +5279,16 @@ export default function Mandates() {
                 </CardContent>
               </Card>
 
-              {/* 2nd Section: Handover Info */}
-              {((isEditMode &&
-                (editMandateData.type === "New Acquisition" ||
-                  editMandateData.type === "Existing" ||
-                  editMandateData.type === "New Cross Sell")) ||
-                (!isEditMode &&
-                  (selectedMandate.type === "New Acquisition" ||
-                    selectedMandate.type === "Existing" ||
-                    selectedMandate.type === "New Cross Sell"))) && (
+              {/* 2nd Section: Handover Info (CE / experts — not staffing mandate form) */}
+              {!editShowStaffingMandateFields &&
+                ((isEditMode &&
+                  (editMandateData.type === "New Acquisition" ||
+                    editMandateData.type === "Existing" ||
+                    editMandateData.type === "New Cross Sell")) ||
+                  (!isEditMode &&
+                    (selectedMandate.type === "New Acquisition" ||
+                      selectedMandate.type === "Existing" ||
+                      selectedMandate.type === "New Cross Sell"))) && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
