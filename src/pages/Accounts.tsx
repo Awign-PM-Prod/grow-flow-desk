@@ -19,6 +19,7 @@ import { Loader2, Download, Upload, FileText, Globe, BookOpen } from "lucide-rea
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
+import { HighlightedText } from "@/components/HighlightedText";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
   Dialog,

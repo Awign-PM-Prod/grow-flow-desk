@@ -61,11 +61,13 @@ function roleDesignation(role: AppRole | null | undefined): string {
 
 function buildWelcomeEmailHtml(
   pocName: string,
+  pocEmail: string,
   departmentName: string,
   designation: string,
   siteUrl?: string,
 ): string {
   const safeName = escapeHtml(pocName);
+  const safeEmail = escapeHtml(pocEmail);
   const safeDept = escapeHtml(departmentName);
   const safeDesignation = escapeHtml(designation);
   const contentHtml = [
@@ -78,6 +80,7 @@ function buildWelcomeEmailHtml(
       `<strong style="font-size: 15px;">Your point of contact</strong><br><br>
       <span style="font-size: 16px; color: #0678D4;"><strong>${safeName}</strong></span><br>
       ${safeDesignation}<br>
+      <a href="mailto:${safeEmail}" style="color: #0678D4; text-decoration: none;">${safeEmail}</a><br>
       ${safeDept} Team &middot; Awign`,
     ),
     emailParagraph(
@@ -155,7 +158,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { data: pocProfile, error: pocError } = await supabaseAdmin
       .from("profiles")
-      .select("id, full_name, role, team")
+      .select("id, full_name, email, role, team")
       .eq("id", poc_user_id)
       .single();
 
@@ -172,6 +175,10 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const pocName = pocProfile.full_name?.trim() || "Awign Team";
+    const pocEmail = pocProfile.email?.trim();
+    if (!pocEmail) {
+      throw new Error("Point of contact does not have an email address");
+    }
     const departmentName = teamDisplayName(pocProfile.team as Team | null);
     const designation = roleDesignation(pocProfile.role as AppRole);
 
@@ -179,7 +186,13 @@ const handler = async (req: Request): Promise<Response> => {
       from: EMAIL_FROM,
       to: [contact_email.trim()],
       subject: "Introduction | Your Point of Contact at Awign",
-      html: buildWelcomeEmailHtml(pocName, departmentName, designation, site_url),
+      html: buildWelcomeEmailHtml(
+        pocName,
+        pocEmail,
+        departmentName,
+        designation,
+        site_url,
+      ),
     });
 
     console.log("Contact welcome email sent successfully:", emailResponse);
