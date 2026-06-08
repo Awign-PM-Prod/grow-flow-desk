@@ -177,7 +177,7 @@ const sumMonthlyTargetValues = (
 };
 
 export default function Dashboard() {
-  const { user, hasRole, isNSO, canSelectAllTeams, team: userTeam } = useAuth();
+  const { user, hasRole, isNSO, isTeamAdmin, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
   const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts" | null>(null);
 
@@ -323,15 +323,25 @@ export default function Dashboard() {
       return;
     }
     if (!userTeam) return;
+    // Team admins are always scoped to their assigned team (same as mandates page RLS).
+    if (isTeamAdmin) {
+      setSelectedTeam(userTeam);
+      return;
+    }
     setSelectedTeam((prev) => prev ?? userTeam);
-  }, [canSelectAllTeams, userTeam]);
+  }, [canSelectAllTeams, userTeam, isTeamAdmin]);
 
-  // Scope LoB filter to team (CE excludes Experts only; staffing/experts auto-select)
+  // Scope LoB filter to team (CE excludes Experts only; staffing/experts auto-select).
+  // Team admins: no default LoB filter so all team mandates match (LoB filter is optional).
   useEffect(() => {
     if (canSelectAllTeams) return;
+    if (isTeamAdmin) {
+      setSelectedLobs([]);
+      return;
+    }
     const defaults = getDefaultDashboardLobs(userTeam, canSelectAllTeams);
     setSelectedLobs(defaults);
-  }, [canSelectAllTeams, userTeam]);
+  }, [canSelectAllTeams, userTeam, isTeamAdmin]);
 
   // When admin changes team, drop LoB selections outside that team's LoBs
   useEffect(() => {
@@ -1109,9 +1119,15 @@ export default function Dashboard() {
       let mandatesCardQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("id, lob, created_at, lifecycle_status_log")
-          .lte("created_at", mandatesCardAsOf.toISOString())
+          .select("id, lob, created_at, lifecycle_status, lifecycle_status_log")
       );
+      // Month filter: point-in-time total only includes mandates created on/before period end.
+      if (isMonthScoped) {
+        mandatesCardQuery = mandatesCardQuery.lte(
+          "created_at",
+          mandatesCardAsOf.toISOString()
+        );
+      }
       mandatesCardQuery = applyStatusFilter(
         mandatesCardQuery,
         filterUpsellStatus,
@@ -1132,26 +1148,21 @@ export default function Dashboard() {
 
       const rows = mandatesForCard || [];
       const allMandatesTotalCount = rows.length;
-      const totalCount = rows.filter((m: any) =>
-        isMandateActiveAsOf(
-          m.created_at,
-          m.lifecycle_status_log,
-          mandatesCardAsOf
-        )
-      ).length;
+      const isActiveMandateRow = (m: {
+        lifecycle_status?: string | null;
+        created_at?: string | null;
+        lifecycle_status_log?: unknown;
+      }) =>
+        m.lifecycle_status === "Active" ||
+        isMandateActiveAsOf(m.created_at, m.lifecycle_status_log, mandatesCardAsOf);
+      const totalCount = rows.filter((m: any) => isActiveMandateRow(m)).length;
 
       const mandatesPerLobCounts: Record<string, number> = {};
       chartLobOptions.forEach((l) => {
         mandatesPerLobCounts[l] = 0;
       });
       rows.forEach((m: any) => {
-        if (
-          !isMandateActiveAsOf(
-            m.created_at,
-            m.lifecycle_status_log,
-            mandatesCardAsOf
-          )
-        ) {
+        if (!isActiveMandateRow(m)) {
           return;
         }
         const raw = (m.lob && String(m.lob).trim()) || "";
@@ -1179,13 +1190,7 @@ export default function Dashboard() {
 
       /** Mandates active as-of card date (same numerator as Active Mandates card). */
       const activeMandateIdsFromCard = rows
-        .filter((m: any) =>
-          isMandateActiveAsOf(
-            m.created_at,
-            m.lifecycle_status_log,
-            mandatesCardAsOf
-          )
-        )
+        .filter((m: any) => isActiveMandateRow(m))
         .map((m: any) => m.id)
         .filter(Boolean) as string[];
 
@@ -1279,6 +1284,14 @@ export default function Dashboard() {
       const overlap = accountsCount && accountsCount > 0 
         ? (totalCount || 0) / accountsCount 
         : null;
+
+      // Update headline cards early so a later chart/tier failure cannot leave these at 0.
+      setActiveMandatesCount(totalCount || 0);
+      setAllMandatesCount(allMandatesTotalCount || 0);
+      setMandatesThisMonth(monthCount || 0);
+      setTotalAccounts(accountsCount || 0);
+      setAvgAwignShare(average);
+      setOverlapFactor(overlap);
 
       // Fetch all accounts with their MCV Tier once for filtering
       // This map will be used to filter mandates by MCV Tier
@@ -3421,13 +3434,6 @@ export default function Dashboard() {
 
       setMcvTierData(formattedTierData);
       setTierMonthColumns(monthColumns);
-
-      setActiveMandatesCount(totalCount || 0);
-      setAllMandatesCount(allMandatesTotalCount || 0);
-      setMandatesThisMonth(monthCount || 0);
-      setTotalAccounts(accountsCount || 0);
-      setAvgAwignShare(average);
-      setOverlapFactor(overlap);
       // Upsell data will be computed via useMemo based on raw data and filter
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
