@@ -609,13 +609,18 @@ export default function Accounts() {
 
     setDeletingAccount(true);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("accounts")
         .delete()
-        .eq("id", accountToDelete.id);
+        .eq("id", accountToDelete.id)
+        .select("id");
 
       if (error) {
         throw error;
+      }
+
+      if (!data?.length) {
+        throw new Error("Account could not be deleted. You may not have permission.");
       }
 
       toast({
