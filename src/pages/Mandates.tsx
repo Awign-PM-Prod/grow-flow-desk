@@ -203,6 +203,9 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
     "Retailer Activation": ["-"],
     "Society Activation": ["-"],
   },
+  "New Business Line": {
+    "-": ["-"],
+  },
   "Digital Gigs": {
     "Content Operations": ["-"],
     "Telecalling": ["-"],
@@ -1706,6 +1709,7 @@ export default function Mandates() {
         ensureEnumValue(formData.lob, [
           'Diligence & Audit',
           'New Business Development',
+          'New Business Line',
           'Digital Gigs',
           'Awign Expert',
           'Last Mile Operations',
@@ -3241,6 +3245,7 @@ export default function Mandates() {
         lob: ensureEnumValue(editMandateData.lob, [
           'Diligence & Audit',
           'New Business Development',
+          'New Business Line',
           'Digital Gigs',
           'Awign Expert',
           'Last Mile Operations',

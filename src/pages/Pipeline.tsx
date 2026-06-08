@@ -117,6 +117,7 @@ const statusOptions = [
 const lobOptions = [
   "Diligence & Audit",
   "New Business Development",
+  "New Business Line",
   "Digital Gigs",
   "Awign Expert",
   "Last Mile Operations",
@@ -138,6 +139,9 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
     "New Customer Acquisition": ["-"],
     "Retailer Activation": ["-"],
     "Society Activation": ["-"],
+  },
+  "New Business Line": {
+    "-": ["-"],
   },
   "Digital Gigs": {
     "Content Operations": ["-"],
@@ -1504,6 +1508,7 @@ export default function Pipeline() {
         lob: ensureEnumValue(formData.lob, [
           'Diligence & Audit',
           'New Business Development',
+          'New Business Line',
           'Digital Gigs',
           'Awign Expert',
           'Last Mile Operations',
@@ -1730,6 +1735,7 @@ export default function Pipeline() {
         lob: ensureEnumValue(formData.lob, [
           'Diligence & Audit',
           'New Business Development',
+          'New Business Line',
           'Digital Gigs',
           'Awign Expert',
           'Last Mile Operations',

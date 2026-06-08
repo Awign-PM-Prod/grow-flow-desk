@@ -3,11 +3,13 @@ import { TEAM_LABELS } from "@/lib/teamLabels";
 
 export const STAFFING_LOB = "Staffing";
 export const EXPERTS_LOB = "Awign Expert";
+export const NEW_BUSINESS_LINE_LOB = "New Business Line";
 
 /** Canonical LoB list used across mandates, pipeline, and dashboards. */
 export const ALL_LOB_OPTIONS = [
   "Diligence & Audit",
   "New Business Development",
+  NEW_BUSINESS_LINE_LOB,
   "Digital Gigs",
   EXPERTS_LOB,
   "Last Mile Operations",
@@ -33,7 +35,7 @@ export function resolveTeamFromLob(
   return "ce";
 }
 
-/** Superadmin: all LoBs. CE: all except Awign Expert (includes Staffing). Staffing/Experts: single LoB. */
+/** Superadmin: all LoBs. CE: all except Awign Expert. Staffing: Staffing + New Business Line. Experts: single LoB. */
 export function getAllowedLobOptions(
   allLobs: readonly string[],
   team: Team | null,
@@ -44,7 +46,10 @@ export function getAllowedLobOptions(
   }
 
   if (team === "staffing") {
-    return allLobs.filter((lob) => normalizeLobForTeam(lob) === "staffing");
+    return allLobs.filter((lob) => {
+      const n = normalizeLobForTeam(lob);
+      return n === "staffing" || n === "new business line";
+    });
   }
 
   if (team === "experts") {
@@ -149,7 +154,11 @@ export function getLobDashboardCategories(
   isGlobalAdmin: boolean,
 ): { id: string; label: string; lobs: string[] }[] {
   const all = [
-    { id: "staffing", label: TEAM_LABELS.staffing, lobs: [STAFFING_LOB] },
+    {
+      id: "staffing",
+      label: TEAM_LABELS.staffing,
+      lobs: [STAFFING_LOB, NEW_BUSINESS_LINE_LOB],
+    },
     { id: "experts", label: TEAM_LABELS.experts, lobs: [EXPERTS_LOB] },
     {
       id: "ce",
@@ -171,6 +180,7 @@ export function getDefaultDashboardLobs(
   isGlobalAdmin: boolean,
 ): string[] {
   if (isGlobalAdmin) return [];
+  if (team === "staffing") return [];
   const fixed = getFixedLobForTeam(team, isGlobalAdmin);
   if (fixed) return [fixed];
   return [];

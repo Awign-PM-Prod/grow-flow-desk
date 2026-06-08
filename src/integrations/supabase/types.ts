@@ -730,6 +730,7 @@ export type Database = {
       lob:
         | "Diligence & Audit"
         | "New Business Development"
+        | "New Business Line"
         | "Digital Gigs"
         | "Awign Expert"
         | "Last Mile Operations"
@@ -938,6 +939,7 @@ export const Constants = {
       lob: [
         "Diligence & Audit",
         "New Business Development",
+        "New Business Line",
         "Digital Gigs",
         "Awign Expert",
         "Last Mile Operations",
