@@ -7,14 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, UserCog, Loader2, Mail, Users, Trash2 } from "lucide-react";
+import { Search, UserCog, Loader2, Mail, Users, Trash2, Network } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { InviteUserDialog } from "@/components/InviteUserDialog";
 import { EditUserDialog } from "@/components/EditUserDialog";
 import { DeleteUserDialog } from "@/components/DeleteUserDialog";
 import { UserInviteInfo } from "@/components/UserInviteInfo";
-import { getAppSiteUrl } from "@/lib/app-site-url";
+import { TeamSelectItems } from "@/components/TeamSelectItems";
+import { formatTeamLabel } from "@/lib/teamLabels";
 
 interface UserData {
   id: string;
@@ -28,7 +29,7 @@ interface UserData {
 
 function formatTeamCell(user: UserData): string {
   if (user.role === "superadmin") return "—";
-  return user.team || "—";
+  return formatTeamLabel(user.team);
 }
 
 export default function AdminUsers() {
@@ -198,7 +199,7 @@ export default function AdminUsers() {
               : "Manage users and their role assignments."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isSuperAdmin && (
             <Button
               variant="outline"
@@ -209,6 +210,14 @@ export default function AdminUsers() {
               NSO users
             </Button>
           )}
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => navigate("/admin/kam-team-mapping")}
+          >
+            <Network className="h-4 w-4" />
+            KAM – Team Mapping
+          </Button>
           <InviteUserDialog
             onUserInvited={fetchUsers}
             lockedTeam={lockedTeam}
@@ -231,9 +240,7 @@ export default function AdminUsers() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All teams</SelectItem>
-                    <SelectItem value="ce">CE</SelectItem>
-                    <SelectItem value="staffing">Staffing</SelectItem>
-                    <SelectItem value="experts">Experts</SelectItem>
+                    <TeamSelectItems />
                   </SelectContent>
                 </Select>
               )}
@@ -287,7 +294,7 @@ export default function AdminUsers() {
                       </TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell>{getRoleBadge(user.role)}</TableCell>
-                      <TableCell className="capitalize">{formatTeamCell(user)}</TableCell>
+                      <TableCell>{formatTeamCell(user)}</TableCell>
                       <TableCell>
                         {user.last_sign_in_at
                           ? new Date(user.last_sign_in_at).toLocaleDateString()

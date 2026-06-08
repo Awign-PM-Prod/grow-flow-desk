@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Label } from "@/components/ui/label";
+import { formatTeamLabel } from "@/lib/teamLabels";
 import {
   Select,
   SelectContent,
@@ -234,7 +234,7 @@ export function DeleteUserDialog({
                   {user.role ?? "Not set"}
                   {" · "}
                   <span className="font-medium">Team:</span>{" "}
-                  {user.team ?? "Not set"}
+                  {formatTeamLabel(user.team)}
                 </p>
                 <p className="mt-2 text-muted-foreground">
                   {totalLinked > 0

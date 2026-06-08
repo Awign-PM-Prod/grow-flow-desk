@@ -32,6 +32,12 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { downloadCSV, parseCSV } from "@/lib/csv-export";
 import { cn, formatNumber } from "@/lib/utils";
+import {
+  parseTeamValue,
+  TEAM_CSV_HINT,
+  TEAM_LABELS,
+} from "@/lib/teamLabels";
+import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
@@ -51,21 +57,8 @@ type ManagerTargetRow = {
   team: "ce" | "staffing" | "experts";
 };
 
-const TEAM_LABEL_BY_VALUE: Record<ManagerTargetRow["team"], string> = {
-  ce: "CE",
-  staffing: "Staffing",
-  experts: "Experts",
-};
 
-const normalizeTeamValue = (
-  value: string | undefined
-): ManagerTargetRow["team"] | null => {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (normalized === "ce") return "ce";
-  if (normalized === "staffing") return "staffing";
-  if (normalized === "experts") return "experts";
-  return null;
-};
+const normalizeTeamValue = parseTeamValue;
 
 export function OverallTargetsTab() {
   const { filterFinancialYear, selectedTeam } = useOutletContext<TargetsOutletContext>();
@@ -335,7 +328,7 @@ export function OverallTargetsTab() {
   const downloadTemplate = () => {
     const headers = ["Month", "Year", "Existing Target", "New AC Target", "Team"];
     const lines = [headers.join(",")];
-    const templateTeamLabel = TEAM_LABEL_BY_VALUE[
+    const templateTeamLabel = TEAM_LABELS[
       selectedTeam === "all" ? "ce" : effectiveTeam ?? "ce"
     ];
     monthColumns.forEach((col) => {
@@ -389,12 +382,12 @@ export function OverallTargetsTab() {
           errors.push("New AC Target must be a number ≥ 0");
         if (!teamRaw) errors.push("Team required");
         else if (!normalizedTeam)
-          errors.push("Team must be CE, Staffing, or Experts (case-insensitive)");
+          errors.push(`Team must be ${TEAM_CSV_HINT} (case-insensitive)`);
         else if (
           selectedTeam !== "all" &&
           normalizedTeam !== (effectiveTeam ?? "ce")
         )
-          errors.push(`Team must match selected team (${TEAM_LABEL_BY_VALUE[effectiveTeam ?? "ce"]})`);
+          errors.push(`Team must match selected team (${TEAM_LABELS[effectiveTeam ?? "ce"]})`);
         const inFy =
           !Number.isNaN(mo) &&
           !Number.isNaN(yr) &&
@@ -785,9 +778,7 @@ export function OverallTargetsTab() {
                       <SelectValue placeholder="Select team" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ce">CE</SelectItem>
-                      <SelectItem value="staffing">Staffing</SelectItem>
-                      <SelectItem value="experts">Experts</SelectItem>
+                      <TeamSelectItems />
                     </SelectContent>
                   </Select>
                 </div>

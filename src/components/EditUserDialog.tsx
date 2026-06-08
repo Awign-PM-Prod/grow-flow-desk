@@ -20,7 +20,10 @@ import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { parseEdgeFunctionError } from "@/lib/edge-function-errors";
-import type { Team } from "@/hooks/useAuth";
+import { TeamSelectItems } from "@/components/TeamSelectItems";
+import { formatTeamLabel } from "@/lib/teamLabels";
+
+import { type Team } from "@/hooks/useAuth";
 
 type AppRole = "kam" | "manager" | "leadership" | "superadmin" | "team_admin" | "nso";
 
@@ -170,8 +173,8 @@ export function EditUserDialog({
               <div className="grid gap-2">
                 <Label htmlFor="edit-team">Team *</Label>
                 {lockedTeam ? (
-                  <div className="rounded-md bg-muted px-3 py-2 text-sm capitalize">
-                    {lockedTeam}
+                  <div className="rounded-md bg-muted px-3 py-2 text-sm">
+                    {formatTeamLabel(lockedTeam)}
                   </div>
                 ) : (
                   <Select value={team} onValueChange={(v) => setTeam(v as Team)} required>
@@ -179,9 +182,7 @@ export function EditUserDialog({
                       <SelectValue placeholder="Select a team" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ce">CE</SelectItem>
-                      <SelectItem value="staffing">Staffing</SelectItem>
-                      <SelectItem value="experts">Experts</SelectItem>
+                      <TeamSelectItems />
                     </SelectContent>
                   </Select>
                 )}

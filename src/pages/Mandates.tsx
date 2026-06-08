@@ -19,10 +19,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown, History } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
 import { getAppSiteUrl } from "@/lib/app-site-url";
-import { HighlightedText } from "@/components/HighlightedText";
+import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { TablePaginationBar } from "@/components/TablePaginationBar";
 import { useTablePagination } from "@/hooks/useTablePagination";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
+import { HighlightedText } from "@/components/HighlightedText";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
   Dialog,
@@ -384,9 +385,8 @@ export default function Mandates() {
   // Filters for view mode
   const [searchTerm, setSearchTerm] = useState("");
   const [filterAccount, setFilterAccount] = useState("all");
-  const [filterKamNsoType, setFilterKamNsoType] = useState<"all" | "all_kams" | "all_nsos" | "kam" | "nso">("all");
-  const [filterKam, setFilterKam] = useState("");
-  const [filterNso, setFilterNso] = useState("");
+  const [filterKam, setFilterKam] = useState<string>("all");
+  const [filterNso, setFilterNso] = useState<string>("all");
   const [filterLob, setFilterLob] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [filterMandateHealth, setFilterMandateHealth] = useState("all");
@@ -1297,15 +1297,9 @@ export default function Mandates() {
         [field]: value,
       };
       
-      // If type is changed to "New Cross Sell", clear all handover values
+      // New Cross Sell mandates do not use NSO; clear if type changes.
       if (field === "type" && value === "New Cross Sell") {
         updated.newSalesOwner = "";
-        updated.handoverMonthlyVolume = "";
-        updated.handoverCommercialPerHead = "";
-        updated.handoverMcv = "";
-        updated.prjDurationMonths = "";
-        updated.handoverAcv = "";
-        updated.handoverPrjType = "";
       }
       
       return updated;
@@ -1482,14 +1476,14 @@ export default function Mandates() {
           'Existing'
         ]),
         
-        // Handover Info - Set to null if type is "New Cross Sell"
+        // Handover Info — NSO only for New Acquisition / Existing
         new_sales_owner: formData.type === "New Cross Sell" ? null : (formData.newSalesOwner || null),
-        handover_monthly_volume: formData.type === "New Cross Sell" ? null : (formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null),
-        handover_commercial_per_head: formData.type === "New Cross Sell" ? null : (formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null),
-        handover_mcv: formData.type === "New Cross Sell" ? null : (formData.handoverMcv ? parseFloat(formData.handoverMcv) : null),
-        prj_duration_months: formData.type === "New Cross Sell" ? null : (formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null),
-        handover_acv: formData.type === "New Cross Sell" ? null : (formData.handoverAcv ? parseFloat(formData.handoverAcv) : null),
-        handover_prj_type: formData.type === "New Cross Sell" ? null : ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
+        handover_monthly_volume: formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null,
+        handover_commercial_per_head: formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null,
+        handover_mcv: formData.handoverMcv ? parseFloat(formData.handoverMcv) : null,
+        prj_duration_months: formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null,
+        handover_acv: formData.handoverAcv ? parseFloat(formData.handoverAcv) : null,
+        handover_prj_type: ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
         
         // Revenue Info
         revenue_monthly_volume:
@@ -2857,9 +2851,11 @@ export default function Mandates() {
       // Fetch KAM names and account names separately
       const kamIds = [...new Set((data || []).map((m: any) => m.kam_id).filter(Boolean))];
       const accountIds = [...new Set((data || []).map((m: any) => m.account_id).filter(Boolean))];
+      const nsoEmails = [...new Set((data || []).map((m: any) => m.new_sales_owner).filter(Boolean))];
 
       const kamMap: Record<string, string> = {};
       const accountMap: Record<string, string> = {};
+      const nsoMap: Record<string, string> = {};
 
       if (kamIds.length > 0) {
         const { data: kamData } = await supabase
@@ -2888,6 +2884,22 @@ export default function Mandates() {
         }
       }
 
+      if (nsoEmails.length > 0) {
+        const { data: nsoData } = await supabase
+          .from("profiles")
+          .select("email, full_name")
+          .eq("role", "nso")
+          .in("email", nsoEmails);
+
+        if (nsoData) {
+          nsoData.forEach((nso) => {
+            if (nso.email) {
+              nsoMap[nso.email] = nso.full_name || nso.email;
+            }
+          });
+        }
+      }
+
       // Transform data for display (keep full data for details modal)
       const transformedMandates = (data || []).map((mandate: any) => ({
         ...mandate, // Keep all original fields for details modal
@@ -2896,6 +2908,9 @@ export default function Mandates() {
         projectName: mandate.project_name,
         account: mandate.account_id ? (accountMap[mandate.account_id] || "N/A") : "N/A",
         kam: mandate.kam_id ? (kamMap[mandate.kam_id] || "N/A") : "N/A",
+        nso: mandate.new_sales_owner
+          ? nsoMap[mandate.new_sales_owner] || mandate.new_sales_owner
+          : "N/A",
         lob: mandate.lob,
         acv: mandate.revenue_acv ? mandate.revenue_acv.toLocaleString("en-IN") : "N/A",
         mcv: mandate.revenue_mcv ? mandate.revenue_mcv.toLocaleString("en-IN") : "N/A",
@@ -2977,9 +2992,10 @@ export default function Mandates() {
   const clearFilters = () => {
     setSearchTerm("");
     setFilterAccount("all");
-    setFilterKamNsoType("all");
-    setFilterKam("");
-    setFilterNso("");
+    setFilterKam("all");
+    setFilterNso("all");
+    setKamFilterSearch("");
+    setNsoFilterSearch("");
     setFilterLob("all");
     setFilterType("all");
     setFilterMandateHealth("all");
@@ -3118,14 +3134,14 @@ export default function Mandates() {
           'New Cross Sell',
           'Existing'
         ]),
-        // Handover Info - Set to null if type is "New Cross Sell"
+        // Handover Info — NSO only for New Acquisition / Existing
         new_sales_owner: editMandateData.type === "New Cross Sell" ? null : sanitizeValue(editMandateData.newSalesOwner),
-        handover_monthly_volume: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null),
-        handover_commercial_per_head: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null),
-        handover_mcv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null),
-        prj_duration_months: editMandateData.type === "New Cross Sell" ? null : (editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null),
-        handover_acv: editMandateData.type === "New Cross Sell" ? null : (editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null),
-        handover_prj_type: editMandateData.type === "New Cross Sell" ? null : ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
+        handover_monthly_volume: editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null,
+        handover_commercial_per_head: editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null,
+        handover_mcv: editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null,
+        prj_duration_months: editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null,
+        handover_acv: editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null,
+        handover_prj_type: ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
         revenue_monthly_volume: editMandateData.revenueMonthlyVolume ? parseFloat(editMandateData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: editMandateData.revenueCommercialPerHead ? parseFloat(editMandateData.revenueCommercialPerHead) : null,
         revenue_mcv: editMandateData.revenueMcv ? parseFloat(editMandateData.revenueMcv) : null,
@@ -3282,6 +3298,7 @@ export default function Mandates() {
         mandate.projectName || "",
         mandate.account || "",
         mandate.kam || "",
+        mandate.nso || "",
         mandate.lob || "",
         mandate.acv || "",
         mandate.mcv || "",
@@ -3293,30 +3310,32 @@ export default function Mandates() {
     })();
     
     const matchesAccount = filterAccount === "all" || mandate.account_id === filterAccount;
-    const matchesKamNso = (() => {
+    const matchesKam = (() => {
       if (isKAM) {
         return true;
       }
-      if (filterKamNsoType === "all") {
+      if (filterKam === "all") {
         return true;
       }
-      if (filterKamNsoType === "all_kams") {
+      if (filterKam === "all_kams") {
         return Boolean(mandate.kam_id);
       }
-      if (filterKamNsoType === "all_nsos") {
+      return mandate.kam_id === filterKam;
+    })();
+    const matchesNso = (() => {
+      if (isNSO) {
+        return true;
+      }
+      if (filterNso === "all") {
+        return true;
+      }
+      if (filterNso === "all_nsos") {
         return mandate.type === "New Acquisition" && Boolean(mandate.new_sales_owner);
       }
-      if (filterKamNsoType === "kam") {
-        return Boolean(filterKam) && mandate.kam_id === filterKam;
-      }
-      if (filterKamNsoType === "nso") {
-        return (
-          Boolean(filterNso) &&
-          mandate.type === "New Acquisition" &&
-          mandate.new_sales_owner === filterNso
-        );
-      }
-      return true;
+      return (
+        mandate.type === "New Acquisition" &&
+        mandate.new_sales_owner === filterNso
+      );
     })();
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
     const matchesType = filterType === "all" || mandate.type === filterType;
@@ -3331,7 +3350,8 @@ export default function Mandates() {
     return (
       matchesSearch &&
       matchesAccount &&
-      matchesKamNso &&
+      matchesKam &&
+      matchesNso &&
       matchesLob &&
       matchesType &&
       matchesHealth &&
@@ -3349,7 +3369,8 @@ export default function Mandates() {
   const hasActiveFilters =
     searchTerm ||
     filterAccount !== "all" ||
-    (!isKAM && (filterKamNsoType !== "all" || filterKam !== "" || filterNso !== "")) ||
+    (!isKAM && filterKam !== "all") ||
+    (!isNSO && filterNso !== "all") ||
     filterLob !== "all" ||
     filterType !== "all" ||
     filterMandateHealth !== "all" ||
@@ -3361,14 +3382,14 @@ export default function Mandates() {
   return (
     <div className="space-y-6">
       {/* Header with Add Button */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Mandates</h1>
-          <p className="text-muted-foreground">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Mandates</h1>
+          <p className="text-sm text-muted-foreground sm:text-base">
             Track and manage client orders and project mandates.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Button 
             variant="outline" 
             size="icon" 
@@ -3382,9 +3403,12 @@ export default function Mandates() {
             variant="outline"
             onClick={handleExportMandates}
             disabled={loadingMandates}
+            className="w-full sm:w-auto"
           >
-            <Download className="mr-2 h-4 w-4" />
-            {hasActiveFilters ? "Download Filtered Mandates" : "Export Mandates"}
+            <Download className="mr-2 h-4 w-4 shrink-0" />
+            <span className="truncate">
+              {hasActiveFilters ? "Download Filtered Mandates" : "Export Mandates"}
+            </span>
           </Button>
           {canMutatePortal && (
           <Button
@@ -3662,7 +3686,7 @@ export default function Mandates() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="kamId">
-                          KAM (CE in charge) <span className="text-destructive">*</span>
+                          KAM <span className="text-destructive">*</span>
                         </Label>
                         <Select
                           value={formData.kamId}
@@ -3733,11 +3757,14 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
-              {(formData.type === "New Acquisition" || formData.type === "Existing") && (
+              {(formData.type === "New Acquisition" ||
+                formData.type === "Existing" ||
+                formData.type === "New Cross Sell") && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {formData.type !== "New Cross Sell" && (
                     <div className="space-y-2 md:col-span-2">
                       <Label htmlFor="newSalesOwner">New Sales Owner</Label>
                       {formData.type === "New Acquisition" ? (
@@ -3806,6 +3833,7 @@ export default function Mandates() {
                       />
                       )}
                     </div>
+                    )}
                     <div className="space-y-2">
                       <Label htmlFor="handoverMcv">
                         MCV <span className="text-destructive">*</span>
@@ -4374,15 +4402,15 @@ export default function Mandates() {
             <CardContent className="pt-6">
               <h3 className="font-semibold text-lg mb-4">Filters</h3>
               <div className="space-y-3">
-              <div className={`grid grid-cols-1 md:grid-cols-3 ${canSelectAllTeams ? "lg:grid-cols-10" : "lg:grid-cols-9"} gap-3`}>
               <Input
                   placeholder="Search all fields..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                    className={`text-left ${searchTerm ? "border-blue-500 bg-blue-50/50" : ""}`}
+                    className={`w-full text-left ${searchTerm ? "border-blue-500 bg-blue-50/50" : ""}`}
               />
+              <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 <Select value={filterAccount} onValueChange={setFilterAccount}>
-                    <SelectTrigger className={`text-left ${filterAccount !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectTrigger className={`w-full min-w-0 text-left ${filterAccount !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All Accounts" />
                   </SelectTrigger>
                   <SelectContent>
@@ -4395,65 +4423,23 @@ export default function Mandates() {
                   </SelectContent>
                 </Select>
                 {!isKAM && (
-                  <Select
-                    value={
-                      filterKamNsoType === "all"
-                        ? "all"
-                        : filterKamNsoType === "all_kams"
-                          ? "all_kams"
-                          : filterKamNsoType === "all_nsos"
-                            ? "all_nsos"
-                            : filterKamNsoType === "kam"
-                              ? `kam_${filterKam}`
-                              : `nso_${filterNso}`
-                    }
-                    onValueChange={(value) => {
-                      if (value === "all") {
-                        setFilterKamNsoType("all");
-                        setFilterKam("");
-                        setFilterNso("");
-                      } else if (value === "all_kams") {
-                        setFilterKamNsoType("all_kams");
-                        setFilterKam("");
-                        setFilterNso("");
-                      } else if (!isNSO && value === "all_nsos") {
-                        setFilterKamNsoType("all_nsos");
-                        setFilterKam("");
-                        setFilterNso("");
-                      } else if (value.startsWith("kam_")) {
-                        const kamId = value.replace("kam_", "");
-                        setFilterKamNsoType("kam");
-                        setFilterKam(kamId);
-                        setFilterNso("");
-                      } else if (!isNSO && value.startsWith("nso_")) {
-                        const nsoMailId = value.replace("nso_", "");
-                        setFilterKamNsoType("nso");
-                        setFilterNso(nsoMailId);
-                        setFilterKam("");
-                      }
-                    }}
-                  >
+                  <Select value={filterKam} onValueChange={setFilterKam}>
                     <SelectTrigger
-                      className={`text-left ${filterKamNsoType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}
+                      className={`w-full min-w-0 text-left ${filterKam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}
                     >
-                      <SelectValue placeholder="All KAMs and NSOs">
-                        {filterKamNsoType === "all" && "All KAMs and NSOs"}
-                        {filterKamNsoType === "all_kams" && "All KAMs"}
-                        {filterKamNsoType === "all_nsos" && "All NSOs"}
-                        {filterKamNsoType === "kam" &&
-                          filterKam &&
+                      <SelectValue placeholder="All KAMs">
+                        {filterKam === "all" && "All KAMs"}
+                        {filterKam === "all_kams" && "Has KAM assigned"}
+                        {filterKam !== "all" &&
+                          filterKam !== "all_kams" &&
                           kams.find((k) => k.id === filterKam)?.full_name}
-                        {filterKamNsoType === "nso" &&
-                          filterNso &&
-                          nsos.find((n) => n.email === filterNso)?.full_name}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All KAMs and NSOs</SelectItem>
-                      <SelectItem value="all_kams">All KAMs</SelectItem>
-                      {!isNSO && <SelectItem value="all_nsos">All NSOs</SelectItem>}
+                      <SelectItem value="all">All KAMs</SelectItem>
+                      <SelectItem value="all_kams">Has KAM assigned</SelectItem>
                       <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">
-                        KAM
+                        Individual KAMs
                       </div>
                       <div className="px-2 pb-2">
                         <Input
@@ -4470,7 +4456,7 @@ export default function Mandates() {
                           kam.full_name?.toLowerCase().includes(kamFilterSearch.toLowerCase())
                         )
                         .map((kam) => (
-                          <SelectItem key={kam.id} value={`kam_${kam.id}`}>
+                          <SelectItem key={kam.id} value={kam.id}>
                             {kam.full_name}
                           </SelectItem>
                         ))}
@@ -4479,44 +4465,60 @@ export default function Mandates() {
                       ).length === 0 && (
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">No KAMs found</div>
                       )}
-                      {!isNSO && (
-                        <>
-                          <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">
-                            NSO
-                          </div>
-                          <div className="px-2 pb-2">
-                            <Input
-                              placeholder="Search NSO..."
-                              value={nsoFilterSearch}
-                              onChange={(e) => setNsoFilterSearch(e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => e.stopPropagation()}
-                              className="h-8"
-                            />
-                          </div>
-                          {nsos
-                            .filter((nso) => {
-                              const label = (nso.full_name || nso.email || "").toLowerCase();
-                              return label.includes(nsoFilterSearch.toLowerCase());
-                            })
-                            .map((nso) => (
-                              <SelectItem key={nso.id} value={`nso_${nso.email}`}>
-                                {nso.full_name || nso.email}
-                              </SelectItem>
-                            ))}
-                          {nsos.filter((nso) => {
-                            const label = (nso.full_name || nso.email || "").toLowerCase();
-                            return label.includes(nsoFilterSearch.toLowerCase());
-                          }).length === 0 && (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">No NSOs found</div>
-                          )}
-                        </>
+                    </SelectContent>
+                  </Select>
+                )}
+                {!isNSO && (
+                  <Select value={filterNso} onValueChange={setFilterNso}>
+                    <SelectTrigger
+                      className={`w-full min-w-0 text-left ${filterNso !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}
+                    >
+                      <SelectValue placeholder="All NSOs">
+                        {filterNso === "all" && "All NSOs"}
+                        {filterNso === "all_nsos" && "Has NSO assigned"}
+                        {filterNso !== "all" &&
+                          filterNso !== "all_nsos" &&
+                          (nsos.find((n) => n.email === filterNso)?.full_name ||
+                            filterNso)}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All NSOs</SelectItem>
+                      <SelectItem value="all_nsos">Has NSO assigned</SelectItem>
+                      <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">
+                        Individual NSOs
+                      </div>
+                      <div className="px-2 pb-2">
+                        <Input
+                          placeholder="Search NSO..."
+                          value={nsoFilterSearch}
+                          onChange={(e) => setNsoFilterSearch(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="h-8"
+                        />
+                      </div>
+                      {nsos
+                        .filter((nso) => {
+                          const label = (nso.full_name || nso.email || "").toLowerCase();
+                          return label.includes(nsoFilterSearch.toLowerCase());
+                        })
+                        .map((nso) => (
+                          <SelectItem key={nso.id} value={nso.email}>
+                            {nso.full_name || nso.email}
+                          </SelectItem>
+                        ))}
+                      {nsos.filter((nso) => {
+                        const label = (nso.full_name || nso.email || "").toLowerCase();
+                        return label.includes(nsoFilterSearch.toLowerCase());
+                      }).length === 0 && (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No NSOs found</div>
                       )}
                     </SelectContent>
                   </Select>
                 )}
                 <Select value={filterLob} onValueChange={setFilterLob}>
-                    <SelectTrigger className={`text-left ${filterLob !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectTrigger className={`w-full min-w-0 text-left ${filterLob !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All LoB" />
                   </SelectTrigger>
                   <SelectContent>
@@ -4529,7 +4531,7 @@ export default function Mandates() {
                   </SelectContent>
                 </Select>
                 <Select value={filterType} onValueChange={setFilterType}>
-                    <SelectTrigger className={`text-left ${filterType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectTrigger className={`w-full min-w-0 text-left ${filterType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All Types" />
                   </SelectTrigger>
                   <SelectContent>
@@ -4540,7 +4542,7 @@ export default function Mandates() {
                   </SelectContent>
                 </Select>
                 <Select value={filterMandateHealth} onValueChange={setFilterMandateHealth}>
-                    <SelectTrigger className={`text-left ${filterMandateHealth !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectTrigger className={`w-full min-w-0 text-left ${filterMandateHealth !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All Mandate Health" />
                   </SelectTrigger>
                   <SelectContent>
@@ -4551,7 +4553,7 @@ export default function Mandates() {
                   </SelectContent>
                 </Select>
                 <Select value={filterUpsellStatus} onValueChange={setFilterUpsellStatus}>
-                    <SelectTrigger className={`text-left ${filterUpsellStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectTrigger className={`w-full min-w-0 text-left ${filterUpsellStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All Upsell Status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -4562,7 +4564,7 @@ export default function Mandates() {
                   </SelectContent>
                 </Select>
                 <Select value={filterRetentionType} onValueChange={setFilterRetentionType}>
-                    <SelectTrigger className={`text-left ${filterRetentionType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectTrigger className={`w-full min-w-0 text-left ${filterRetentionType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All Retention Types" />
                   </SelectTrigger>
                   <SelectContent>
@@ -4575,7 +4577,7 @@ export default function Mandates() {
                   </SelectContent>
                 </Select>
                 <Select value={filterLifecycleStatus} onValueChange={setFilterLifecycleStatus}>
-                  <SelectTrigger className={`text-left ${filterLifecycleStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                  <SelectTrigger className={`w-full min-w-0 text-left ${filterLifecycleStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All Mandates" />
                   </SelectTrigger>
                   <SelectContent>
@@ -4586,21 +4588,18 @@ export default function Mandates() {
                 </Select>
                 {canSelectAllTeams && (
                   <Select value={filterTeam} onValueChange={(value) => setFilterTeam(value as "all" | "ce" | "staffing" | "experts")}>
-                    <SelectTrigger className={`text-left ${filterTeam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
+                    <SelectTrigger className={`w-full min-w-0 text-left ${filterTeam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                       <SelectValue placeholder="All Teams" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Teams</SelectItem>
-                      <SelectItem value="ce">CE</SelectItem>
-                      <SelectItem value="staffing">Staffing</SelectItem>
-                      <SelectItem value="experts">Experts</SelectItem>
+                      <TeamSelectItems includeAll allLabel="All Teams" />
                     </SelectContent>
                   </Select>
                 )}
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-stretch sm:justify-end min-[480px]:col-span-2 lg:col-span-3 xl:col-span-4">
                   <Button
-                    className="bg-black text-white hover:bg-black/90"
+                    className="w-full sm:w-auto bg-black text-white hover:bg-black/90"
                     onClick={clearFilters}
                   >
                   Clear Filters
@@ -4634,6 +4633,7 @@ export default function Mandates() {
                       <TableHead>Project Name</TableHead>
                       <TableHead>Account</TableHead>
                       <TableHead>KAM</TableHead>
+                      <TableHead>NSO</TableHead>
                       <TableHead>LoB</TableHead>
                       <TableHead>ACV</TableHead>
                       <TableHead>MCV</TableHead>
@@ -4647,7 +4647,7 @@ export default function Mandates() {
             <TableBody>
                     {loadingMandates ? (
                       <TableRow>
-                        <TableCell colSpan={13} className="text-center py-8">
+                        <TableCell colSpan={14} className="text-center py-8">
                           <div className="flex items-center justify-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-muted-foreground">Loading mandates...</span>
@@ -4656,7 +4656,7 @@ export default function Mandates() {
                       </TableRow>
                     ) : filteredMandates.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                        <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
                           No mandates found
                         </TableCell>
                       </TableRow>
@@ -4670,6 +4670,7 @@ export default function Mandates() {
                           <TableCell><HighlightedText text={mandate.projectName} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={mandate.account} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={mandate.kam} searchTerm={searchTerm} /></TableCell>
+                          <TableCell><HighlightedText text={mandate.nso} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={mandate.lob} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={mandate.acv} searchTerm={searchTerm} /></TableCell>
                           <TableCell><HighlightedText text={mandate.mcv} searchTerm={searchTerm} /></TableCell>
@@ -5104,15 +5105,8 @@ export default function Mandates() {
                           value={editMandateData.type}
                           onValueChange={(value) => {
                             const updated = { ...editMandateData, type: value };
-                            // If type is changed to "New Cross Sell", clear all handover values
                             if (value === "New Cross Sell") {
                               updated.newSalesOwner = "";
-                              updated.handoverMonthlyVolume = "";
-                              updated.handoverCommercialPerHead = "";
-                              updated.handoverMcv = "";
-                              updated.prjDurationMonths = "";
-                              updated.handoverAcv = "";
-                              updated.handoverPrjType = "";
                             }
                             setEditMandateData(updated);
                           }}
@@ -5135,16 +5129,24 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info */}
-              {((isEditMode && (editMandateData.type === "New Acquisition" || editMandateData.type === "Existing")) || 
-                (!isEditMode && (selectedMandate.type === "New Acquisition" || selectedMandate.type === "Existing"))) && (
+              {((isEditMode &&
+                (editMandateData.type === "New Acquisition" ||
+                  editMandateData.type === "Existing" ||
+                  editMandateData.type === "New Cross Sell")) ||
+                (!isEditMode &&
+                  (selectedMandate.type === "New Acquisition" ||
+                    selectedMandate.type === "Existing" ||
+                    selectedMandate.type === "New Cross Sell"))) && (
               <Card className="border-green-200 bg-green-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-green-900">Handover Info</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {((isEditMode && editMandateData.type !== "New Cross Sell") ||
+                      (!isEditMode && selectedMandate.type !== "New Cross Sell")) && (
                     <div className="space-y-2">
                       <Label className="font-medium text-muted-foreground">New Sales Owner:</Label>
                       {isEditMode ? (
-                        (editMandateData.type === "New Acquisition" || editMandateData.type === "Existing") ? (
+                        editMandateData.type === "New Acquisition" ? (
                           <Popover open={editNsoSelectOpen} onOpenChange={setEditNsoSelectOpen}>
                             <PopoverTrigger asChild>
                               <Button
@@ -5229,6 +5231,7 @@ export default function Mandates() {
                         <p className="mt-1">{selectedMandate.new_sales_owner || "N/A"}</p>
                       )}
                     </div>
+                    )}
                     <div className="space-y-2 md:col-span-2">
                       <Label className="font-medium text-muted-foreground">MCV:</Label>
                       {isEditMode ? (

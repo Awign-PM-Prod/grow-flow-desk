@@ -23,6 +23,8 @@ import { Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { getAppSiteUrl } from "@/lib/app-site-url";
+import { TeamSelectItems } from "@/components/TeamSelectItems";
+import { formatTeamLabel } from "@/lib/teamLabels";
 import { z } from "zod";
 
 const inviteSchema = z.object({
@@ -312,8 +314,8 @@ export function InviteUserDialog({
               <div className="grid gap-2">
                 <Label htmlFor="team">Team *</Label>
                 {lockedTeam ? (
-                  <div className="rounded-md bg-muted px-3 py-2 text-sm capitalize">
-                    {lockedTeam}
+                  <div className="rounded-md bg-muted px-3 py-2 text-sm">
+                    {formatTeamLabel(lockedTeam)}
                   </div>
                 ) : (
                   <Select value={team} onValueChange={setTeam} required>
@@ -321,9 +323,7 @@ export function InviteUserDialog({
                       <SelectValue placeholder="Select a team" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ce">CE</SelectItem>
-                      <SelectItem value="staffing">Staffing</SelectItem>
-                      <SelectItem value="experts">Experts</SelectItem>
+                      <TeamSelectItems />
                     </SelectContent>
                   </Select>
                 )}

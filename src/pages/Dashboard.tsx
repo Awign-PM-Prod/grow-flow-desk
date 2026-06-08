@@ -8,6 +8,7 @@ import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen, Check, ChevronsUpDown, Minus } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
+import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { useAuth } from "@/hooks/useAuth";
 import { cn, formatNumber } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -104,6 +105,75 @@ const managerTargetValueForMandateFilter = (
     return existing;
   }
   return 0;
+};
+
+/** Filter monthly_targets rows to match the dashboard mandate-type (upsell) filter. */
+const filterMonthlyTargetsByUpsellStatus = (
+  targets: any[],
+  filterUpsellStatus: string,
+  mandateTypeById: Record<string, string>
+): any[] => {
+  return targets.filter((target: any) => {
+    if (target.target_type === "new_cross_sell") {
+      if (
+        filterUpsellStatus === "Existing" ||
+        filterUpsellStatus === "New Acquisitions"
+      ) {
+        return false;
+      }
+      return (
+        filterUpsellStatus === "All Cross Sell" ||
+        filterUpsellStatus === "All Cross Sell + Existing" ||
+        filterUpsellStatus === "All mandate types" ||
+        filterUpsellStatus === "all"
+      );
+    }
+
+    if (target.target_type === "existing" && target.mandate_id) {
+      const mandateType =
+        mandateTypeById[target.mandate_id] ??
+        (Array.isArray(target.mandates)
+          ? target.mandates[0]?.type
+          : target.mandates?.type);
+      if (!mandateType) return false;
+
+      if (filterUpsellStatus === "Existing") return mandateType === "Existing";
+      if (filterUpsellStatus === "All Cross Sell") {
+        return mandateType === "New Cross Sell";
+      }
+      if (filterUpsellStatus === "All Cross Sell + Existing") {
+        return mandateType === "Existing" || mandateType === "New Cross Sell";
+      }
+      if (filterUpsellStatus === "New Acquisitions") {
+        return mandateType === "New Acquisition";
+      }
+      return (
+        filterUpsellStatus === "All mandate types" || filterUpsellStatus === "all"
+      );
+    }
+
+    return false;
+  });
+};
+
+const sumMonthlyTargetValues = (
+  targets: any[],
+  inactiveMandateIds: Set<string>,
+  periodFilter: (monthDate: Date, monthYearKey: string) => boolean
+): number => {
+  return targets.reduce((sum, target) => {
+    if (
+      target.mandate_id &&
+      inactiveMandateIds.has(target.mandate_id as string)
+    ) {
+      return sum;
+    }
+    const monthDate = new Date(target.year, target.month - 1, 1);
+    const monthYearKey = `${target.year}-${String(target.month).padStart(2, "0")}`;
+    if (!periodFilter(monthDate, monthYearKey)) return sum;
+    const value = parseFloat(target.target?.toString() || "0") || 0;
+    return sum + value;
+  }, 0);
 };
 
 export default function Dashboard() {
@@ -1616,7 +1686,9 @@ export default function Dashboard() {
       // Target type depends on the filter (same logic as LoB section)
       let kamTargetsQuery = supabase
         .from("monthly_targets")
-        .select("target, month, year, mandate_id, account_id, kam_id, target_type")
+        .select(
+          "target, month, year, mandate_id, account_id, kam_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)"
+        )
         .in("month", fyMonthNumbers)
         .in("year", fyYears);
       
@@ -1844,15 +1916,12 @@ export default function Dashboard() {
       let totalMcvPlanned = 0;
       let totalFfmAchieved = 0;
 
-      // Org-level targets: one row per calendar month in manager_targets (existing_target vs new_ac_target)
-      const { data: managerTargetsFyRows } = await supabase
-        .from("manager_targets")
-        .select("month, year, existing_target, new_ac_target, team")
-        .in("team", selectedTeam === "all" ? ["ce", "staffing", "experts"] : [selectedTeam])
-        .in("year", [fyStartYear, fyEndYear]);
-
-      const managerTargetRow =
-        managerTargetsFyRows?.find((r) => r.month === refMonth && r.year === refYear) ?? null;
+      const mandateTypeById: Record<string, string> = {};
+      kamMandatesData?.forEach((m: any) => {
+        if (m.id && m.type) {
+          mandateTypeById[m.id] = m.type;
+        }
+      });
 
       const fyPairsForManager = getMonthYearPairsForFY(filterFinancialYear);
       const managerMonthKey = (m: number, y: number) =>
@@ -1866,33 +1935,81 @@ export default function Dashboard() {
 
       let totalAnnualTarget = 0;
       let totalQuarterTarget = 0;
-      if (managerTargetsFyRows) {
-        for (const row of managerTargetsFyRows) {
-          const k = managerMonthKey(row.month, row.year);
-          const existing = parseFloat(String(row.existing_target ?? 0)) || 0;
-          const newAc = parseFloat(String(row.new_ac_target ?? 0)) || 0;
-          const tv = managerTargetValueForMandateFilter(
+
+      if (filterType !== "all") {
+        // KAM/NSO filter: sum mandate-level monthly_targets for the selected person(s)
+        const inactive = inactiveMandateIdsRef.current;
+        let cardTargets = filterTargetsByKamNso(kamTargetsData || []);
+        cardTargets = filterMonthlyTargetsByUpsellStatus(
+          cardTargets,
+          filterUpsellStatus,
+          mandateTypeById
+        );
+
+        totalMcvPlanned = sumMonthlyTargetValues(
+          cardTargets,
+          inactive,
+          includeInDashboardPeriod
+        );
+        totalAnnualTarget = sumMonthlyTargetValues(
+          cardTargets,
+          inactive,
+          (monthDate) => monthInSelectedFY(monthDate)
+        );
+        totalQuarterTarget = sumMonthlyTargetValues(
+          cardTargets,
+          inactive,
+          (monthDate, monthYearKey) => {
+            const [yearStr, monthStr] = monthYearKey.split("-");
+            const monthNum = parseInt(monthStr, 10);
+            const yearNum = parseInt(yearStr, 10);
+            return (
+              quarterMonthYearPairs.some(
+                (p) => p.month === monthNum && p.year === yearNum
+              ) && monthInSelectedFY(monthDate)
+            );
+          }
+        );
+      } else {
+        // Org-level targets: one row per calendar month in manager_targets
+        const { data: managerTargetsFyRows } = await supabase
+          .from("manager_targets")
+          .select("month, year, existing_target, new_ac_target, team")
+          .in("team", selectedTeam === "all" ? ["ce", "staffing", "experts"] : [selectedTeam])
+          .in("year", [fyStartYear, fyEndYear]);
+
+        const managerTargetRow =
+          managerTargetsFyRows?.find((r) => r.month === refMonth && r.year === refYear) ??
+          null;
+
+        if (managerTargetsFyRows) {
+          for (const row of managerTargetsFyRows) {
+            const k = managerMonthKey(row.month, row.year);
+            const existing = parseFloat(String(row.existing_target ?? 0)) || 0;
+            const newAc = parseFloat(String(row.new_ac_target ?? 0)) || 0;
+            const tv = managerTargetValueForMandateFilter(
+              existing,
+              newAc,
+              filterUpsellStatus
+            );
+            if (fyPairSet.has(k)) {
+              totalAnnualTarget += tv;
+            }
+            if (quarterPairSet.has(k)) {
+              totalQuarterTarget += tv;
+            }
+          }
+        }
+
+        if (managerTargetRow) {
+          const existing = parseFloat(String(managerTargetRow.existing_target ?? 0)) || 0;
+          const newAc = parseFloat(String(managerTargetRow.new_ac_target ?? 0)) || 0;
+          totalMcvPlanned = managerTargetValueForMandateFilter(
             existing,
             newAc,
             filterUpsellStatus
           );
-          if (fyPairSet.has(k)) {
-            totalAnnualTarget += tv;
-          }
-          if (quarterPairSet.has(k)) {
-            totalQuarterTarget += tv;
-          }
         }
-      }
-
-      if (managerTargetRow) {
-        const existing = parseFloat(String(managerTargetRow.existing_target ?? 0)) || 0;
-        const newAc = parseFloat(String(managerTargetRow.new_ac_target ?? 0)) || 0;
-        totalMcvPlanned = managerTargetValueForMandateFilter(
-          existing,
-          newAc,
-          filterUpsellStatus
-        );
       }
 
       // Fetch all mandates with monthly_data to calculate FFM Achieved for current month within selected FY
@@ -3556,10 +3673,7 @@ export default function Dashboard() {
                 <SelectValue placeholder="Team" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All teams</SelectItem>
-                <SelectItem value="ce">CE</SelectItem>
-                <SelectItem value="staffing">Staffing</SelectItem>
-                <SelectItem value="experts">Experts</SelectItem>
+                <TeamSelectItems includeAll allLabel="All teams" />
               </SelectContent>
             </Select>
           </div>

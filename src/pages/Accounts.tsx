@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Download, Upload, FileText, Globe, BookOpen } from "lucide-react";
 import { convertToCSV, downloadCSV, formatTimestampForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
-import { HighlightedText } from "@/components/HighlightedText";
+import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import {
@@ -1679,10 +1679,7 @@ export default function Accounts() {
                         <SelectValue placeholder="All Teams" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Teams</SelectItem>
-                        <SelectItem value="ce">CE</SelectItem>
-                        <SelectItem value="staffing">Staffing</SelectItem>
-                        <SelectItem value="experts">Experts</SelectItem>
+                        <TeamSelectItems includeAll allLabel="All Teams" />
                       </SelectContent>
                     </Select>
                   )}

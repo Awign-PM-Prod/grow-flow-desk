@@ -1,4 +1,5 @@
 import type { Team } from "@/hooks/useAuth";
+import { TEAM_LABELS } from "@/lib/teamLabels";
 
 export const STAFFING_LOB = "Staffing";
 export const EXPERTS_LOB = "Awign Expert";
@@ -148,11 +149,11 @@ export function getLobDashboardCategories(
   isGlobalAdmin: boolean,
 ): { id: string; label: string; lobs: string[] }[] {
   const all = [
-    { id: "staffing", label: "Staffing", lobs: [STAFFING_LOB] },
-    { id: "experts", label: "Experts", lobs: [EXPERTS_LOB] },
+    { id: "staffing", label: TEAM_LABELS.staffing, lobs: [STAFFING_LOB] },
+    { id: "experts", label: TEAM_LABELS.experts, lobs: [EXPERTS_LOB] },
     {
       id: "ce",
-      label: "CE",
+      label: TEAM_LABELS.ce,
       lobs: ALL_LOB_OPTIONS.filter((l) => l !== EXPERTS_LOB),
     },
   ];

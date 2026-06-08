@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth, type Team } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
@@ -96,9 +96,16 @@ export function MonthlyTargetsTab({
     useOutletContext<TargetsOutletContext>();
   const { hasRole, loading, userRoles, user, fullName, canMutatePortal, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
+  const isTeamAdmin = hasRole("team_admin");
   /** KAM role without manager/superadmin — scoped to own targets only. */
   const isKamOnly =
     hasRole("kam") && !hasRole("manager") && !hasRole("superadmin");
+  const scopedTeam: Team | null =
+    canSelectAllTeams && selectedTeam !== "all"
+      ? selectedTeam
+      : !canSelectAllTeams && userTeam
+        ? userTeam
+        : null;
   const { toast } = useToast();
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -206,7 +213,7 @@ export function MonthlyTargetsTab({
       // If user is a KAM, filter by their KAM ID
       let mandatesQuery = applyMandateTeamFilter(supabase
         .from("mandates")
-        .select("id, project_code, project_name, kam_id, account_id, type, new_sales_owner, lifecycle_status"));
+        .select("id, project_code, project_name, kam_id, account_id, type, new_sales_owner, lifecycle_status, team"));
       
       if (currentIsKAM && currentUser?.id) {
         mandatesQuery = mandatesQuery.eq("kam_id", currentUser.id);
@@ -214,10 +221,15 @@ export function MonthlyTargetsTab({
         mandatesQuery = mandatesQuery.eq("kam_id", filterKam);
       }
       
-      const { data: allMandatesData } = await mandatesQuery.order("project_code");
+      const { data: mandatesRaw } = await mandatesQuery.order("project_code");
+
+      const allMandatesData = (mandatesRaw || []).filter((m: any) => {
+        if (!scopedTeam) return true;
+        return m.team === scopedTeam;
+      });
       
       // Fetch KAM names for mandates
-      const mandateKamIds = [...new Set((allMandatesData || []).map((m: any) => m.kam_id).filter(Boolean))];
+      const mandateKamIds = [...new Set(allMandatesData.map((m: any) => m.kam_id).filter(Boolean))];
       const mandateKamMap: Record<string, string> = {};
       
       if (mandateKamIds.length > 0) {
@@ -271,40 +283,57 @@ export function MonthlyTargetsTab({
       
       setAllMandates(mandatesWithKam);
 
-      // Fetch all accounts for cross sell targets table
-      // If user is a KAM, only fetch accounts linked to their mandates
-      let allAccountsData: any[] = [];
-      
+      const scopedAccountIds = [
+        ...new Set([
+          ...allMandatesData.map((m: any) => m.account_id).filter(Boolean),
+          ...(data || []).map((t: any) => t.account_id).filter(Boolean),
+        ]),
+      ] as string[];
+
+      const fetchAccountsByIds = async (ids: string[]) => {
+        if (ids.length === 0) return [];
+        const { data: accountsData, error: accountsError } = await supabase
+          .from("accounts")
+          .select("id, name")
+          .in("id", ids)
+          .order("name");
+        if (accountsError) throw accountsError;
+        return accountsData || [];
+      };
+
+      // Fetch accounts for cross-sell display (scoped when user is KAM or team-bound)
+      let allAccountsData: Array<{ id: string; name: string }> = [];
+
       if (currentIsKAM && currentUser?.id) {
-        // Get account IDs from KAM's mandates
-        const { data: kamMandatesData } = await applyMandateTeamFilter(supabase
-          .from("mandates")
-          .select("account_id")
-          .eq("kam_id", currentUser.id)
-          .not("account_id", "is", null));
-        
-        const accountIds = [...new Set((kamMandatesData || []).map((m: any) => m.account_id).filter(Boolean))];
-        
-        if (accountIds.length > 0) {
-          const { data: accountsData } = await supabase
-            .from("accounts")
-            .select("id, name")
-            .in("id", accountIds)
-            .order("name");
-          allAccountsData = accountsData || [];
-        }
+        const kamAccountIds = [
+          ...new Set(
+            allMandatesData
+              .filter((m: any) => m.kam_id === currentUser.id)
+              .map((m: any) => m.account_id)
+              .filter(Boolean)
+          ),
+        ] as string[];
+        allAccountsData = await fetchAccountsByIds(kamAccountIds);
+      } else if (scopedTeam || isTeamAdmin) {
+        allAccountsData = await fetchAccountsByIds(scopedAccountIds);
       } else {
-        const { data: accountsData } = await supabase
+        const { data: accountsData, error: accountsError } = await supabase
           .from("accounts")
           .select("id, name")
           .order("name");
+        if (accountsError) throw accountsError;
         allAccountsData = accountsData || [];
       }
-      
+
       setAllAccounts(allAccountsData);
 
       // Fetch account, mandate, and KAM names for display (for form editing)
-      const accountIds = [...new Set((data || []).map((t: any) => t.account_id).filter(Boolean))];
+      const accountIds = [
+        ...new Set([
+          ...scopedAccountIds,
+          ...(data || []).map((t: any) => t.account_id).filter(Boolean),
+        ]),
+      ] as string[];
       const mandateIds = [...new Set((data || []).map((t: any) => t.mandate_id).filter(Boolean))];
       const kamIds = [...new Set((data || []).map((t: any) => t.kam_id).filter(Boolean))];
 
@@ -391,8 +420,7 @@ export function MonthlyTargetsTab({
       // Get KAM's mandate IDs and account IDs for filtering
       const kamMandateIds = currentIsKAM && currentUser?.id ? new Set((allMandatesData || []).map((m: any) => m.id)) : null;
 
-      const teamScopedView =
-        Boolean(effectiveTeam) && !(canSelectAllTeams && selectedTeam === "all");
+      const teamScopedView = Boolean(scopedTeam);
 
       const matchesKamFilter = (kamId: string | null | undefined) => {
         if (filterKam === "all") return true;
@@ -469,11 +497,15 @@ export function MonthlyTargetsTab({
         if (sep === -1) return;
         const kamId = compositeKey.slice(0, sep);
         const accountId = compositeKey.slice(sep + 1);
+        const accountFromList = allAccountsData.find((a) => a.id === accountId);
         kamAccountCombos.push({
           kamId,
           kamName: kamMap[kamId] || mandateKamMap[kamId] || "Unknown KAM",
           accountId,
-          accountName: accountMap[accountId] || "Unknown Account",
+          accountName:
+            accountMap[accountId] ||
+            accountFromList?.name ||
+            "Unknown Account",
         });
       });
 
@@ -1735,6 +1767,7 @@ export function MonthlyTargetsTab({
     hasRole("manager") ||
     hasRole("leadership") ||
     hasRole("superadmin") ||
+    hasRole("team_admin") ||
     hasRole("kam");
 
   if (!hasAccess) {

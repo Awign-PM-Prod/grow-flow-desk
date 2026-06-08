@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { useEffect, useMemo, useState } from "react";
 import {
   Navigate,
@@ -18,6 +18,7 @@ import {
 } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { formatFYLabel, getCurrentFYKey, listFYKeysDescending } from "./financialYearUtils";
+import { cn } from "@/lib/utils";
 
 export type TargetsOutletContext = {
   filterFinancialYear: string;
@@ -37,6 +38,8 @@ export function TargetsLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const isSuperAdmin = hasRole("superadmin");
+  const isTeamAdmin = hasRole("team_admin");
+  const canManageTopLevelTargets = isSuperAdmin || isTeamAdmin;
   const isKamOnly =
     hasRole("kam") && !hasRole("manager") && !hasRole("superadmin");
 
@@ -136,7 +139,10 @@ export function TargetsLayout() {
     return <Navigate to="/targets/mandate" replace />;
   }
 
-  if (location.pathname.includes("/targets/top-level-target") && !isSuperAdmin) {
+  if (
+    location.pathname.includes("/targets/top-level-target") &&
+    !canManageTopLevelTargets
+  ) {
     return <Navigate to="/targets/mandate" replace />;
   }
 
@@ -168,16 +174,16 @@ export function TargetsLayout() {
               className={cn(tabClass, tabInactiveClass)}
               activeClassName={cn(tabClass, tabActiveClass)}
             >
-              Mandate Level Targets
+              Upsell Targets
             </NavLink>
             <NavLink
               to="/targets/pipeline"
               className={cn(tabClass, tabInactiveClass)}
               activeClassName={cn(tabClass, tabActiveClass)}
             >
-              Pipeline Deals Targets
+              Cross Sell Targets
             </NavLink>
-            {isSuperAdmin ? (
+            {canManageTopLevelTargets ? (
               <NavLink
                 to="/targets/top-level-target"
                 className={cn(tabClass, tabInactiveClass)}
@@ -194,10 +200,7 @@ export function TargetsLayout() {
                   <SelectValue placeholder="Team" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All teams</SelectItem>
-                  <SelectItem value="ce">CE</SelectItem>
-                  <SelectItem value="staffing">Staffing</SelectItem>
-                  <SelectItem value="experts">Experts</SelectItem>
+                  <TeamSelectItems includeAll />
                 </SelectContent>
               </Select>
             ) : null}

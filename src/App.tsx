@@ -18,6 +18,7 @@ import AdminUsers from "./pages/AdminUsers";
 import AdminNSOs from "./pages/AdminNSOs";
 import AdminNps from "./pages/AdminNps";
 import AdminNpsFormConfig from "./pages/AdminNpsFormConfig";
+import AdminKamTeamMapping from "./pages/AdminKamTeamMapping";
 import NpsSurvey from "./pages/NpsSurvey";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -141,6 +142,16 @@ const App = () => (
               <ProtectedRoute>
                 <AppLayout>
                   <AdminNSOs />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/kam-team-mapping"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <AdminKamTeamMapping />
                 </AppLayout>
               </ProtectedRoute>
             }
