@@ -222,12 +222,9 @@ export default function CrossSellDashboard() {
         
         if (filteredDealIds.length > 0) {
           query = query.in("deal_id", filteredDealIds);
-        } else {
-          query = query.eq("deal_id", "no-match");
+          const { count } = await query;
+          meetingsLastWeekCount = count || 0;
         }
-        
-        const { count } = await query;
-        meetingsLastWeekCount = count || 0;
       }
       
       // Fetch meetings done this week (within selected FY and filtered deals)
@@ -242,12 +239,9 @@ export default function CrossSellDashboard() {
         
         if (filteredDealIds.length > 0) {
           query = query.in("deal_id", filteredDealIds);
-        } else {
-          query = query.eq("deal_id", "no-match");
+          const { count } = await query;
+          meetingsThisWeekCount = count || 0;
         }
-        
-        const { count } = await query;
-        meetingsThisWeekCount = count || 0;
       }
       
       // Fetch proposals made last week (within selected FY and filtered deals)
@@ -262,12 +256,9 @@ export default function CrossSellDashboard() {
         
         if (filteredDealIds.length > 0) {
           query = query.in("deal_id", filteredDealIds);
-        } else {
-          query = query.eq("deal_id", "no-match");
+          const { count } = await query;
+          proposalsLastWeekCount = count || 0;
         }
-        
-        const { count } = await query;
-        proposalsLastWeekCount = count || 0;
       }
       
       // Fetch proposals made this week (within selected FY and filtered deals)
@@ -282,12 +273,9 @@ export default function CrossSellDashboard() {
         
         if (filteredDealIds.length > 0) {
           query = query.in("deal_id", filteredDealIds);
-        } else {
-          query = query.eq("deal_id", "no-match");
+          const { count } = await query;
+          proposalsThisWeekCount = count || 0;
         }
-        
-        const { count } = await query;
-        proposalsThisWeekCount = count || 0;
       }
       
       setMeetingsDoneLastWeek(meetingsLastWeekCount || 0);
@@ -363,16 +351,13 @@ export default function CrossSellDashboard() {
         .gte("created_at", perfFyDateRange.start.toISOString())
         .lte("created_at", perfFyDateRange.end.toISOString());
 
+      let allStatusHistory: any[] | null = [];
       if (filteredDealIds.length > 0) {
-        allStatusHistoryQuery = allStatusHistoryQuery.in("deal_id", filteredDealIds);
-      } else {
-        // If no deals match filters, return empty result
-        allStatusHistoryQuery = allStatusHistoryQuery.eq("deal_id", "no-match");
+        const { data, error: historyError } = await allStatusHistoryQuery
+          .in("deal_id", filteredDealIds) as any;
+        if (historyError) throw historyError;
+        allStatusHistory = data;
       }
-
-      const { data: allStatusHistory, error: historyError } = await allStatusHistoryQuery as any;
-
-      if (historyError) throw historyError;
 
       // Create a map of deal_id to mcv for quick lookup
       const dealMcvMap: Record<string, number> = {};

@@ -176,6 +176,81 @@ const sumMonthlyTargetValues = (
   }, 0);
 };
 
+function endOfCalendarMonth(year: number, month1to12: number): Date {
+  return new Date(year, month1to12, 0, 23, 59, 59, 999);
+}
+
+function getCurrentFinancialYearLabel(): string {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+  return `FY${fyStartYear.toString().slice(-2)}`;
+}
+
+/** Point-in-time dates for upsell tables: snapshot (Group B/C) and prev/curr month (Performance). */
+function getUpsellDateContext(
+  filterFinancialYear: string,
+  filterDashboardMonth: string,
+  fyDateRange: { start: Date; end: Date },
+  fyMonthsList: Array<{ key: string; year: number; month: number }>,
+): {
+  snapshotAsOf: Date;
+  perfCurrMonthEnd: Date;
+  perfPrevMonthEnd: Date;
+  maxCreatedAt: Date;
+} {
+  const scopedMonth =
+    filterDashboardMonth !== "all"
+      ? fyMonthsList.find((m) => m.key === filterDashboardMonth) ?? null
+      : null;
+
+  const now = new Date();
+  const currentFY = getCurrentFinancialYearLabel();
+
+  let snapshotAsOf: Date;
+  let perfCurrMonthEnd: Date;
+  let perfPrevMonthEnd: Date;
+
+  if (scopedMonth) {
+    snapshotAsOf = endOfCalendarMonth(scopedMonth.year, scopedMonth.month);
+    perfCurrMonthEnd = snapshotAsOf;
+    const prevMonth1to12 = scopedMonth.month === 1 ? 12 : scopedMonth.month - 1;
+    const prevYear =
+      scopedMonth.month === 1 ? scopedMonth.year - 1 : scopedMonth.year;
+    perfPrevMonthEnd = endOfCalendarMonth(prevYear, prevMonth1to12);
+  } else if (filterFinancialYear === currentFY) {
+    snapshotAsOf = now;
+    perfCurrMonthEnd = endOfCalendarMonth(now.getFullYear(), now.getMonth() + 1);
+    const prevMonth1to12 = now.getMonth() === 0 ? 12 : now.getMonth();
+    const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+    perfPrevMonthEnd = endOfCalendarMonth(prevYear, prevMonth1to12);
+  } else {
+    snapshotAsOf = fyDateRange.end;
+    perfCurrMonthEnd = fyDateRange.end;
+    perfPrevMonthEnd = endOfCalendarMonth(
+      fyDateRange.end.getFullYear(),
+      fyDateRange.end.getMonth(),
+    );
+  }
+
+  const maxCreatedAt = new Date(
+    Math.max(
+      snapshotAsOf.getTime(),
+      perfCurrMonthEnd.getTime(),
+      perfPrevMonthEnd.getTime(),
+    ),
+  );
+
+  return { snapshotAsOf, perfCurrMonthEnd, perfPrevMonthEnd, maxCreatedAt };
+}
+
+function filterMandatesActiveAsOf(mandates: any[] | null | undefined, asOf: Date): any[] {
+  return (mandates || []).filter((mandate) =>
+    isMandateActiveAsOf(mandate.created_at, mandate.lifecycle_status_log, asOf),
+  );
+}
+
 export default function Dashboard() {
   const { user, hasRole, isNSO, isTeamAdmin, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
@@ -519,6 +594,17 @@ export default function Dashboard() {
     };
   };
 
+  const upsellDateContext = useMemo(
+    () =>
+      getUpsellDateContext(
+        filterFinancialYear,
+        filterDashboardMonth,
+        getFinancialYearDateRange(filterFinancialYear),
+        dashboardMonthOptions,
+      ),
+    [filterFinancialYear, filterDashboardMonth, dashboardMonthOptions],
+  );
+
   // Helper function to apply status filter to a Supabase query
   // Note: When filterType is "nso" or "all_nsos", we skip status filter since NSOs only exist for "New Acquisition" mandates
   const applyStatusFilter = (query: any, statusFilter: string, filterType?: "all" | "all_kams" | "all_nsos" | "kam" | "nso"): any => {
@@ -695,12 +781,19 @@ export default function Dashboard() {
     return filtered;
   };
 
-  // Process Group B upsell data with MCV tier filter applied client-side
+  // Process Group B upsell data with MCV tier + active-as-of filters applied client-side
   const processedUpsellGroupB = useMemo(() => {
-    const filteredGroupBMandates = filterMandatesByMcvTier(rawGroupBMandates, accountMcvTierMapState);
-    
+    const activeGroupBMandates = filterMandatesActiveAsOf(
+      rawGroupBMandates,
+      upsellDateContext.snapshotAsOf,
+    );
+    const filteredGroupBMandates = filterMandatesByMcvTier(
+      activeGroupBMandates,
+      accountMcvTierMapState,
+    );
+
     const groupBData: Record<string, { count: number; revenue: number; accountIds: Set<string> }> = {};
-    
+
     if (filteredGroupBMandates && filteredGroupBMandates.length > 0) {
       filteredGroupBMandates.forEach((mandate) => {
         const status = mandate.upsell_action_status || "Not Set";
@@ -731,14 +824,26 @@ export default function Dashboard() {
         accounts: data.accountIds.size,
       };
     });
-  }, [rawGroupBMandates, accountMcvTierMapState, upsellMcvTierFilter]);
+  }, [
+    rawGroupBMandates,
+    accountMcvTierMapState,
+    upsellMcvTierFilter,
+    upsellDateContext.snapshotAsOf,
+  ]);
 
-  // Process Group C upsell data with MCV tier filter applied client-side
+  // Process Group C upsell data with MCV tier + active-as-of filters applied client-side
   const processedUpsellGroupC = useMemo(() => {
-    const filteredGroupCMandates = filterMandatesByMcvTier(rawGroupCMandates, accountMcvTierMapState);
-    
+    const activeGroupCMandates = filterMandatesActiveAsOf(
+      rawGroupCMandates,
+      upsellDateContext.snapshotAsOf,
+    );
+    const filteredGroupCMandates = filterMandatesByMcvTier(
+      activeGroupCMandates,
+      accountMcvTierMapState,
+    );
+
     const groupCData: Record<string, { count: number; revenue: number; accountIds: Set<string> }> = {};
-    
+
     if (filteredGroupCMandates && filteredGroupCMandates.length > 0) {
       filteredGroupCMandates.forEach((mandate) => {
         const status = mandate.upsell_action_status || "Not Set";
@@ -769,40 +874,31 @@ export default function Dashboard() {
         accounts: data.accountIds.size,
       };
     });
-  }, [rawGroupCMandates, accountMcvTierMapState, upsellMcvTierFilter]);
+  }, [
+    rawGroupCMandates,
+    accountMcvTierMapState,
+    upsellMcvTierFilter,
+    upsellDateContext.snapshotAsOf,
+  ]);
 
-  // Process upsell performance data with MCV tier filter applied client-side
+  // Process upsell performance: mandates active at prev vs curr month-end (not created_at)
   const processedUpsellPerformance = useMemo(() => {
-    const filteredAllMandates = filterMandatesByMcvTier(rawAllMandates, accountMcvTierMapState);
-    
-    const fyCols = getFinancialYearMonths(filterFinancialYear);
-    const scoped =
-      filterDashboardMonth !== "all"
-        ? fyCols.find((c) => c.key === filterDashboardMonth)
-        : undefined;
-    const now = new Date();
-    let startOfMonth: Date;
-    let endOfMonth: Date;
-    let prevMonthStart: Date;
-    let prevMonthEnd: Date;
-    if (scoped) {
-      startOfMonth = new Date(scoped.year, scoped.month - 1, 1);
-      endOfMonth = new Date(scoped.year, scoped.month, 0, 23, 59, 59, 999);
-      const pm = scoped.month === 1 ? 12 : scoped.month - 1;
-      const py = scoped.month === 1 ? scoped.year - 1 : scoped.year;
-      prevMonthStart = new Date(py, pm - 1, 1);
-      prevMonthEnd = new Date(py, pm, 0, 23, 59, 59, 999);
-    } else {
-      startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    }
+    const mcvFilteredMandates = filterMandatesByMcvTier(
+      rawAllMandates,
+      accountMcvTierMapState,
+    );
+    const { perfPrevMonthEnd, perfCurrMonthEnd } = upsellDateContext;
 
-    // Get unique retention types (include null as "Not Set")
-    const retentionTypes = [...new Set((filteredAllMandates || []).map((m: any) => m.retention_type || "Not Set"))].sort();
+    const prevMonthActive = filterMandatesActiveAsOf(mcvFilteredMandates, perfPrevMonthEnd);
+    const currMonthActive = filterMandatesActiveAsOf(mcvFilteredMandates, perfCurrMonthEnd);
 
-    // Process upsell performance data for each retention type
+    const retentionTypes = [
+      ...new Set([
+        ...prevMonthActive.map((m: any) => m.retention_type || "Not Set"),
+        ...currMonthActive.map((m: any) => m.retention_type || "Not Set"),
+      ]),
+    ].sort();
+
     const performanceData: Array<{
       group: string;
       prevCount: number;
@@ -814,23 +910,12 @@ export default function Dashboard() {
     }> = [];
 
     retentionTypes.forEach((retentionType) => {
-      // Previous month data
-      const prevMonthMandates = (filteredAllMandates || []).filter((m: any) => {
-        const createdDate = new Date(m.created_at);
-        const mandateRetentionType = m.retention_type || "Not Set";
-        return mandateRetentionType === retentionType &&
-               createdDate >= prevMonthStart &&
-               createdDate <= prevMonthEnd;
-      });
-
-      // Current month data
-      const currMonthMandates = (filteredAllMandates || []).filter((m: any) => {
-        const createdDate = new Date(m.created_at);
-        const mandateRetentionType = m.retention_type || "Not Set";
-        return mandateRetentionType === retentionType &&
-               createdDate >= startOfMonth &&
-               createdDate <= endOfMonth;
-      });
+      const prevMonthMandates = prevMonthActive.filter(
+        (m: any) => (m.retention_type || "Not Set") === retentionType,
+      );
+      const currMonthMandates = currMonthActive.filter(
+        (m: any) => (m.retention_type || "Not Set") === retentionType,
+      );
 
       // Calculate previous month metrics
       const prevRev = prevMonthMandates.reduce((sum: number, m: any) => {
@@ -929,8 +1014,8 @@ export default function Dashboard() {
     rawAllMandates,
     accountMcvTierMapState,
     upsellMcvTierFilter,
-    filterFinancialYear,
-    filterDashboardMonth,
+    upsellDateContext.perfPrevMonthEnd,
+    upsellDateContext.perfCurrMonthEnd,
   ]);
 
   // Update state when processed data changes
@@ -1316,25 +1401,30 @@ export default function Dashboard() {
       }
 
 
-      // Fetch mandates with retention_type = "B" for Group B upsell data
+      const upsellDates = getUpsellDateContext(
+        filterFinancialYear,
+        filterDashboardMonth,
+        fyDateRange,
+        fyMonthsList,
+      );
+
+      // Fetch mandates with retention_type = "B" for Group B upsell data (active-as-of filtered client-side)
       let groupBMandatesQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("upsell_action_status, revenue_mcv, account_id")
+          .select(
+            "upsell_action_status, revenue_mcv, account_id, created_at, lifecycle_status, lifecycle_status_log",
+          )
           .eq("retention_type", "B")
       );
-      
-      // Apply status filter
+
       groupBMandatesQuery = applyStatusFilter(groupBMandatesQuery, filterUpsellStatus, filterType);
-      
-      // Apply KAM/NSO filter
       groupBMandatesQuery = applyKamFilter(groupBMandatesQuery, filterKam, filterNso, filterType);
       groupBMandatesQuery = applyLobFilter(groupBMandatesQuery);
-      
-      // Apply FY filter
-      groupBMandatesQuery = groupBMandatesQuery
-        .gte("created_at", mandateDateRangeStart.toISOString())
-        .lte("created_at", mandateDateRangeEnd.toISOString());
+      groupBMandatesQuery = groupBMandatesQuery.lte(
+        "created_at",
+        upsellDates.maxCreatedAt.toISOString(),
+      );
       
       const { data: groupBMandates, error: groupBError } = await groupBMandatesQuery;
 
@@ -1343,25 +1433,23 @@ export default function Dashboard() {
       // Store raw data for client-side filtering
       setRawGroupBMandates(groupBMandates || []);
 
-      // Fetch mandates with retention_type = "C" for Group C upsell data
+      // Fetch mandates with retention_type = "C" for Group C upsell data (active-as-of filtered client-side)
       let groupCMandatesQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("upsell_action_status, revenue_mcv, account_id")
+          .select(
+            "upsell_action_status, revenue_mcv, account_id, created_at, lifecycle_status, lifecycle_status_log",
+          )
           .eq("retention_type", "C")
       );
-      
-      // Apply status filter
+
       groupCMandatesQuery = applyStatusFilter(groupCMandatesQuery, filterUpsellStatus, filterType);
-      
-      // Apply KAM/NSO filter
       groupCMandatesQuery = applyKamFilter(groupCMandatesQuery, filterKam, filterNso, filterType);
       groupCMandatesQuery = applyLobFilter(groupCMandatesQuery);
-      
-      // Apply FY filter
-      groupCMandatesQuery = groupCMandatesQuery
-        .gte("created_at", mandateDateRangeStart.toISOString())
-        .lte("created_at", mandateDateRangeEnd.toISOString());
+      groupCMandatesQuery = groupCMandatesQuery.lte(
+        "created_at",
+        upsellDates.maxCreatedAt.toISOString(),
+      );
       
       const { data: groupCMandates, error: groupCError } = await groupCMandatesQuery;
 
@@ -1370,25 +1458,22 @@ export default function Dashboard() {
       // Store raw data for client-side filtering
       setRawGroupCMandates(groupCMandates || []);
 
-      // Fetch all unique retention types for upsell performance
-      // Include all mandates, even those with null retention_type
+      // Fetch mandates for upsell performance (active-as-of prev/curr month-end, client-side)
       let allMandatesQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("retention_type, revenue_mcv, account_id, created_at, type, kam_id")
+          .select(
+            "retention_type, revenue_mcv, account_id, created_at, lifecycle_status, lifecycle_status_log, type, kam_id",
+          )
       );
-      
-      // Apply status filter
+
       allMandatesQuery = applyStatusFilter(allMandatesQuery, filterUpsellStatus, filterType);
-      
-      // Apply KAM/NSO filter
       allMandatesQuery = applyKamFilter(allMandatesQuery, filterKam, filterNso, filterType);
       allMandatesQuery = applyLobFilter(allMandatesQuery);
-      
-      // Apply FY filter
-      allMandatesQuery = allMandatesQuery
-        .gte("created_at", mandateDateRangeStart.toISOString())
-        .lte("created_at", mandateDateRangeEnd.toISOString());
+      allMandatesQuery = allMandatesQuery.lte(
+        "created_at",
+        upsellDates.maxCreatedAt.toISOString(),
+      );
       
       const { data: allMandates, error: allMandatesError } = await allMandatesQuery;
 
@@ -1948,6 +2033,10 @@ export default function Dashboard() {
 
       let totalAnnualTarget = 0;
       let totalQuarterTarget = 0;
+      let managerTargetRow: {
+        existing_target?: unknown;
+        new_ac_target?: unknown;
+      } | null = null;
 
       if (filterType !== "all") {
         // KAM/NSO filter: sum mandate-level monthly_targets for the selected person(s)
@@ -1991,7 +2080,7 @@ export default function Dashboard() {
           .in("team", selectedTeam === "all" ? ["ce", "staffing", "experts"] : [selectedTeam])
           .in("year", [fyStartYear, fyEndYear]);
 
-        const managerTargetRow =
+        managerTargetRow =
           managerTargetsFyRows?.find((r) => r.month === refMonth && r.year === refYear) ??
           null;
 
@@ -2852,9 +2941,24 @@ export default function Dashboard() {
         }
       }
       
-      // Current month target: same manager_targets row + mandate filter as MCV Planned
+      // Current month target: manager_targets (org view) or monthly_targets (KAM/NSO filter)
       let totalCurrentMonthTarget = 0;
-      if (managerTargetRow) {
+      if (filterType !== "all") {
+        const inactive = inactiveMandateIdsRef.current;
+        let monthCardTargets = filterTargetsByKamNso(kamTargetsData || []);
+        monthCardTargets = filterMonthlyTargetsByUpsellStatus(
+          monthCardTargets,
+          filterUpsellStatus,
+          mandateTypeById
+        );
+        totalCurrentMonthTarget = sumMonthlyTargetValues(
+          monthCardTargets,
+          inactive,
+          (monthDate, monthYearKey) =>
+            monthYearKey === currentMonthYear &&
+            includeInDashboardPeriod(monthDate, monthYearKey)
+        );
+      } else if (managerTargetRow) {
         const existing = parseFloat(String(managerTargetRow.existing_target ?? 0)) || 0;
         const newAc = parseFloat(String(managerTargetRow.new_ac_target ?? 0)) || 0;
         totalCurrentMonthTarget = managerTargetValueForMandateFilter(

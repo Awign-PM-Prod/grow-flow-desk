@@ -118,7 +118,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTeam(null);
       }
     } catch (error) {
-      console.error("Error fetching user roles:", error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "object" &&
+              error !== null &&
+              "message" in error
+            ? String((error as { message: unknown }).message)
+            : String(error);
+      // Ignore aborted/in-flight requests during fast route changes (e.g. / → /dashboard).
+      if (!message.includes("Failed to fetch")) {
+        console.error("Error fetching user roles:", error);
+      }
       setUserRoles([]);
       setFullName(null);
       setTeam(null);
