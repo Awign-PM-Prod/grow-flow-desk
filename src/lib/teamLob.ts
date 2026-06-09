@@ -106,13 +106,12 @@ export function shouldShowHandoverInfo(
   return effectiveTeam !== "staffing" && effectiveTeam !== "experts";
 }
 
-/** When set, LoB is fixed (no dropdown) for staffing / experts teams. */
+/** When set, LoB is fixed (no dropdown). Staffing team picks Staffing vs New Business Line. */
 export function getFixedLobForTeam(
   team: Team | null,
   isGlobalAdmin: boolean,
 ): string | null {
   if (isGlobalAdmin || !team) return null;
-  if (team === "staffing") return STAFFING_LOB;
   if (team === "experts") return EXPERTS_LOB;
   return null;
 }

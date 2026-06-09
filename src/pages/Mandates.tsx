@@ -190,6 +190,18 @@ const isReadOnlySub2 = (upsellConstraint: string, constraintType: string, constr
   return sub2Options.length === 1 && sub2Options[0] === "-";
 };
 
+/** Staffing-team use cases — shared by Staffing and New Business Line LoB labels. */
+const STAFFING_LOB_USE_CASE_MAPPING: Record<string, string[]> = {
+  "Staffing": ["-"],
+  "Staffing - Core": ["-"],
+  "Retail Branding": [
+    "Merchandiser Driven Programs",
+    "Signage Deployments",
+    "Onetime POS and deployment",
+  ],
+  "Loyalty Programs": ["-"],
+};
+
 // Data structure for LoB -> Use Case -> Sub Use Case mapping
 const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
   "Diligence & Audit": {
@@ -204,9 +216,7 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
     "Retailer Activation": ["-"],
     "Society Activation": ["-"],
   },
-  "New Business Line": {
-    "-": ["-"],
-  },
+  "New Business Line": STAFFING_LOB_USE_CASE_MAPPING,
   "Digital Gigs": {
     "Content Operations": ["-"],
     "Telecalling": ["-"],
@@ -220,16 +230,7 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
   "Invigilation & Proctoring": {
     "-": ["-"],
   },
-  "Staffing": {
-    "Staffing": ["-"],
-    "Staffing - Core": ["-"],
-    "Retail Branding": [
-      "Merchandiser Driven Programs",
-      "Signage Deployments",
-      "Onetime POS and deployment",
-    ],
-    "Loyalty Programs": ["-"],
-  },
+  "Staffing": STAFFING_LOB_USE_CASE_MAPPING,
   "Others": {
     "Market Survey": ["-"],
     "Edtech": ["-"],
@@ -762,9 +763,8 @@ export default function Mandates() {
   const showHandoverInfo = shouldShowHandoverInfo(createEffectiveTeam);
   const editShowHandoverInfo = shouldShowHandoverInfo(editEffectiveTeam);
 
-  const isStaffingLobSelected = normalizeLobForTeam(formData.lob) === "staffing";
   const staffingNeedsSubUseCase =
-    isStaffingLobSelected && formData.useCase === "Retail Branding";
+    showStaffingMandateFields && formData.useCase === "Retail Branding";
   /** Staffing revenue fields depend on use case / sub use case; other form sections stay visible. */
   const staffingRevenueReady =
     !showStaffingMandateFields ||
