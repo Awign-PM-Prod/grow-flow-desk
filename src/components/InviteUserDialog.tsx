@@ -186,16 +186,6 @@ export function InviteUserDialog({
         return;
       }
 
-      if (!isPortalEmailSendingEnabled()) {
-        toast({
-          title: "Email sending disabled",
-          description: PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
-          variant: "destructive",
-        });
-        setLoading(false);
-        return;
-      }
-
       // Call the edge function to invite user
       const { data, error } = await supabase.functions.invoke("invite-user", {
         body: {
@@ -205,6 +195,7 @@ export function InviteUserDialog({
           team: validationResult.data.team ?? null,
           password: validationResult.data.password,
           site_url: getAppSiteUrl(),
+          skip_welcome_email: !isPortalEmailSendingEnabled(),
         },
       });
 
@@ -222,9 +213,17 @@ export function InviteUserDialog({
         throw new Error((data as { error: string }).error);
       }
 
+      const emailSkipped =
+        data &&
+        typeof data === "object" &&
+        "email_skipped" in data &&
+        (data as { email_skipped: unknown }).email_skipped === true;
+
       toast({
         title: "Success!",
-        description: `User account created for ${email}. They will receive an email to verify their account.`,
+        description: emailSkipped
+          ? `User account created for ${email}. ${PORTAL_EMAIL_SENDING_DISABLED_MESSAGE} Share their login credentials manually.`
+          : `User account created for ${email}. They will receive an email to verify their account.`,
       });
 
       // Reset form

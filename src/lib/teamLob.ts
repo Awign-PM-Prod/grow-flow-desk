@@ -99,6 +99,13 @@ export function shouldShowStaffingMandateFields(
   return effectiveTeam === "staffing";
 }
 
+/** CE mandates collect handover info; staffing and experts teams do not. */
+export function shouldShowHandoverInfo(
+  effectiveTeam: Team | null,
+): boolean {
+  return effectiveTeam !== "staffing" && effectiveTeam !== "experts";
+}
+
 /** When set, LoB is fixed (no dropdown) for staffing / experts teams. */
 export function getFixedLobForTeam(
   team: Team | null,

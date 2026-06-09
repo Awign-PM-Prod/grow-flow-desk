@@ -69,6 +69,7 @@ import {
   isValidTeam,
   normalizeLobForTeam,
   resolveMandateTeam,
+  shouldShowHandoverInfo,
   shouldShowStaffingMandateFields,
   STAFFING_LOB,
 } from "@/lib/teamLob";
@@ -758,6 +759,8 @@ export default function Mandates() {
   const editShowStaffingMandateFields = shouldShowStaffingMandateFields(
     editEffectiveTeam,
   );
+  const showHandoverInfo = shouldShowHandoverInfo(createEffectiveTeam);
+  const editShowHandoverInfo = shouldShowHandoverInfo(editEffectiveTeam);
 
   const isStaffingLobSelected = normalizeLobForTeam(formData.lob) === "staffing";
   const staffingNeedsSubUseCase =
@@ -907,6 +910,20 @@ export default function Mandates() {
       }));
     }
   }, [formData.handoverMonthlyVolume, formData.handoverCommercialPerHead]);
+
+  useEffect(() => {
+    if (showHandoverInfo) return;
+    setFormData((prev) => ({
+      ...prev,
+      newSalesOwner: "",
+      handoverMonthlyVolume: "",
+      handoverCommercialPerHead: "",
+      handoverMcv: "",
+      prjDurationMonths: "",
+      handoverAcv: "",
+      handoverPrjType: "",
+    }));
+  }, [showHandoverInfo]);
 
   useEffect(() => {
     if (
@@ -1761,14 +1778,40 @@ export default function Mandates() {
           'Existing'
         ]),
         
-        // Handover Info — NSO only for New Acquisition / Existing
-        new_sales_owner: formData.type === "New Cross Sell" ? null : (formData.newSalesOwner || null),
-        handover_monthly_volume: formData.handoverMonthlyVolume ? parseFloat(formData.handoverMonthlyVolume) : null,
-        handover_commercial_per_head: formData.handoverCommercialPerHead ? parseFloat(formData.handoverCommercialPerHead) : null,
-        handover_mcv: formData.handoverMcv ? parseFloat(formData.handoverMcv) : null,
-        prj_duration_months: formData.prjDurationMonths ? parseInt(formData.prjDurationMonths) : null,
-        handover_acv: formData.handoverAcv ? parseFloat(formData.handoverAcv) : null,
-        handover_prj_type: ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
+        // Handover Info — CE only (not staffing / experts)
+        new_sales_owner: !showHandoverInfo
+          ? null
+          : formData.type === "New Cross Sell"
+            ? null
+            : formData.newSalesOwner || null,
+        handover_monthly_volume: !showHandoverInfo
+          ? null
+          : formData.handoverMonthlyVolume
+            ? parseFloat(formData.handoverMonthlyVolume)
+            : null,
+        handover_commercial_per_head: !showHandoverInfo
+          ? null
+          : formData.handoverCommercialPerHead
+            ? parseFloat(formData.handoverCommercialPerHead)
+            : null,
+        handover_mcv: !showHandoverInfo
+          ? null
+          : formData.handoverMcv
+            ? parseFloat(formData.handoverMcv)
+            : null,
+        prj_duration_months: !showHandoverInfo
+          ? null
+          : formData.prjDurationMonths
+            ? parseInt(formData.prjDurationMonths)
+            : null,
+        handover_acv: !showHandoverInfo
+          ? null
+          : formData.handoverAcv
+            ? parseFloat(formData.handoverAcv)
+            : null,
+        handover_prj_type: !showHandoverInfo
+          ? null
+          : ensureEnumValue(formData.handoverPrjType, ['Recurring', 'One-time']),
         
         // Revenue Info
         revenue_monthly_volume:
@@ -2428,9 +2471,19 @@ export default function Mandates() {
         // Use Project Code from CSV
         const projectCode = row["Project Code"].trim();
 
+        const rowKamId = kamMap[row["KAM Name"]];
+        const rowEffectiveTeam = rowKamId
+          ? kamTeamByIdFromCsv[rowKamId] ?? null
+          : null;
+        const rowShowHandover = shouldShowHandoverInfo(rowEffectiveTeam);
+
         // Calculate MCV values
-        const handoverMonthlyVolume = parseFloat(row["Handover Monthly Volume"]) || 0;
-        const handoverCommercialPerHead = parseFloat(row["Handover Commercial per head/task"]) || 0;
+        const handoverMonthlyVolume = rowShowHandover
+          ? parseFloat(row["Handover Monthly Volume"]) || 0
+          : 0;
+        const handoverCommercialPerHead = rowShowHandover
+          ? parseFloat(row["Handover Commercial per head/task"]) || 0
+          : 0;
         const handoverMcv = handoverMonthlyVolume * handoverCommercialPerHead;
 
         const revenueMonthlyVolume = parseFloat(row["Revenue Monthly Volume"]) || 0;
@@ -2479,13 +2532,21 @@ export default function Mandates() {
           kam_id: kamMap[row["KAM Name"]],
           lob: row["LoB (Vertical)"],
           type: row["Type"] && ["New Acquisition", "Existing"].includes(row["Type"]) ? row["Type"] : null,
-          new_sales_owner: row["New Sales Owner"] || null,
-          handover_monthly_volume: handoverMonthlyVolume || null,
-          handover_commercial_per_head: handoverCommercialPerHead || null,
-          handover_mcv: handoverMcv || null,
-          prj_duration_months: parseInt(row["PRJ duration in months"]) || null,
-          handover_acv: parseFloat(row["Handover ACV"]) || null,
-          handover_prj_type: normalizePrjType(row["Handover PRJ Type"]),
+          new_sales_owner: rowShowHandover ? row["New Sales Owner"] || null : null,
+          handover_monthly_volume: rowShowHandover ? handoverMonthlyVolume || null : null,
+          handover_commercial_per_head: rowShowHandover
+            ? handoverCommercialPerHead || null
+            : null,
+          handover_mcv: rowShowHandover ? handoverMcv || null : null,
+          prj_duration_months: rowShowHandover
+            ? parseInt(row["PRJ duration in months"]) || null
+            : null,
+          handover_acv: rowShowHandover
+            ? parseFloat(row["Handover ACV"]) || null
+            : null,
+          handover_prj_type: rowShowHandover
+            ? normalizePrjType(row["Handover PRJ Type"])
+            : null,
           revenue_monthly_volume: revenueMonthlyVolume || null,
           revenue_commercial_per_head: revenueCommercialPerHead || null,
           revenue_mcv: revenueMcv || null,
@@ -3289,14 +3350,40 @@ export default function Mandates() {
           'New Cross Sell',
           'Existing'
         ]),
-        // Handover Info — NSO only for New Acquisition / Existing
-        new_sales_owner: editMandateData.type === "New Cross Sell" ? null : sanitizeValue(editMandateData.newSalesOwner),
-        handover_monthly_volume: editMandateData.handoverMonthlyVolume ? parseFloat(editMandateData.handoverMonthlyVolume) : null,
-        handover_commercial_per_head: editMandateData.handoverCommercialPerHead ? parseFloat(editMandateData.handoverCommercialPerHead) : null,
-        handover_mcv: editMandateData.handoverMcv ? parseFloat(editMandateData.handoverMcv) : null,
-        prj_duration_months: editMandateData.prjDurationMonths ? parseInt(editMandateData.prjDurationMonths) : null,
-        handover_acv: editMandateData.handoverAcv ? parseFloat(editMandateData.handoverAcv) : null,
-        handover_prj_type: ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
+        // Handover Info — CE only (not staffing / experts)
+        new_sales_owner: !editShowHandoverInfo
+          ? null
+          : editMandateData.type === "New Cross Sell"
+            ? null
+            : sanitizeValue(editMandateData.newSalesOwner),
+        handover_monthly_volume: !editShowHandoverInfo
+          ? null
+          : editMandateData.handoverMonthlyVolume
+            ? parseFloat(editMandateData.handoverMonthlyVolume)
+            : null,
+        handover_commercial_per_head: !editShowHandoverInfo
+          ? null
+          : editMandateData.handoverCommercialPerHead
+            ? parseFloat(editMandateData.handoverCommercialPerHead)
+            : null,
+        handover_mcv: !editShowHandoverInfo
+          ? null
+          : editMandateData.handoverMcv
+            ? parseFloat(editMandateData.handoverMcv)
+            : null,
+        prj_duration_months: !editShowHandoverInfo
+          ? null
+          : editMandateData.prjDurationMonths
+            ? parseInt(editMandateData.prjDurationMonths)
+            : null,
+        handover_acv: !editShowHandoverInfo
+          ? null
+          : editMandateData.handoverAcv
+            ? parseFloat(editMandateData.handoverAcv)
+            : null,
+        handover_prj_type: !editShowHandoverInfo
+          ? null
+          : ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
         revenue_monthly_volume: editMandateData.revenueMonthlyVolume ? parseFloat(editMandateData.revenueMonthlyVolume) : null,
         revenue_commercial_per_head: editMandateData.revenueCommercialPerHead ? parseFloat(editMandateData.revenueCommercialPerHead) : null,
         revenue_mcv: editMandateData.revenueMcv ? parseFloat(editMandateData.revenueMcv) : null,
@@ -3911,8 +3998,8 @@ export default function Mandates() {
                 </CardContent>
               </Card>
 
-              {/* 2nd Section: Handover Info (CE / experts — not staffing mandate form) */}
-              {!showStaffingMandateFields &&
+              {/* 2nd Section: Handover Info (CE only — not staffing / experts) */}
+              {showHandoverInfo &&
                 (formData.type === "New Acquisition" ||
                   formData.type === "Existing" ||
                   formData.type === "New Cross Sell") && (
@@ -5284,8 +5371,8 @@ export default function Mandates() {
                 </CardContent>
               </Card>
 
-              {/* 2nd Section: Handover Info (CE / experts — not staffing mandate form) */}
-              {!editShowStaffingMandateFields &&
+              {/* 2nd Section: Handover Info (CE only — not staffing / experts) */}
+              {editShowHandoverInfo &&
                 ((isEditMode &&
                   (editMandateData.type === "New Acquisition" ||
                     editMandateData.type === "Existing" ||

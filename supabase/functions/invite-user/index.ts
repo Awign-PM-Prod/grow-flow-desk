@@ -25,6 +25,7 @@ interface InviteUserRequest {
   team?: "ce" | "staffing" | "experts" | null;
   password: string;
   site_url?: string;
+  skip_welcome_email?: boolean;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -72,7 +73,15 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Only admins can invite users");
     }
 
-    const { email, full_name, role, team, password, site_url }: InviteUserRequest = await req.json();
+    const {
+      email,
+      full_name,
+      role,
+      team,
+      password,
+      site_url,
+      skip_welcome_email = false,
+    }: InviteUserRequest = await req.json();
 
     console.log("Inviting user:", { email, full_name, role, team });
 
@@ -237,25 +246,30 @@ const handler = async (req: Request): Promise<Response> => {
       emailSignature(["Team Awign CRM"]),
     ].join("");
 
-    const emailResponse = await resend.emails.send({
-      from: EMAIL_FROM,
-      to: [email],
-      subject: "Welcome to Awign CRM — Your Account is Ready",
-      html: wrapBrandedEmail({
-        title: "Welcome to Awign CRM",
-        subtitle: "Your account is ready",
-        preheader: "Verify your account to access the Mandates Portal.",
-        contentHtml: inviteContentHtml,
-        siteUrl: site_url,
-      }),
-    });
+    if (!skip_welcome_email) {
+      const emailResponse = await resend.emails.send({
+        from: EMAIL_FROM,
+        to: [email],
+        subject: "Welcome to Awign CRM — Your Account is Ready",
+        html: wrapBrandedEmail({
+          title: "Welcome to Awign CRM",
+          subtitle: "Your account is ready",
+          preheader: "Verify your account to access the Mandates Portal.",
+          contentHtml: inviteContentHtml,
+          siteUrl: site_url,
+        }),
+      });
 
-    console.log("Email sent successfully:", emailResponse);
+      console.log("Email sent successfully:", emailResponse);
+    } else {
+      console.log("Welcome email skipped (portal email sending disabled)");
+    }
 
     return new Response(
       JSON.stringify({ 
         success: true,
         message: "User invited successfully",
+        email_skipped: skip_welcome_email,
         user: {
           id: newUser.user.id,
           email: newUser.user.email,
