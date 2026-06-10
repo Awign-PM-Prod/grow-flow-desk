@@ -146,7 +146,7 @@ export function parseCSV(csvContent: string): any[] {
 /**
  * Parses a single CSV line, handling quoted values
  */
-function parseCSVLine(line: string): string[] {
+export function parseCSVLine(line: string): string[] {
   const values: string[] = [];
   let current = "";
   let inQuotes = false;

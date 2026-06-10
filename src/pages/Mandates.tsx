@@ -17,7 +17,15 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown, History } from "lucide-react";
-import { convertToCSV, downloadCSV, formatTimestampForCSV, formatDateForCSV, downloadCSVTemplate, parseCSV } from "@/lib/csv-export";
+import {
+  convertToCSV,
+  downloadCSV,
+  formatTimestampForCSV,
+  formatDateForCSV,
+  downloadCSVTemplate,
+  parseCSV,
+  parseCSVLine,
+} from "@/lib/csv-export";
 import { getAppSiteUrl } from "@/lib/app-site-url";
 import { isPortalEmailSendingEnabled } from "@/lib/portalEmailSending";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
@@ -175,6 +183,42 @@ const getUpsellConstraintSub2s = (upsellConstraint: string, constraintType: stri
   // Filter out "-" option as it should not be selectable
   return sub2Options.length > 0 ? sub2Options.filter(opt => opt !== "-") : [];
 };
+
+function matchUpsellEnumValue(
+  value: string | null | undefined,
+  validValues: string[],
+): string | null {
+  if (!value || value.trim() === "" || value.trim() === "-") return null;
+  const trimmed = value.trim();
+  const exact = validValues.find((v) => v === trimmed);
+  if (exact) return exact;
+  const lower = trimmed.toLowerCase();
+  return validValues.find((v) => v.toLowerCase() === lower) ?? null;
+}
+
+function normalizeUpsellConstraintValue(
+  value: string | null | undefined,
+): "YES" | "NO" | null {
+  return matchUpsellEnumValue(value, ["YES", "NO"]) as "YES" | "NO" | null;
+}
+
+function normalizeUpsellConstraintTypeValue(
+  value: string | null | undefined,
+): string | null {
+  return matchUpsellEnumValue(value, getUpsellConstraintTypes("YES"));
+}
+
+function normalizeUpsellConstraintSubValue(
+  value: string | null | undefined,
+  constraintType?: string | null,
+): string | null {
+  const validSubs = constraintType
+    ? getUpsellConstraintSubs("YES", constraintType)
+    : Object.values(upsellConstraintMapping["YES"] ?? {}).flatMap((subs) =>
+        Object.keys(subs).filter((sub) => sub !== "-"),
+      );
+  return matchUpsellEnumValue(value, validSubs);
+}
 
 const isFreeTextSub2 = (upsellConstraint: string, constraintType: string, constraintSub: string): boolean => {
   if (!upsellConstraint || !constraintType || !constraintSub || !upsellConstraintMapping[upsellConstraint] || !upsellConstraintMapping[upsellConstraint][constraintType] || !upsellConstraintMapping[upsellConstraint][constraintType][constraintSub]) return false;
@@ -465,6 +509,234 @@ function buildStaffingLobCombinationsWithSection() {
   }));
 }
 
+type MandateCsvTemplateKind = "staffing" | "ce";
+
+type MandateCsvParsedRow = {
+  rowNumber: number;
+  byKey: Record<string, string>;
+  data: Record<string, string>;
+};
+
+type MandateCsvPreviewRow = MandateCsvParsedRow & {
+  isValid: boolean;
+  errors: string[];
+  willUpdate?: boolean;
+};
+
+function detectMandateCsvTemplateKind(headerLabels: string[]): MandateCsvTemplateKind {
+  return headerLabels.some((label) => label.trim() === "Headcount") ? "staffing" : "ce";
+}
+
+/** Parse mandate upload CSV by column position (avoids duplicate header label collisions). */
+function parseMandateUploadCsv(csvContent: string): {
+  rows: MandateCsvParsedRow[];
+  templateKind: MandateCsvTemplateKind;
+} {
+  const lines = csvContent.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) {
+    return { rows: [], templateKind: "ce" };
+  }
+
+  const headerLabels = parseCSVLine(lines[0]).map((h) => h.trim());
+  const templateKind = detectMandateCsvTemplateKind(headerLabels);
+  const templateHeaders =
+    templateKind === "staffing"
+      ? STAFFING_MANDATE_UPLOAD_TEMPLATE_HEADERS
+      : CE_MANDATE_UPLOAD_TEMPLATE_HEADERS;
+  const dataEndIdx = templateHeaders.findIndex((h) => h.key === "gap1");
+
+  const rows: MandateCsvParsedRow[] = [];
+  for (let lineIdx = 1; lineIdx < lines.length; lineIdx++) {
+    const values = parseCSVLine(lines[lineIdx]);
+    const byKey: Record<string, string> = {};
+    const data: Record<string, string> = {};
+
+    templateHeaders.forEach((header, colIdx) => {
+      if (header.key.startsWith("gap")) return;
+      const val = values[colIdx]?.trim() ?? "";
+      byKey[header.key] = val;
+      if (colIdx < dataEndIdx && header.label) {
+        data[header.label] = val;
+      }
+    });
+
+    const projectCode = byKey.project_id?.trim();
+    if (!projectCode) continue;
+
+    rows.push({
+      rowNumber: lineIdx + 1,
+      byKey,
+      data,
+    });
+  }
+
+  return { rows, templateKind };
+}
+
+function csvKey(row: MandateCsvParsedRow, key: string): string {
+  return row.byKey[key]?.trim() ?? "";
+}
+
+function buildStaffingMandatePayloadFromCsv(args: {
+  byKey: Record<string, string>;
+  accountMap: Record<string, string>;
+  kamMap: Record<string, string>;
+  userId: string;
+  normalizeMandateHealth: (v: string | null | undefined) => string | null;
+  normalizeUpsellConstraint: (v: string | null | undefined) => "YES" | "NO" | null;
+  normalizeUpsellConstraintType: (v: string | null | undefined) => string | null;
+  normalizeUpsellConstraintSub: (
+    v: string | null | undefined,
+    constraintType?: string | null,
+  ) => string | null;
+  normalizeClientBudgetTrend: (v: string | null | undefined) => string | null;
+  normalizeAwignSharePercent: (v: string | null | undefined) => string | null;
+  normalizeUpsellActionStatus: (v: string | null | undefined) => string | null;
+  calculateRetentionType: (
+    mandateHealth: string | null,
+    upsellConstraint: boolean | null,
+    clientBudgetTrend: string | null,
+    awignSharePercent: string | null,
+  ) => string | null;
+}) {
+  const k = args.byKey;
+  const useCaseRaw = k.use_case?.trim();
+  const subUseCaseRaw = k.sub_use_case?.trim();
+  const useCase = useCaseRaw && useCaseRaw !== "N/A" ? useCaseRaw : null;
+  const subUseCase = subUseCaseRaw && subUseCaseRaw !== "N/A" ? subUseCaseRaw : null;
+  const sectionType = calculateRevenueSectionType(useCase, subUseCase);
+
+  const headcount = parseFloat(k.staffing_headcount) || 0;
+  const salaryPayouts = parseFloat(k.staffing_salary_payouts) || 0;
+  const programMgmt = parseFloat(k.staffing_program_management) || 0;
+  const saasFee = parseFloat(k.staffing_saas_usage_fee) || 0;
+  const agencyPct = parseFloat(k.staffing_monthly_agency_fee_percent) || 0;
+  const sfaSetup = parseFloat(k.staffing_sales_force_automation_setup_fee) || 0;
+  const recruitment = parseFloat(k.staffing_recruitment_cost) || 0;
+  const miscRecurring = parseFloat(k.staffing_misc_recurring) || 0;
+  const miscOneTime = parseFloat(k.staffing_misc_one_time) || 0;
+  const activeMonths = parseFloat(k.staffing_active_months_per_year) || 0;
+  const gmPercent = parseFloat(k.staffing_gm_percent) || 0;
+  const numStores = parseFloat(k.staffing_b_num_stores) || 0;
+  const costPerStore = parseFloat(k.staffing_b_cost_per_store) || 0;
+  const cOneTime = parseFloat(k.staffing_c_one_time_setup_fee) || 0;
+  const cMonthly = parseFloat(k.staffing_c_monthly_recurring_fees) || 0;
+
+  const mcvA =
+    headcount * (salaryPayouts + saasFee + programMgmt) +
+    ((headcount * (salaryPayouts + saasFee) + programMgmt) * agencyPct) / 100 +
+    headcount * miscRecurring;
+  const acvA =
+    mcvA * activeMonths + (sfaSetup + recruitment) * headcount + miscOneTime;
+  const gmA = computeStaffingGrossMarginTypeA({ acv: acvA, gmPercent });
+
+  const mcvB = numStores * costPerStore;
+  const acvB = mcvB * activeMonths;
+  const gmB = computeStaffingGrossMarginTypeB({ acv: acvB, gmPercent });
+
+  const mcvC = cMonthly;
+  const acvC = cMonthly * activeMonths + cOneTime;
+  const gmC = computeStaffingGrossMarginTypeC({ acv: acvC, gmPercent });
+
+  const mandateHealth = args.normalizeMandateHealth(k.mandate_health);
+  const upsellConstraint = args.normalizeUpsellConstraint(k.upsell_constraint);
+  const upsellConstraintIsYes = upsellConstraint === "YES";
+  const clientBudgetTrend = args.normalizeClientBudgetTrend(k.client_budget_trend);
+  const awignSharePercent = args.normalizeAwignSharePercent(k.awign_share_percent);
+
+  const mandateType =
+    k.type && ["New Acquisition", "New Cross Sell", "Existing"].includes(k.type)
+      ? k.type
+      : null;
+
+  return {
+    project_code: k.project_id.trim(),
+    project_name: k.project_name,
+    account_id: args.accountMap[k.account_name],
+    kam_id: args.kamMap[k.kam_name],
+    lob: k.lob,
+    use_case: useCase,
+    sub_use_case: subUseCase,
+    type: mandateType,
+    revenue_monthly_volume:
+      sectionType === "A" ? headcount || null : sectionType === "B" ? numStores || null : sectionType === "C" ? cOneTime || null : null,
+    revenue_commercial_per_head:
+      sectionType === "A" ? salaryPayouts || null : sectionType === "B" ? costPerStore || null : null,
+    revenue_mcv:
+      sectionType === "A" ? mcvA || null : sectionType === "B" ? mcvB || null : sectionType === "C" ? mcvC || null : null,
+    revenue_acv:
+      sectionType === "A" ? acvA || null : sectionType === "B" ? acvB || null : sectionType === "C" ? acvC || null : null,
+    revenue_prj_type: null,
+    staffing_headcount: sectionType === "A" ? headcount || null : null,
+    staffing_salary_payouts: sectionType === "A" ? salaryPayouts || null : null,
+    staffing_program_management: sectionType === "A" ? programMgmt || null : null,
+    staffing_saas_usage_fee: sectionType === "A" ? saasFee || null : null,
+    staffing_monthly_agency_fee_percent: sectionType === "A" ? agencyPct || null : null,
+    staffing_sales_force_automation_setup_fee: sectionType === "A" ? sfaSetup || null : null,
+    staffing_recruitment_cost: sectionType === "A" ? recruitment || null : null,
+    staffing_misc_recurring: sectionType === "A" && miscRecurring ? miscRecurring : null,
+    staffing_misc_one_time: sectionType === "A" && miscOneTime ? miscOneTime : null,
+    staffing_active_months_per_year:
+      sectionType === "A" || sectionType === "B" || sectionType === "C"
+        ? activeMonths || null
+        : null,
+    staffing_gm_percent:
+      sectionType === "A" || sectionType === "B" || sectionType === "C"
+        ? gmPercent || null
+        : null,
+    staffing_gross_margin:
+      sectionType === "A" ? gmA || null : sectionType === "B" ? gmB || null : sectionType === "C" ? gmC || null : null,
+    staffing_b_num_stores: sectionType === "B" ? numStores || null : null,
+    staffing_b_cost_per_store: sectionType === "B" ? costPerStore || null : null,
+    staffing_b_mcv: sectionType === "B" ? mcvB || null : null,
+    staffing_b_acv: sectionType === "B" ? acvB || null : null,
+    staffing_c_one_time_setup_fee: sectionType === "C" ? cOneTime || null : null,
+    staffing_c_monthly_recurring_fees: sectionType === "C" ? cMonthly || null : null,
+    mandate_health: mandateHealth,
+    upsell_constraint: upsellConstraint,
+    upsell_constraint_type: args.normalizeUpsellConstraintType(k.upsell_constraint_type),
+    upsell_constraint_sub: args.normalizeUpsellConstraintSub(
+      k.upsell_constraint_sub,
+      args.normalizeUpsellConstraintType(k.upsell_constraint_type),
+    ),
+    upsell_constraint_sub2: k.upsell_constraint_sub2 || null,
+    client_budget_trend: clientBudgetTrend,
+    awign_share_percent: awignSharePercent,
+    retention_type: args.calculateRetentionType(
+      mandateHealth,
+      upsellConstraintIsYes,
+      clientBudgetTrend,
+      awignSharePercent,
+    ),
+    upsell_action_status: args.normalizeUpsellActionStatus(k.upsell_action_status),
+    created_by: args.userId,
+    lifecycle_status: "Active" as const,
+    revenue_section_type: sectionType,
+  };
+}
+
+function exportInvalidMandatePreviewRows(rows: MandateCsvPreviewRow[]) {
+  const invalidRows = rows.filter((row) => !row.isValid);
+  if (invalidRows.length === 0) return;
+
+  const dataKeys = Object.keys(invalidRows[0].data);
+  const exportData = invalidRows.map((row) => ({
+    "Row Number": row.rowNumber,
+    ...row.data,
+    "Validation Errors": row.errors.join("; "),
+  }));
+  const headers = [
+    { key: "Row Number", label: "Row Number" },
+    ...dataKeys.map((key) => ({ key, label: key })),
+    { key: "Validation Errors", label: "Validation Errors" },
+  ];
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadCSV(
+    convertToCSV(exportData, headers),
+    `mandates_upload_invalid_${stamp}.csv`,
+  );
+}
+
 function buildMandateUploadTemplateCsv(
   templateHeaders: MandateUploadTemplateHeader[],
   args: {
@@ -669,7 +941,9 @@ export default function Mandates() {
   const [mandateToDelete, setMandateToDelete] = useState<any | null>(null);
   const [deletingMandate, setDeletingMandate] = useState(false);
   const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
-  const [csvPreviewRows, setCsvPreviewRows] = useState<Array<{ rowNumber: number; data: Record<string, any>; isValid: boolean; errors: string[] }>>([]);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<MandateCsvPreviewRow[]>([]);
+  const [csvUploadTemplateKind, setCsvUploadTemplateKind] =
+    useState<MandateCsvTemplateKind>("ce");
   const [csvFileToUpload, setCsvFileToUpload] = useState<File | null>(null);
   const [updateOptionsDialogOpen, setUpdateOptionsDialogOpen] = useState(false);
   const [mandateForUpdate, setMandateForUpdate] = useState<any | null>(null);
@@ -2127,22 +2401,25 @@ export default function Mandates() {
   const handleBulkUploadMandates = async (file: File) => {
     try {
       const text = await file.text();
-      const csvData = parseCSV(text);
+      const { rows: parsedRows, templateKind } = parseMandateUploadCsv(text);
 
-      if (csvData.length === 0) {
+      if (parsedRows.length === 0) {
         toast({
           title: "Error",
-          description: "CSV file is empty or invalid.",
+          description:
+            "CSV file is empty or invalid. Add mandate rows with a Project Code (reference rows are ignored).",
           variant: "destructive",
         });
         return;
       }
 
+      setCsvUploadTemplateKind(templateKind);
+
       // Validate minimum and maximum entries
       const MIN_ENTRIES = 1;
       const MAX_ENTRIES = 1000;
 
-      if (csvData.length < MIN_ENTRIES) {
+      if (parsedRows.length < MIN_ENTRIES) {
         toast({
           title: "Validation Error",
           description: `CSV file must contain at least ${MIN_ENTRIES} entry.`,
@@ -2151,7 +2428,7 @@ export default function Mandates() {
         return;
       }
 
-      if (csvData.length > MAX_ENTRIES) {
+      if (parsedRows.length > MAX_ENTRIES) {
         toast({
           title: "Validation Error",
           description: `CSV file cannot contain more than ${MAX_ENTRIES} entries. Please split your file into smaller batches.`,
@@ -2161,7 +2438,9 @@ export default function Mandates() {
       }
 
       // Get account name to ID mapping for validation
-      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
+      const accountNames = [
+        ...new Set(parsedRows.map((row) => csvKey(row, "account_name")).filter(Boolean)),
+      ];
       const { data: accountData } = await supabase
         .from("accounts")
         .select("id, name")
@@ -2173,7 +2452,9 @@ export default function Mandates() {
       });
 
       // Get KAM name to ID mapping for validation
-      const kamNames = [...new Set(csvData.map((row: any) => row["KAM Name"]).filter(Boolean))];
+      const kamNames = [
+        ...new Set(parsedRows.map((row) => csvKey(row, "kam_name")).filter(Boolean)),
+      ];
       const { data: kamData } = await supabase
         .from("profiles")
         .select("id, full_name, team")
@@ -2189,42 +2470,60 @@ export default function Mandates() {
         }
       });
 
-      // Get existing project codes from database to check for duplicates
-      const projectIds = csvData.map((row: any) => row["Project Code"]).filter(Boolean);
-      const { data: existingMandates } = await supabase
+      // Visible mandates (RLS-scoped) — used for update vs insert in preview
+      const projectIds = [
+        ...new Set(
+          parsedRows.map((row) => csvKey(row, "project_id")).filter(Boolean),
+        ),
+      ];
+      const { data: visibleMandates } = await supabase
         .from("mandates")
-        .select("project_code")
+        .select("id, project_code")
         .in("project_code", projectIds);
 
-      const existingProjectCodes = new Set(existingMandates?.map((m: any) => m.project_code) || []);
+      const visibleProjectCodeToId: Record<string, string> = {};
+      visibleMandates?.forEach((m: { id: string; project_code: string }) => {
+        visibleProjectCodeToId[m.project_code] = m.id;
+      });
 
-      // Helper functions to normalize enum values (needed for validation)
-      const normalizeUpsellConstraintType = (value: string | null | undefined): string | null => {
-        if (!value || value.trim() === "" || value.trim() === "-") return null;
-        const normalized = value.trim();
-        if (normalized.toLowerCase() === "internal") return "Internal";
-        if (normalized.toLowerCase() === "external") return "External";
-        if (normalized === "Internal" || normalized === "External") return normalized;
-        return null;
-      };
-
-      const normalizeUpsellConstraintSub = (value: string | null | undefined): string | null => {
-        if (!value || value.trim() === "" || value.trim() === "-") return null;
-        const normalized = value.trim();
-        if (normalized.toLowerCase() === "profitability") return "Profitability";
-        if (normalized.toLowerCase() === "delivery") return "Delivery";
-        if (normalized.toLowerCase() === "others") return "Others";
-        if (normalized === "Profitability" || normalized === "Delivery" || normalized === "Others") return normalized;
-        return null;
-      };
+      // Global existence check (includes mandates hidden by RLS)
+      const { data: globalProjectCodes, error: globalCodesError } = await (
+        supabase as unknown as {
+          rpc: (
+            fn: string,
+            args: Record<string, unknown>,
+          ) => Promise<{
+            data: Array<{ project_code: string }> | null;
+            error: Error | null;
+          }>;
+        }
+      ).rpc("mandates_project_codes_exist", { _codes: projectIds });
+      if (globalCodesError) {
+        console.warn("Could not verify global project codes:", globalCodesError);
+      }
+      const globalProjectCodeSet = new Set<string>();
+      if (Array.isArray(globalProjectCodes)) {
+        for (const row of globalProjectCodes) {
+          if (typeof row === "string") {
+            globalProjectCodeSet.add(row);
+          } else if (
+            row &&
+            typeof row === "object" &&
+            "project_code" in row &&
+            typeof (row as { project_code: unknown }).project_code === "string"
+          ) {
+            globalProjectCodeSet.add((row as { project_code: string }).project_code);
+          }
+        }
+      }
 
       // Parse and validate each row
-      const previewRows = csvData.map((row: any, index: number) => {
-        const rowNumber = index + 2; // +2 because CSV has header and is 1-indexed
+      const previewRows: MandateCsvPreviewRow[] = parsedRows.map((row) => {
         const errors: string[] = [];
-        const accountName = row["Account Name"];
+        let willUpdate = false;
+        const accountName = csvKey(row, "account_name");
         const accountId = accountMap[accountName];
-        const kamName = row["KAM Name"];
+        const kamName = csvKey(row, "kam_name");
         const kamId = kamMap[kamName];
 
         // Validate lookup fields
@@ -2238,52 +2537,136 @@ export default function Mandates() {
           errors.push(`KAM "${kamName}" does not have a team assigned`);
         }
 
-        if (!accountName || accountName.trim() === "") {
+        if (!accountName) {
           errors.push("Account Name is required");
         }
-        if (!kamName || kamName.trim() === "") {
+        if (!kamName) {
           errors.push("KAM Name is required");
         }
-        if (!row["Project Code"] || row["Project Code"].trim() === "") {
+        const projectId = csvKey(row, "project_id");
+        if (!projectId) {
           errors.push("Project Code is required");
         } else {
-          const projectId = row["Project Code"].trim();
-          // Check for duplicates within the CSV
-          const duplicateCount = csvData.filter((r: any) => r["Project Code"]?.trim() === projectId).length;
+          const duplicateCount = parsedRows.filter(
+            (r) => csvKey(r, "project_id") === projectId,
+          ).length;
           if (duplicateCount > 1) {
             errors.push(`Project Code "${projectId}" is duplicated in the CSV file`);
+          } else if (
+            globalProjectCodeSet.has(projectId) &&
+            !visibleProjectCodeToId[projectId]
+          ) {
+            errors.push(
+              `Project Code "${projectId}" already exists in the system but is not on your team — use a unique code or ask an admin to update it`,
+            );
+          } else if (visibleProjectCodeToId[projectId]) {
+            willUpdate = true;
           }
-          // Note: Existing Project Codes are allowed - they will be updated instead of creating new records
         }
-        if (!row["Project Name"] || row["Project Name"].trim() === "") {
+        if (!csvKey(row, "project_name")) {
           errors.push("Project Name is required");
         }
-        if (!row["LoB (Vertical)"] || row["LoB (Vertical)"].trim() === "") {
+        if (!csvKey(row, "lob")) {
           errors.push("LoB (Vertical) is required");
         }
 
-        // Validate Type field
-        if (row["Type"] && !["New Acquisition", "Existing"].includes(row["Type"])) {
-          errors.push("Type must be either 'New Acquisition' or 'Existing'");
+        const mandateType = csvKey(row, "type");
+        if (
+          mandateType &&
+          !["New Acquisition", "New Cross Sell", "Existing"].includes(mandateType)
+        ) {
+          errors.push(
+            "Type must be 'New Acquisition', 'New Cross Sell', or 'Existing'",
+          );
+        }
+
+        if (templateKind === "staffing") {
+          const useCase = csvKey(row, "use_case");
+          const subUseCase = csvKey(row, "sub_use_case");
+          if (!useCase) {
+            errors.push("Use Case is required");
+          }
+          if (useCase === "Retail Branding" && !subUseCase) {
+            errors.push("Sub Use Case is required when Use Case is Retail Branding");
+          }
+          const sectionType = calculateRevenueSectionType(
+            useCase && useCase !== "N/A" ? useCase : null,
+            subUseCase && subUseCase !== "N/A" ? subUseCase : null,
+          );
+          if (!sectionType) {
+            errors.push("Use Case / Sub Use Case combination is not valid for staffing");
+          } else if (sectionType === "A") {
+            if (!csvKey(row, "staffing_headcount")) errors.push("Headcount is required");
+            if (!csvKey(row, "staffing_salary_payouts")) errors.push("Salary & Payouts is required");
+            if (!csvKey(row, "staffing_active_months_per_year")) {
+              errors.push("Active Months per year is required");
+            }
+            if (!csvKey(row, "staffing_gm_percent")) errors.push("GM % is required");
+          } else if (sectionType === "B") {
+            if (!csvKey(row, "staffing_b_num_stores")) errors.push("No. of Stores is required");
+            if (!csvKey(row, "staffing_b_cost_per_store")) errors.push("Cost per Store is required");
+            if (!csvKey(row, "staffing_active_months_per_year")) {
+              errors.push("Active Months per year is required");
+            }
+            if (!csvKey(row, "staffing_gm_percent")) errors.push("GM % is required");
+          } else if (sectionType === "C") {
+            if (!csvKey(row, "staffing_c_one_time_setup_fee")) {
+              errors.push("One Time Setup Fees is required");
+            }
+            if (!csvKey(row, "staffing_c_monthly_recurring_fees")) {
+              errors.push("Monthly Recurring Fees is required");
+            }
+            if (!csvKey(row, "staffing_active_months_per_year")) {
+              errors.push("Active Months per year is required");
+            }
+            if (!csvKey(row, "staffing_gm_percent")) errors.push("GM % is required");
+          }
+        }
+
+        const upsellConstraintRaw = csvKey(row, "upsell_constraint");
+        const upsellConstraint = normalizeUpsellConstraintValue(upsellConstraintRaw);
+        if (upsellConstraintRaw && upsellConstraintRaw !== "-" && !upsellConstraint) {
+          errors.push('Upsell Constraint must be "YES", "NO", or empty');
         }
 
         // Validate upsell constraint dependent fields
-        const upsellConstraint = row["Upsell Constraint"] === "YES";
-        if (upsellConstraint) {
-          const constraintType = normalizeUpsellConstraintType(row["Upsell Constraint Type"]);
-          const constraintSub = normalizeUpsellConstraintSub(row["Upsell Constraint Type - Sub"]);
-          
+        if (upsellConstraint === "YES") {
+          const constraintTypeRaw = csvKey(row, "upsell_constraint_type");
+          const constraintSubRaw = csvKey(row, "upsell_constraint_sub");
+          const constraintType = normalizeUpsellConstraintTypeValue(constraintTypeRaw);
+          const constraintSub = normalizeUpsellConstraintSubValue(
+            constraintSubRaw,
+            constraintType,
+          );
+
           if (!constraintType) {
-            errors.push("Upsell Constraint Type is required when Upsell Constraint is YES");
+            if (constraintTypeRaw) {
+              errors.push(
+                `Invalid Upsell Constraint Type "${constraintTypeRaw}". Must be Internal or External`,
+              );
+            } else {
+              errors.push("Upsell Constraint Type is required when Upsell Constraint is YES");
+            }
           }
           if (!constraintSub) {
-            errors.push("Upsell Constraint Type - Sub is required when Upsell Constraint is YES");
+            if (constraintSubRaw) {
+              const validSubs = constraintType
+                ? getUpsellConstraintSubs("YES", constraintType)
+                : getUpsellConstraintSubs("YES", "Internal").concat(
+                    getUpsellConstraintSubs("YES", "External"),
+                  );
+              errors.push(
+                `Invalid Upsell Constraint Type - Sub "${constraintSubRaw}". Must be one of: ${validSubs.join(", ")}`,
+              );
+            } else {
+              errors.push("Upsell Constraint Type - Sub is required when Upsell Constraint is YES");
+            }
           }
-          
+
           // Validate Sub 2 if constraint type and sub are provided
           if (constraintType && constraintSub) {
             const validSub2s = getUpsellConstraintSub2s("YES", constraintType, constraintSub);
-            const sub2Value = row["Upsell Constraint Type - Sub 2"];
+            const sub2Value = csvKey(row, "upsell_constraint_sub2");
             if (validSub2s.length > 0 && sub2Value && !validSub2s.includes(sub2Value)) {
               errors.push(`Invalid Upsell Constraint Type - Sub 2. Must be one of: ${validSub2s.join(", ")}`);
             }
@@ -2291,10 +2674,12 @@ export default function Mandates() {
         }
 
         return {
-          rowNumber,
-          data: row,
+          rowNumber: row.rowNumber,
+          byKey: row.byKey,
+          data: row.data,
           isValid: errors.length === 0,
           errors,
+          willUpdate: errors.length === 0 && willUpdate,
         };
       });
 
@@ -2315,12 +2700,14 @@ export default function Mandates() {
   const handleConfirmUpload = async () => {
     if (!csvFileToUpload) return;
 
+    const invalidRowsSnapshot = csvPreviewRows.filter((row) => !row.isValid);
+    const skippedInvalidCount = invalidRowsSnapshot.length;
+
     try {
       setLoadingMandates(true);
       setCsvPreviewOpen(false);
 
-      const text = await csvFileToUpload.text();
-      const csvData = parseCSV(text);
+      const validPreviewRows = csvPreviewRows.filter((row) => row.isValid);
 
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
@@ -2328,7 +2715,9 @@ export default function Mandates() {
       }
 
       // Get account name to ID mapping
-      const accountNames = [...new Set(csvData.map((row: any) => row["Account Name"]).filter(Boolean))];
+      const accountNames = [
+        ...new Set(validPreviewRows.map((row) => csvKey(row, "account_name")).filter(Boolean)),
+      ];
       const { data: accountData } = await supabase
         .from("accounts")
         .select("id, name")
@@ -2340,7 +2729,9 @@ export default function Mandates() {
       });
 
       // Get KAM name to ID mapping
-      const kamNames = [...new Set(csvData.map((row: any) => row["KAM Name"]).filter(Boolean))];
+      const kamNames = [
+        ...new Set(validPreviewRows.map((row) => csvKey(row, "kam_name")).filter(Boolean)),
+      ];
       const { data: kamData } = await supabase
         .from("profiles")
         .select("id, full_name, team")
@@ -2354,12 +2745,6 @@ export default function Mandates() {
         if (isValidTeam(kam.team)) {
           kamTeamByIdFromCsv[kam.id] = kam.team;
         }
-      });
-
-      // Filter out invalid rows
-      const validRows = csvData.filter((row: any, index: number) => {
-        const previewRow = csvPreviewRows[index];
-        return previewRow?.isValid;
       });
 
       // Helper functions to normalize enum values to match database enum exactly
@@ -2393,25 +2778,6 @@ export default function Mandates() {
         return null;
       };
 
-      const normalizeUpsellConstraintType = (value: string | null | undefined): string | null => {
-        if (!value || value.trim() === "" || value.trim() === "-") return null;
-        const normalized = value.trim();
-        if (normalized.toLowerCase() === "internal") return "Internal";
-        if (normalized.toLowerCase() === "external") return "External";
-        if (normalized === "Internal" || normalized === "External") return normalized;
-        return null;
-      };
-
-      const normalizeUpsellConstraintSub = (value: string | null | undefined): string | null => {
-        if (!value || value.trim() === "" || value.trim() === "-") return null;
-        const normalized = value.trim();
-        if (normalized.toLowerCase() === "profitability") return "Profitability";
-        if (normalized.toLowerCase() === "delivery") return "Delivery";
-        if (normalized.toLowerCase() === "others") return "Others";
-        if (normalized === "Profitability" || normalized === "Delivery" || normalized === "Others") return normalized;
-        return null;
-      };
-
       const normalizeClientBudgetTrend = (value: string | null | undefined): string | null => {
         if (!value || value.trim() === "") return null;
         const normalized = value.trim();
@@ -2426,16 +2792,6 @@ export default function Mandates() {
         if (!value || value.trim() === "") return null;
         const normalized = value.trim();
         if (normalized === "Below 70%" || normalized === "70% & Above") return normalized;
-        return null;
-      };
-
-      const normalizeUpsellConstraint = (
-        value: string | null | undefined,
-      ): "YES" | "NO" | null => {
-        if (!value || value.trim() === "" || value.trim() === "-") return null;
-        const normalized = value.trim().toUpperCase();
-        if (normalized === "YES") return "YES";
-        if (normalized === "NO") return "NO";
         return null;
       };
 
@@ -2485,92 +2841,107 @@ export default function Mandates() {
         return null;
       };
 
-      const mandatesToInsert = validRows.map((row: any, index: number) => {
-        // Use Project Code from CSV
-        const projectCode = row["Project Code"].trim();
+      const normalizeCtx = {
+        normalizeMandateHealth,
+        normalizeUpsellConstraint: normalizeUpsellConstraintValue,
+        normalizeUpsellConstraintType: normalizeUpsellConstraintTypeValue,
+        normalizeUpsellConstraintSub: normalizeUpsellConstraintSubValue,
+        normalizeClientBudgetTrend,
+        normalizeAwignSharePercent,
+        normalizeUpsellActionStatus,
+        calculateRetentionType,
+      };
 
-        const rowKamId = kamMap[row["KAM Name"]];
+      const mandatesToInsert = validPreviewRows.map((previewRow) => {
+        const k = previewRow.byKey;
+
+        if (csvUploadTemplateKind === "staffing") {
+          return buildStaffingMandatePayloadFromCsv({
+            byKey: k,
+            accountMap,
+            kamMap,
+            userId: user.id,
+            ...normalizeCtx,
+          });
+        }
+
+        const rowKamId = kamMap[k.kam_name];
         const rowEffectiveTeam = rowKamId
           ? kamTeamByIdFromCsv[rowKamId] ?? null
           : null;
         const rowShowHandover = shouldShowHandoverInfo(rowEffectiveTeam);
 
-        // Calculate MCV values
         const handoverMonthlyVolume = rowShowHandover
-          ? parseFloat(row["Handover Monthly Volume"]) || 0
+          ? parseFloat(k.handover_monthly_volume) || 0
           : 0;
         const handoverCommercialPerHead = rowShowHandover
-          ? parseFloat(row["Handover Commercial per head/task"]) || 0
+          ? parseFloat(k.handover_commercial_per_head) || 0
           : 0;
         const handoverMcv = handoverMonthlyVolume * handoverCommercialPerHead;
 
-        const revenueMonthlyVolume = parseFloat(row["Revenue Monthly Volume"]) || 0;
-        const revenueCommercialPerHead = parseFloat(row["Revenue Commercial per head/task"]) || 0;
+        const revenueMonthlyVolume = parseFloat(k.revenue_monthly_volume) || 0;
+        const revenueCommercialPerHead = parseFloat(k.revenue_commercial_per_head) || 0;
         const revenueMcv = revenueMonthlyVolume * revenueCommercialPerHead;
 
-        // Normalize enum values
-        const mandateHealth = normalizeMandateHealth(row["Mandate Health"]);
-        const upsellConstraint = normalizeUpsellConstraint(row["Upsell Constraint"]);
+        const mandateHealth = normalizeMandateHealth(k.mandate_health);
+        const upsellConstraint = normalizeUpsellConstraintValue(k.upsell_constraint);
         const upsellConstraintIsYes = upsellConstraint === "YES";
-        const clientBudgetTrend = normalizeClientBudgetTrend(row["Client Budget Trend"]);
-        const awignSharePercent = normalizeAwignSharePercent(row["Awign Share %"]);
+        const clientBudgetTrend = normalizeClientBudgetTrend(k.client_budget_trend);
+        const awignSharePercent = normalizeAwignSharePercent(k.awign_share_percent);
 
-        // Calculate retention type
         const retentionType = calculateRetentionType(
           mandateHealth,
           upsellConstraintIsYes,
           clientBudgetTrend,
-          awignSharePercent
+          awignSharePercent,
         );
 
-        // Validate upsell constraint dependent fields
-        const upsellConstraintType = normalizeUpsellConstraintType(row["Upsell Constraint Type"]);
-        const upsellConstraintSub = normalizeUpsellConstraintSub(row["Upsell Constraint Type - Sub"]);
-        
-        // Validate that if upsell constraint is YES, the dependent fields are valid
-        let validatedUpsellConstraintSub2 = row["Upsell Constraint Type - Sub 2"] || null;
+        const upsellConstraintType = normalizeUpsellConstraintTypeValue(k.upsell_constraint_type);
+        const upsellConstraintSub = normalizeUpsellConstraintSubValue(
+          k.upsell_constraint_sub,
+          upsellConstraintType,
+        );
+
+        let validatedUpsellConstraintSub2 = k.upsell_constraint_sub2 || null;
         if (upsellConstraintIsYes && upsellConstraintType && upsellConstraintSub) {
           const validSub2s = getUpsellConstraintSub2s("YES", upsellConstraintType, upsellConstraintSub);
-          // If there are valid sub2 options and the provided value is not in the list, set to null
           if (validSub2s.length > 0 && validatedUpsellConstraintSub2 && !validSub2s.includes(validatedUpsellConstraintSub2)) {
             validatedUpsellConstraintSub2 = null;
           }
-          // If there are no valid sub2 options, set to null (it's a free text field)
-          if (validSub2s.length === 0) {
-            // Keep the value as is (free text)
-          }
         } else if (upsellConstraint === "NO") {
-          // If upsell constraint is NO, clear dependent fields
           validatedUpsellConstraintSub2 = null;
         }
 
+        const mandateType =
+          k.type && ["New Acquisition", "New Cross Sell", "Existing"].includes(k.type)
+            ? k.type
+            : null;
+
         return {
-          project_code: projectCode,
-          project_name: row["Project Name"],
-          account_id: accountMap[row["Account Name"]],
-          kam_id: kamMap[row["KAM Name"]],
-          lob: row["LoB (Vertical)"],
-          type: row["Type"] && ["New Acquisition", "Existing"].includes(row["Type"]) ? row["Type"] : null,
-          new_sales_owner: rowShowHandover ? row["New Sales Owner"] || null : null,
+          project_code: k.project_id.trim(),
+          project_name: k.project_name,
+          account_id: accountMap[k.account_name],
+          kam_id: kamMap[k.kam_name],
+          lob: k.lob,
+          type: mandateType,
+          new_sales_owner: rowShowHandover ? k.new_sales_owner || null : null,
           handover_monthly_volume: rowShowHandover ? handoverMonthlyVolume || null : null,
           handover_commercial_per_head: rowShowHandover
             ? handoverCommercialPerHead || null
             : null,
           handover_mcv: rowShowHandover ? handoverMcv || null : null,
           prj_duration_months: rowShowHandover
-            ? parseInt(row["PRJ duration in months"]) || null
+            ? parseInt(k.prj_duration_months) || null
             : null,
-          handover_acv: rowShowHandover
-            ? parseFloat(row["Handover ACV"]) || null
-            : null,
+          handover_acv: rowShowHandover ? parseFloat(k.handover_acv) || null : null,
           handover_prj_type: rowShowHandover
-            ? normalizePrjType(row["Handover PRJ Type"])
+            ? normalizePrjType(k.handover_prj_type)
             : null,
           revenue_monthly_volume: revenueMonthlyVolume || null,
           revenue_commercial_per_head: revenueCommercialPerHead || null,
           revenue_mcv: revenueMcv || null,
-          revenue_acv: parseFloat(row["Revenue ACV"]) || null,
-          revenue_prj_type: normalizePrjType(row["Revenue PRJ Type"]),
+          revenue_acv: parseFloat(k.revenue_acv) || null,
+          revenue_prj_type: normalizePrjType(k.revenue_prj_type),
           mandate_health: mandateHealth,
           upsell_constraint: upsellConstraint,
           upsell_constraint_type: upsellConstraintType,
@@ -2579,7 +2950,7 @@ export default function Mandates() {
           client_budget_trend: clientBudgetTrend,
           awign_share_percent: awignSharePercent,
           retention_type: retentionType,
-          upsell_action_status: normalizeUpsellActionStatus(row["Upsell Action Status"]),
+          upsell_action_status: normalizeUpsellActionStatus(k.upsell_action_status),
           created_by: user.id,
           lifecycle_status: "Active",
         };
@@ -2622,12 +2993,13 @@ export default function Mandates() {
             ...mandate,
             team: mandateTeam,
             revenue_section_type:
-              mandateTeam === "staffing"
+              mandate.revenue_section_type ??
+              (mandateTeam === "staffing"
                 ? calculateRevenueSectionType(
                     mandate.use_case,
                     mandate.sub_use_case,
                   )
-                : null,
+                : null),
           };
           if (existingId) {
             // Update existing
@@ -2669,10 +3041,22 @@ export default function Mandates() {
         }
       }
 
+      let uploadDescription = `Successfully processed ${successCount} mandate(s) (${insertCount} inserted, ${updateCount} updated).`;
+      if (skippedInvalidCount > 0) {
+        uploadDescription += ` ${skippedInvalidCount} invalid row(s) were skipped.`;
+      }
+      if (errorCount > 0) {
+        uploadDescription += ` ${errorCount} row(s) failed during upload.`;
+      }
+
       toast({
         title: "Upload Complete",
-        description: `Successfully processed ${successCount} mandates (${insertCount} inserted, ${updateCount} updated). ${errorCount > 0 ? `${errorCount} failed.` : ""}`,
+        description: uploadDescription,
       });
+
+      if (invalidRowsSnapshot.length > 0) {
+        exportInvalidMandatePreviewRows(invalidRowsSnapshot);
+      }
 
       // Reset preview state
       setCsvPreviewRows([]);
@@ -2699,6 +3083,7 @@ export default function Mandates() {
     setCsvPreviewOpen(false);
     setCsvPreviewRows([]);
     setCsvFileToUpload(null);
+    setCsvUploadTemplateKind(null);
   };
 
   const handleBulkUploadMcv = async (file: File) => {
@@ -6119,6 +6504,7 @@ export default function Mandates() {
         rows={csvPreviewRows}
         onConfirm={handleConfirmUpload}
         onCancel={handleCancelUpload}
+        onExportInvalid={() => exportInvalidMandatePreviewRows(csvPreviewRows)}
         loading={loadingMandates}
         title="Preview Mandates CSV Upload"
       />

@@ -25,6 +25,7 @@ interface CSVPreviewDialogProps {
   rows: CSVPreviewRow[];
   onConfirm: () => void;
   onCancel: () => void;
+  onExportInvalid?: () => void;
   loading?: boolean;
   title?: string;
 }
@@ -35,6 +36,7 @@ export function CSVPreviewDialog({
   rows,
   onConfirm,
   onCancel,
+  onExportInvalid,
   loading = false,
   title = "CSV Preview",
 }: CSVPreviewDialogProps) {
@@ -88,8 +90,10 @@ export function CSVPreviewDialog({
                 <Alert variant="destructive" className="mt-2">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    {invalidCount} row(s) have validation errors. Please review and fix them before proceeding.
-                    Invalid rows will be highlighted in red.
+                    {invalidCount} row(s) have validation errors and will be skipped.
+                    {validCount > 0
+                      ? ` You can upload the ${validCount} valid row(s) below or export invalid rows to fix and re-upload.`
+                      : " Fix the errors below and re-upload the file."}
                   </AlertDescription>
                 </Alert>
               )}
@@ -172,17 +176,26 @@ export function CSVPreviewDialog({
           </div>
         </div>
 
-        <DialogFooter className="px-6 pb-6 pt-4 flex-shrink-0 border-t">
-          <Button variant="outline" onClick={onCancel} disabled={loading}>
-            Cancel
-          </Button>
-          <Button
-            onClick={onConfirm}
-            disabled={loading || invalidCount > 0}
-          >
-            {loading 
-              ? "Uploading..." 
-              : `Upload ${validCount} Entry(s)${updateCount > 0 ? ` (${updateCount} update${updateCount > 1 ? 's' : ''}, ${newCount} new)` : ''}`}
+        <DialogFooter className="px-6 pb-6 pt-4 flex-shrink-0 border-t gap-2 sm:justify-between">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={onCancel} disabled={loading}>
+              Cancel
+            </Button>
+            {invalidCount > 0 && onExportInvalid && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onExportInvalid}
+                disabled={loading}
+              >
+                Export Invalid Rows
+              </Button>
+            )}
+          </div>
+          <Button onClick={onConfirm} disabled={loading || validCount === 0}>
+            {loading
+              ? "Uploading..."
+              : `Upload ${validCount} Valid Row(s)${updateCount > 0 ? ` (${updateCount} update${updateCount > 1 ? "s" : ""}, ${newCount} new)` : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>
