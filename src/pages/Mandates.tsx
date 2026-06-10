@@ -2429,6 +2429,16 @@ export default function Mandates() {
         return null;
       };
 
+      const normalizeUpsellConstraint = (
+        value: string | null | undefined,
+      ): "YES" | "NO" | null => {
+        if (!value || value.trim() === "" || value.trim() === "-") return null;
+        const normalized = value.trim().toUpperCase();
+        if (normalized === "YES") return "YES";
+        if (normalized === "NO") return "NO";
+        return null;
+      };
+
       // Helper function to calculate retention type based on decision tree logic
       const calculateRetentionType = (
         mandateHealth: string | null,
@@ -2500,14 +2510,15 @@ export default function Mandates() {
 
         // Normalize enum values
         const mandateHealth = normalizeMandateHealth(row["Mandate Health"]);
-        const upsellConstraint = row["Upsell Constraint"] === "YES";
+        const upsellConstraint = normalizeUpsellConstraint(row["Upsell Constraint"]);
+        const upsellConstraintIsYes = upsellConstraint === "YES";
         const clientBudgetTrend = normalizeClientBudgetTrend(row["Client Budget Trend"]);
         const awignSharePercent = normalizeAwignSharePercent(row["Awign Share %"]);
 
         // Calculate retention type
         const retentionType = calculateRetentionType(
           mandateHealth,
-          upsellConstraint,
+          upsellConstraintIsYes,
           clientBudgetTrend,
           awignSharePercent
         );
@@ -2518,7 +2529,7 @@ export default function Mandates() {
         
         // Validate that if upsell constraint is YES, the dependent fields are valid
         let validatedUpsellConstraintSub2 = row["Upsell Constraint Type - Sub 2"] || null;
-        if (upsellConstraint === true && upsellConstraintType && upsellConstraintSub) {
+        if (upsellConstraintIsYes && upsellConstraintType && upsellConstraintSub) {
           const validSub2s = getUpsellConstraintSub2s("YES", upsellConstraintType, upsellConstraintSub);
           // If there are valid sub2 options and the provided value is not in the list, set to null
           if (validSub2s.length > 0 && validatedUpsellConstraintSub2 && !validSub2s.includes(validatedUpsellConstraintSub2)) {
@@ -2528,7 +2539,7 @@ export default function Mandates() {
           if (validSub2s.length === 0) {
             // Keep the value as is (free text)
           }
-        } else if (upsellConstraint === false) {
+        } else if (upsellConstraint === "NO") {
           // If upsell constraint is NO, clear dependent fields
           validatedUpsellConstraintSub2 = null;
         }
