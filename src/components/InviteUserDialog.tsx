@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { getAppSiteUrl } from "@/lib/app-site-url";
 import {
-  isPortalEmailSendingEnabled,
+  isPortalInviteEmailEnabled,
   PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
 } from "@/lib/portalEmailSending";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
@@ -195,7 +195,7 @@ export function InviteUserDialog({
           team: validationResult.data.team ?? null,
           password: validationResult.data.password,
           site_url: getAppSiteUrl(),
-          skip_welcome_email: !isPortalEmailSendingEnabled(),
+          skip_welcome_email: !isPortalInviteEmailEnabled(),
         },
       });
 
