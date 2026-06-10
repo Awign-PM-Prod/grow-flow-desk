@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
 import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, BookOpen, Check, ChevronsUpDown, Minus } from "lucide-react";
+import { Loader2, BookOpen, Check, ChevronsUpDown, Minus, SlidersHorizontal } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { useAuth } from "@/hooks/useAuth";
@@ -48,6 +48,35 @@ function lobCategorySelectionState(
   if (n === 0) return "none";
   if (n === categoryLobs.length) return "all";
   return "some";
+}
+
+const dashboardFilterFocusClass =
+  "focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0";
+
+const dashboardFilterActiveClass = "border-blue-500 bg-blue-50/50";
+
+/** Fit trigger width to selected label; override Select default w-full + line-clamp. */
+const dashboardFilterTriggerClass = cn(
+  "h-9 w-auto max-w-full shrink-0 gap-1.5 whitespace-nowrap bg-background px-2.5 text-left text-sm [&>span]:line-clamp-none [&>span]:whitespace-nowrap",
+  dashboardFilterFocusClass,
+);
+
+const dashboardTeamFilterTriggerClass = cn(
+  "h-9 w-auto max-w-full shrink-0 gap-1 whitespace-nowrap bg-background px-2 text-left text-sm [&>span]:line-clamp-none [&>span]:whitespace-nowrap",
+  dashboardFilterFocusClass,
+);
+
+const dashboardFilterButtonClass = cn(
+  "inline-flex h-9 w-auto max-w-full shrink-0 items-center gap-1.5 justify-between whitespace-nowrap bg-background px-2.5 text-left text-sm font-normal",
+  dashboardFilterFocusClass,
+);
+
+function getCurrentFinancialYear(): string {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+  return `FY${fyStartYear.toString().slice(-2)}`;
 }
 
 // Helper function to extract achieved MCV from monthly_data
@@ -387,22 +416,7 @@ export default function Dashboard() {
   // Filter states
   /** "all" = full FY; otherwise month key e.g. "2025-04" from getFinancialYearMonths */
   const [filterDashboardMonth, setFilterDashboardMonth] = useState<string>("all");
-  const [filterFinancialYear, setFilterFinancialYear] = useState<string>(() => {
-    // Calculate current financial year on component mount
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-12
-    
-    // Financial year starts in April (month 4)
-    // If current month is April or later, FY started in current year
-    // If current month is Jan-Mar, FY started in previous year
-    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-    
-    // Convert to 2-digit format (e.g., 2025 -> 25)
-    const fyYearDigits = fyStartYear.toString().slice(-2);
-    
-    return `FY${fyYearDigits}`;
-  });
+  const [filterFinancialYear, setFilterFinancialYear] = useState<string>(getCurrentFinancialYear);
   const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("All mandate types");
   const [selectedLobs, setSelectedLobs] = useState<string[]>([]);
   const [lobFilterOpen, setLobFilterOpen] = useState(false);
@@ -481,23 +495,6 @@ export default function Dashboard() {
     fetchKams();
     fetchNsos();
   }, [filterFinancialYear, filterDashboardMonth, filterUpsellStatus, filterKam, filterNso, isKAM, isNSO, selectedTeam, selectedLobs]);
-
-  // Helper function to get current financial year in FY format (e.g., "FY25")
-  const getCurrentFinancialYear = (): string => {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-12
-    
-    // Financial year starts in April (month 4)
-    // If current month is April or later, FY started in current year
-    // If current month is Jan-Mar, FY started in previous year
-    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-    
-    // Convert to 2-digit format (e.g., 2025 -> 25)
-    const fyYearDigits = fyStartYear.toString().slice(-2);
-    
-    return `FY${fyYearDigits}`;
-  };
 
   // Helper function to convert FY string to display format (e.g., "FY25" -> "FY 2025-26")
   const formatFYForDisplay = (fyString: string): string => {
@@ -631,6 +628,48 @@ export default function Dashboard() {
 
   const isKamFilterActive = (kam: string) => kam !== "" && kam !== "all";
   const isNsoFilterActive = (nso: string) => nso !== "" && nso !== "all";
+  const isTeamFilterActive =
+    canSelectAllTeams && (selectedTeam ?? "all") !== "all";
+  const isFinancialYearFilterActive =
+    filterFinancialYear !== getCurrentFinancialYear();
+  const isMonthFilterActive = filterDashboardMonth !== "all";
+  const isLobFilterActive = selectedLobs.length > 0;
+  const isMandateTypeFilterActive =
+    filterUpsellStatus !== "All mandate types";
+
+  const hasActiveDashboardFilters =
+    isTeamFilterActive ||
+    isFinancialYearFilterActive ||
+    isMonthFilterActive ||
+    isLobFilterActive ||
+    isMandateTypeFilterActive ||
+    (!isKAM && isKamFilterActive(filterKam)) ||
+    (!isKAM && !isNSO && isNsoFilterActive(filterNso));
+
+  const clearDashboardFilters = () => {
+    if (canSelectAllTeams) {
+      setSelectedTeam("all");
+    }
+    setFilterFinancialYear(getCurrentFinancialYear());
+    setFilterDashboardMonth("all");
+    if (isTeamAdmin || canSelectAllTeams) {
+      setSelectedLobs([]);
+    } else if (userTeam) {
+      setSelectedLobs(getDefaultDashboardLobs(userTeam, canSelectAllTeams));
+    } else {
+      setSelectedLobs([]);
+    }
+    setFilterUpsellStatus("All mandate types");
+    if (!isKAM) {
+      setFilterKam("all");
+    }
+    if (!isKAM && !isNSO) {
+      setFilterNso("all");
+    }
+    setKamSearch("");
+    setNsoSearch("");
+  };
+
   const hasPersonFilter = () =>
     (isKAM && Boolean(user?.id)) ||
     isKamFilterActive(filterKam) ||
@@ -3711,26 +3750,28 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       {/* Main Dashboard Section */}
-      <Card className="bg-blue-100/60">
-        <CardContent className="p-6 space-y-6">
+      <Card className="overflow-hidden bg-blue-100/60">
+        <CardContent className="min-w-0 space-y-6 p-4 sm:p-6">
       {/* Filters */}
-      <div className="flex items-center justify-between gap-4">
-        {/* Guide Button */}
-        <Button 
-          variant="outline" 
-          size="icon" 
-          className="h-8 w-8"
-          onClick={() => setGuideDialogOpen(true)}
-        >
-          <BookOpen className="h-4 w-4" />
-        </Button>
-        
-        <div className="flex items-center gap-4">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-foreground">Filters</h3>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+            onClick={() => setGuideDialogOpen(true)}
+            aria-label="Open dashboard guide"
+          >
+            <BookOpen className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5">
         {canSelectAllTeams && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Team</span>
             <Select
               value={selectedTeam ?? "all"}
               onValueChange={(v) => {
@@ -3739,18 +3780,27 @@ export default function Dashboard() {
                 }
               }}
             >
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Team" />
+              <SelectTrigger
+                className={cn(
+                  dashboardTeamFilterTriggerClass,
+                  isTeamFilterActive && dashboardFilterActiveClass,
+                )}
+              >
+                <SelectValue placeholder="All teams" />
               </SelectTrigger>
               <SelectContent>
                 <TeamSelectItems includeAll allLabel="All teams" />
               </SelectContent>
             </Select>
-          </div>
         )}
         {/* Financial Year Filter */}
         <Select value={filterFinancialYear} onValueChange={setFilterFinancialYear}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger
+            className={cn(
+              dashboardFilterTriggerClass,
+              isFinancialYearFilterActive && dashboardFilterActiveClass,
+            )}
+          >
             <SelectValue placeholder="Financial Year" />
           </SelectTrigger>
           <SelectContent>
@@ -3763,7 +3813,12 @@ export default function Dashboard() {
         </Select>
 
         <Select value={filterDashboardMonth} onValueChange={setFilterDashboardMonth}>
-          <SelectTrigger className="min-w-[200px] max-w-[240px]">
+          <SelectTrigger
+            className={cn(
+              dashboardFilterTriggerClass,
+              isMonthFilterActive && dashboardFilterActiveClass,
+            )}
+          >
             <SelectValue placeholder="Period" />
           </SelectTrigger>
           <SelectContent>
@@ -3777,8 +3832,8 @@ export default function Dashboard() {
         </Select>
 
         {!canSelectAllTeams && dashboardLobOptions.length === 1 ? (
-          <div className="flex h-9 min-w-[200px] items-center rounded-md border bg-muted/50 px-3 text-sm">
-            <span className="truncate">{dashboardLobOptions[0]}</span>
+          <div className={`${dashboardFilterButtonClass} items-center rounded-md border bg-muted/50`}>
+            <span className="whitespace-nowrap">{dashboardLobOptions[0]}</span>
           </div>
         ) : (
         <Popover open={lobFilterOpen} onOpenChange={setLobFilterOpen}>
@@ -3787,9 +3842,12 @@ export default function Dashboard() {
               variant="outline"
               role="combobox"
               aria-expanded={lobFilterOpen}
-              className="h-9 min-w-[200px] max-w-[260px] justify-between gap-2 px-3"
+              className={cn(
+                dashboardFilterButtonClass,
+                isLobFilterActive && dashboardFilterActiveClass,
+              )}
             >
-              <span className="truncate text-left">{selectedLobLabel}</span>
+              <span className="whitespace-nowrap text-left">{selectedLobLabel}</span>
               <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
@@ -3894,7 +3952,12 @@ export default function Dashboard() {
 
         {/* Status Filter */}
         <Select value={filterUpsellStatus} onValueChange={(value) => setFilterUpsellStatus(value)}>
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger
+            className={cn(
+              dashboardFilterTriggerClass,
+              isMandateTypeFilterActive && dashboardFilterActiveClass,
+            )}
+          >
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -3908,7 +3971,10 @@ export default function Dashboard() {
         {!isKAM && (
           <Select value={filterKam} onValueChange={setFilterKam}>
             <SelectTrigger
-              className={`w-[200px] ${isKamFilterActive(filterKam) ? "border-blue-500 bg-blue-50/50" : ""}`}
+              className={cn(
+                dashboardFilterTriggerClass,
+                isKamFilterActive(filterKam) && dashboardFilterActiveClass,
+              )}
             >
               <SelectValue placeholder="All KAMs">
                 {filterKam === "all"
@@ -3949,7 +4015,10 @@ export default function Dashboard() {
         {!isKAM && !isNSO && (
           <Select value={filterNso} onValueChange={setFilterNso}>
             <SelectTrigger
-              className={`w-[200px] ${isNsoFilterActive(filterNso) ? "border-blue-500 bg-blue-50/50" : ""}`}
+              className={cn(
+                dashboardFilterTriggerClass,
+                isNsoFilterActive(filterNso) && dashboardFilterActiveClass,
+              )}
             >
               <SelectValue placeholder="All NSOs">
                 {filterNso === "all"
@@ -3998,6 +4067,16 @@ export default function Dashboard() {
               )}
             </SelectContent>
           </Select>
+        )}
+        {hasActiveDashboardFilters && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shrink-0 bg-black text-white hover:bg-black/90 hover:text-white focus-visible:ring-0 focus-visible:ring-offset-0"
+            onClick={clearDashboardFilters}
+          >
+            Clear Filters
+          </Button>
         )}
         </div>
       </div>
