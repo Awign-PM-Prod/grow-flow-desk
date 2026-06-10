@@ -119,6 +119,8 @@ const lobOptions = [
   "New Business Development",
   "New Business Line",
   "Digital Gigs",
+  "Installation and maintenance",
+  "AI Ops",
   "Awign Expert",
   "Last Mile Operations",
   "Invigilation & Proctoring",
@@ -146,6 +148,12 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
   "Digital Gigs": {
     "Content Operations": ["-"],
     "Telecalling": ["-"],
+  },
+  "Installation and maintenance": {
+    "-": ["-"],
+  },
+  "AI Ops": {
+    "-": ["-"],
   },
   "Awign Expert": {
     "-": ["-"],
@@ -1510,6 +1518,8 @@ export default function Pipeline() {
           'New Business Development',
           'New Business Line',
           'Digital Gigs',
+          'Installation and maintenance',
+          'AI Ops',
           'Awign Expert',
           'Last Mile Operations',
           'Invigilation & Proctoring',
@@ -1737,6 +1747,8 @@ export default function Pipeline() {
           'New Business Development',
           'New Business Line',
           'Digital Gigs',
+          'Installation and maintenance',
+          'AI Ops',
           'Awign Expert',
           'Last Mile Operations',
           'Invigilation & Proctoring',

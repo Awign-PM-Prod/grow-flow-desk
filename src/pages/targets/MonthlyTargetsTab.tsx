@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth, type Team } from "@/hooks/useAuth";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   Dialog,
@@ -92,7 +92,7 @@ export function MonthlyTargetsTab({
 }: {
   mode: "existing" | "new_cross_sell";
 }) {
-  const { filterFinancialYear, selectedTeam, filterKam } =
+  const { filterFinancialYear, selectedTeam, filterKam, filterLifecycleStatus } =
     useOutletContext<TargetsOutletContext>();
   const { hasRole, loading, userRoles, user, fullName, canMutatePortal, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
@@ -136,7 +136,16 @@ export function MonthlyTargetsTab({
     type?: string | null;
     new_sales_owner?: string | null;
     nsoInfo?: { first_name: string; last_name: string } | null;
+    lifecycle_status?: string | null;
   }>>([]);
+
+  const filteredMandatesForTable = useMemo(() => {
+    return allMandates.filter((mandate) => {
+      const lifecycleStatus = mandate.lifecycle_status ?? "Active";
+      if (filterLifecycleStatus === "all") return true;
+      return lifecycleStatus === filterLifecycleStatus;
+    });
+  }, [allMandates, filterLifecycleStatus]);
   const [allAccounts, setAllAccounts] = useState<Array<{ id: string; name: string }>>([]);
   const [monthColumns, setMonthColumns] = useState<
     Array<{ month: number; year: number; key: string; label: string }>
@@ -2152,6 +2161,7 @@ export function MonthlyTargetsTab({
                     <TableHead className="sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">Mandate</TableHead>
                     <TableHead className="sticky left-[200px] z-10 bg-background min-w-[150px] w-[150px]">Mandate Type</TableHead>
                     <TableHead className="sticky left-[350px] z-10 bg-background min-w-[200px] w-[200px]">KAM/NSO</TableHead>
+                    <TableHead className="sticky left-[550px] z-10 bg-background min-w-[110px] w-[110px]">Status</TableHead>
                     {monthColumns.map((col) => (
                       <TableHead key={col.key} className="text-center min-w-[100px]">
                         {col.label}
@@ -2160,15 +2170,18 @@ export function MonthlyTargetsTab({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {allMandates.length === 0 ? (
+                  {filteredMandatesForTable.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={monthColumns.length + 3} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={monthColumns.length + 4} className="text-center text-muted-foreground py-8">
                         No mandates available
                       </TableCell>
                     </TableRow>
                   ) : (
                     <>
-                      {allMandates.map((mandate) => (
+                      {filteredMandatesForTable.map((mandate) => {
+                        const lifecycleStatus = mandate.lifecycle_status ?? "Active";
+                        const isActive = lifecycleStatus === "Active";
+                        return (
                         <TableRow key={mandate.id}>
                           <TableCell className="font-medium sticky left-0 z-10 bg-background min-w-[200px] w-[200px]">
                             {mandate.project_code} - {mandate.project_name}
@@ -2188,6 +2201,13 @@ export function MonthlyTargetsTab({
                               )}
                             </div>
                           </TableCell>
+                          <TableCell
+                            className={`font-medium sticky left-[550px] z-10 bg-background min-w-[110px] w-[110px] ${
+                              isActive ? "text-foreground" : "text-muted-foreground"
+                            }`}
+                          >
+                            {isActive ? "Active" : "Inactive"}
+                          </TableCell>
                           {monthColumns.map((col) => {
                             const targetValue = existingTargetsData[mandate.id]?.[col.key] || 0;
                             return (
@@ -2203,7 +2223,8 @@ export function MonthlyTargetsTab({
                             );
                           })}
                         </TableRow>
-                      ))}
+                      );
+                      })}
                       {/* Summary Row */}
                       <TableRow className="bg-muted/50 font-bold">
                         <TableCell className="font-bold sticky left-0 z-10 bg-muted/50 min-w-[200px] w-[200px]">
@@ -2215,10 +2236,12 @@ export function MonthlyTargetsTab({
                         <TableCell className="font-bold sticky left-[350px] z-10 bg-muted/50 min-w-[200px] w-[200px]">
                           -
                         </TableCell>
+                        <TableCell className="font-bold sticky left-[550px] z-10 bg-muted/50 min-w-[110px] w-[110px]">
+                          -
+                        </TableCell>
                         {monthColumns.map((col) => {
-                          // Calculate sum for this month across all mandates
-                          const monthSum = Object.values(existingTargetsData).reduce((sum, mandateData) => {
-                            return sum + (mandateData[col.key] || 0);
+                          const monthSum = filteredMandatesForTable.reduce((sum, mandate) => {
+                            return sum + (existingTargetsData[mandate.id]?.[col.key] || 0);
                           }, 0);
                           return (
                             <TableCell key={col.key} className="text-center font-bold">

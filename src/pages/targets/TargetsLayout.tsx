@@ -25,6 +25,8 @@ export type TargetsOutletContext = {
   setFilterFinancialYear: (v: string) => void;
   selectedTeam: "all" | "ce" | "staffing" | "experts";
   filterKam: string;
+  filterLifecycleStatus: "all" | "Active" | "Inactive";
+  setFilterLifecycleStatus: (v: "all" | "Active" | "Inactive") => void;
 };
 
 const tabClass =
@@ -50,6 +52,9 @@ export function TargetsLayout() {
     "all"
   );
   const [filterKam, setFilterKam] = useState("all");
+  const [filterLifecycleStatus, setFilterLifecycleStatus] = useState<
+    "all" | "Active" | "Inactive"
+  >("all");
   const [kamSearch, setKamSearch] = useState("");
   const [filterKams, setFilterKams] = useState<Array<{ id: string; full_name: string }>>([]);
 
@@ -146,11 +151,15 @@ export function TargetsLayout() {
     return <Navigate to="/targets/mandate" replace />;
   }
 
+  const isMandateTargetsTab = location.pathname.includes("/targets/mandate");
+
   const outletContext: TargetsOutletContext = {
     filterFinancialYear,
     setFilterFinancialYear,
     selectedTeam,
     filterKam,
+    filterLifecycleStatus,
+    setFilterLifecycleStatus,
   };
 
   const filteredKamOptions = filterKams.filter((kam) =>
@@ -236,6 +245,29 @@ export function TargetsLayout() {
                       No KAMs found
                     </div>
                   ) : null}
+                </SelectContent>
+              </Select>
+            ) : null}
+            {isMandateTargetsTab ? (
+              <Select
+                value={filterLifecycleStatus}
+                onValueChange={(v) =>
+                  setFilterLifecycleStatus(v as "all" | "Active" | "Inactive")
+                }
+              >
+                <SelectTrigger
+                  className={cn(
+                    "w-[160px] sm:w-[180px]",
+                    filterLifecycleStatus !== "all" &&
+                      "border-blue-500 bg-blue-50/50"
+                  )}
+                >
+                  <SelectValue placeholder="Active/Inactive" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Active/Inactive</SelectItem>
+                  <SelectItem value="Active">Active Mandates</SelectItem>
+                  <SelectItem value="Inactive">Inactive Mandates</SelectItem>
                 </SelectContent>
               </Select>
             ) : null}

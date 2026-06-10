@@ -732,6 +732,8 @@ export type Database = {
         | "New Business Development"
         | "New Business Line"
         | "Digital Gigs"
+        | "Installation and maintenance"
+        | "AI Ops"
         | "Awign Expert"
         | "Last Mile Operations"
         | "Invigilation & Proctoring"
@@ -941,6 +943,8 @@ export const Constants = {
         "New Business Development",
         "New Business Line",
         "Digital Gigs",
+        "Installation and maintenance",
+        "AI Ops",
         "Awign Expert",
         "Last Mile Operations",
         "Invigilation & Proctoring",

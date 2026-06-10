@@ -221,6 +221,12 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
     "Content Operations": ["-"],
     "Telecalling": ["-"],
   },
+  "Installation and maintenance": {
+    "-": ["-"],
+  },
+  "AI Ops": {
+    "-": ["-"],
+  },
   "Awign Expert": {
     "-": ["-"],
   },
@@ -1728,6 +1734,8 @@ export default function Mandates() {
           'New Business Development',
           'New Business Line',
           'Digital Gigs',
+          'Installation and maintenance',
+          'AI Ops',
           'Awign Expert',
           'Last Mile Operations',
           'Invigilation & Proctoring',
@@ -3308,6 +3316,8 @@ export default function Mandates() {
           'New Business Development',
           'New Business Line',
           'Digital Gigs',
+          'Installation and maintenance',
+          'AI Ops',
           'Awign Expert',
           'Last Mile Operations',
           'Invigilation & Proctoring',
@@ -3559,9 +3569,6 @@ export default function Mandates() {
       if (filterKam === "all") {
         return true;
       }
-      if (filterKam === "all_kams") {
-        return Boolean(mandate.kam_id);
-      }
       return mandate.kam_id === filterKam;
     })();
     const matchesNso = (() => {
@@ -3570,9 +3577,6 @@ export default function Mandates() {
       }
       if (filterNso === "all") {
         return true;
-      }
-      if (filterNso === "all_nsos") {
-        return mandate.type === "New Acquisition" && Boolean(mandate.new_sales_owner);
       }
       return (
         mandate.type === "New Acquisition" &&
@@ -4671,16 +4675,13 @@ export default function Mandates() {
                       className={`w-full min-w-0 text-left ${filterKam !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}
                     >
                       <SelectValue placeholder="All KAMs">
-                        {filterKam === "all" && "All KAMs"}
-                        {filterKam === "all_kams" && "Has KAM assigned"}
-                        {filterKam !== "all" &&
-                          filterKam !== "all_kams" &&
-                          kams.find((k) => k.id === filterKam)?.full_name}
+                        {filterKam === "all"
+                          ? "All KAMs"
+                          : kams.find((k) => k.id === filterKam)?.full_name}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All KAMs</SelectItem>
-                      <SelectItem value="all_kams">Has KAM assigned</SelectItem>
                       <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">
                         Individual KAMs
                       </div>
@@ -4717,17 +4718,14 @@ export default function Mandates() {
                       className={`w-full min-w-0 text-left ${filterNso !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}
                     >
                       <SelectValue placeholder="All NSOs">
-                        {filterNso === "all" && "All NSOs"}
-                        {filterNso === "all_nsos" && "Has NSO assigned"}
-                        {filterNso !== "all" &&
-                          filterNso !== "all_nsos" &&
-                          (nsos.find((n) => n.email === filterNso)?.full_name ||
-                            filterNso)}
+                        {filterNso === "all"
+                          ? "All NSOs"
+                          : nsos.find((n) => n.email === filterNso)?.full_name ||
+                            filterNso}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All NSOs</SelectItem>
-                      <SelectItem value="all_nsos">Has NSO assigned</SelectItem>
                       <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t border-b my-1">
                         Individual NSOs
                       </div>
@@ -4775,10 +4773,10 @@ export default function Mandates() {
                 </Select>
                 <Select value={filterType} onValueChange={setFilterType}>
                     <SelectTrigger className={`w-full min-w-0 text-left ${filterType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                    <SelectValue placeholder="All Types" />
+                    <SelectValue placeholder="All Mandate Types" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="all">All Mandate Types</SelectItem>
                     <SelectItem value="Existing">Existing</SelectItem>
                     <SelectItem value="New Acquisition">New Acquisition</SelectItem>
                     <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
@@ -4821,10 +4819,10 @@ export default function Mandates() {
                 </Select>
                 <Select value={filterLifecycleStatus} onValueChange={setFilterLifecycleStatus}>
                   <SelectTrigger className={`w-full min-w-0 text-left ${filterLifecycleStatus !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                    <SelectValue placeholder="All Mandates" />
+                    <SelectValue placeholder="Active/Inactive" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Mandates</SelectItem>
+                    <SelectItem value="all">Active/Inactive</SelectItem>
                     <SelectItem value="Active">Active Mandates</SelectItem>
                     <SelectItem value="Inactive">Inactive Mandates</SelectItem>
                   </SelectContent>

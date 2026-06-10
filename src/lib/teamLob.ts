@@ -4,6 +4,8 @@ import { TEAM_LABELS } from "@/lib/teamLabels";
 export const STAFFING_LOB = "Staffing";
 export const EXPERTS_LOB = "Awign Expert";
 export const NEW_BUSINESS_LINE_LOB = "New Business Line";
+export const INSTALLATION_AND_MAINTENANCE_LOB = "Installation and maintenance";
+export const AI_OPS_LOB = "AI Ops";
 
 /** Canonical LoB list used across mandates, pipeline, and dashboards. */
 export const ALL_LOB_OPTIONS = [
@@ -11,6 +13,8 @@ export const ALL_LOB_OPTIONS = [
   "New Business Development",
   NEW_BUSINESS_LINE_LOB,
   "Digital Gigs",
+  INSTALLATION_AND_MAINTENANCE_LOB,
+  AI_OPS_LOB,
   EXPERTS_LOB,
   "Last Mile Operations",
   "Invigilation & Proctoring",
