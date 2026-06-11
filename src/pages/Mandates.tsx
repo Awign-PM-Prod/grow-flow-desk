@@ -234,6 +234,91 @@ const isReadOnlySub2 = (upsellConstraint: string, constraintType: string, constr
   return sub2Options.length === 1 && sub2Options[0] === "-";
 };
 
+/** Values accepted by the mandates table enum / constraint columns (must match DB). */
+const MANDATE_LOB_VALUES = [
+  "Diligence & Audit",
+  "New Business Development",
+  "New Business Line",
+  "Digital Gigs",
+  "Installation and maintenance",
+  "AI Ops",
+  "Awign Expert",
+  "Last Mile Operations",
+  "Invigilation & Proctoring",
+  "Staffing",
+  "Others",
+] as const;
+
+const MANDATE_USE_CASE_VALUES = [
+  "Staffing",
+  "Staffing - Core",
+  "Retail Branding",
+  "Loyalty Programs",
+  "Mystery Audit",
+  "Non-Mystery Audit",
+  "Background Verification",
+  "Promoters Deployment",
+  "Fixed Resource Deployment",
+  "New Customer Acquisition",
+  "Retailer Activation",
+  "Society Activation",
+  "Content Operations",
+  "Telecalling",
+  "Market Survey",
+  "Edtech",
+  "SaaS",
+  "Others",
+] as const;
+
+const MANDATE_SUB_USE_CASE_VALUES = [
+  "Merchandiser Driven Programs",
+  "Signage Deployments",
+  "Onetime POS and deployment",
+  "Stock Audit",
+  "Store Audit",
+  "Warehouse Audit",
+  "Retail Outlet Audit",
+  "Distributor Audit",
+  "Others",
+] as const;
+
+const MANDATE_TYPE_VALUES = ["New Acquisition", "New Cross Sell", "Existing"] as const;
+
+const MANDATE_HEALTH_VALUES = [
+  "Exceeds Expectations",
+  "Meets Expectations",
+  "Need Improvement",
+] as const;
+
+const MANDATE_PRJ_TYPE_VALUES = ["Recurring", "One-time"] as const;
+
+function ensureMandateEnumValue(
+  value: string | null | undefined,
+  enumValues: readonly string[],
+): string | null {
+  if (!value || value.trim() === "" || value.trim() === "-") return null;
+  const trimmed = value.trim();
+  const exact = enumValues.find((v) => v === trimmed);
+  if (exact) return exact;
+  const lower = trimmed.toLowerCase();
+  return enumValues.find((v) => v.toLowerCase() === lower) ?? null;
+}
+
+function appendInvalidMandateEnumError(
+  errors: string[],
+  raw: string,
+  normalized: string | null,
+  fieldLabel: string,
+  allowed: readonly string[],
+) {
+  if (!raw || raw === "-") return;
+  if (!normalized) {
+    errors.push(
+      `Invalid ${fieldLabel} "${raw}". Must be one of: ${allowed.join(", ")}`,
+    );
+  }
+}
+
 /** Staffing-team use cases — shared by Staffing and New Business Line LoB labels. */
 const STAFFING_LOB_USE_CASE_MAPPING: Record<string, string[]> = {
   "Staffing": ["-"],
@@ -577,6 +662,74 @@ function csvKey(row: MandateCsvParsedRow, key: string): string {
   return row.byKey[key]?.trim() ?? "";
 }
 
+type AccountLookupRow = { id: string; name: string };
+
+function buildAccountMapForCsvNames(
+  csvAccountNames: string[],
+  lookupRows: AccountLookupRow[],
+): {
+  accountMap: Record<string, string>;
+  accountErrors: Record<string, string>;
+} {
+  const byNormalized = new Map<string, AccountLookupRow[]>();
+  for (const row of lookupRows) {
+    const key = normalizeMandateLabel(row.name);
+    const list = byNormalized.get(key) ?? [];
+    list.push(row);
+    byNormalized.set(key, list);
+  }
+
+  const accountMap: Record<string, string> = {};
+  const accountErrors: Record<string, string> = {};
+
+  for (const csvName of csvAccountNames) {
+    const trimmed = csvName.trim();
+    if (!trimmed) continue;
+
+    const matches = byNormalized.get(normalizeMandateLabel(trimmed)) ?? [];
+    if (matches.length === 0) {
+      accountErrors[trimmed] =
+        `Account "${trimmed}" was not found. Copy the exact name from the Accounts page.`;
+    } else if (matches.length > 1) {
+      const names = [...new Set(matches.map((m) => m.name))].join(", ");
+      accountErrors[trimmed] =
+        `Account "${trimmed}" matches multiple accounts (${names}). Contact an admin to clarify.`;
+    } else {
+      accountMap[trimmed] = matches[0].id;
+      accountMap[matches[0].name] = matches[0].id;
+    }
+  }
+
+  return { accountMap, accountErrors };
+}
+
+async function fetchAccountsForMandateCsvUpload(csvAccountNames: string[]) {
+  const uniqueNames = [...new Set(csvAccountNames.map((n) => n.trim()).filter(Boolean))];
+  if (uniqueNames.length === 0) {
+    return { accountMap: {}, accountErrors: {} as Record<string, string> };
+  }
+
+  const { data: rpcData, error: rpcError } = await (
+    supabase as unknown as {
+      rpc: (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{
+        data: AccountLookupRow[] | null;
+        error: Error | null;
+      }>;
+    }
+  ).rpc("accounts_lookup_by_names", { _names: uniqueNames });
+
+  if (!rpcError && Array.isArray(rpcData)) {
+    return buildAccountMapForCsvNames(uniqueNames, rpcData);
+  }
+
+  console.warn("accounts_lookup_by_names RPC unavailable:", rpcError);
+  const { data: visibleData } = await supabase.from("accounts").select("id, name");
+  return buildAccountMapForCsvNames(uniqueNames, visibleData ?? []);
+}
+
 function buildStaffingMandatePayloadFromCsv(args: {
   byKey: Record<string, string>;
   accountMap: Record<string, string>;
@@ -602,8 +755,14 @@ function buildStaffingMandatePayloadFromCsv(args: {
   const k = args.byKey;
   const useCaseRaw = k.use_case?.trim();
   const subUseCaseRaw = k.sub_use_case?.trim();
-  const useCase = useCaseRaw && useCaseRaw !== "N/A" ? useCaseRaw : null;
-  const subUseCase = subUseCaseRaw && subUseCaseRaw !== "N/A" ? subUseCaseRaw : null;
+  const useCase = ensureMandateEnumValue(
+    useCaseRaw && useCaseRaw !== "N/A" ? useCaseRaw : null,
+    MANDATE_USE_CASE_VALUES,
+  );
+  const subUseCase = ensureMandateEnumValue(
+    subUseCaseRaw && subUseCaseRaw !== "N/A" ? subUseCaseRaw : null,
+    MANDATE_SUB_USE_CASE_VALUES,
+  );
   const sectionType = calculateRevenueSectionType(useCase, subUseCase);
 
   const headcount = parseFloat(k.staffing_headcount) || 0;
@@ -644,17 +803,15 @@ function buildStaffingMandatePayloadFromCsv(args: {
   const clientBudgetTrend = args.normalizeClientBudgetTrend(k.client_budget_trend);
   const awignSharePercent = args.normalizeAwignSharePercent(k.awign_share_percent);
 
-  const mandateType =
-    k.type && ["New Acquisition", "New Cross Sell", "Existing"].includes(k.type)
-      ? k.type
-      : null;
+  const mandateType = ensureMandateEnumValue(k.type, MANDATE_TYPE_VALUES);
+  const lob = ensureMandateEnumValue(k.lob, MANDATE_LOB_VALUES);
 
   return {
     project_code: k.project_id.trim(),
     project_name: k.project_name,
     account_id: args.accountMap[k.account_name],
     kam_id: args.kamMap[k.kam_name],
-    lob: k.lob,
+    lob,
     use_case: useCase,
     sub_use_case: subUseCase,
     type: mandateType,
@@ -2437,19 +2594,12 @@ export default function Mandates() {
         return;
       }
 
-      // Get account name to ID mapping for validation
+      // Resolve account names (global lookup + case-insensitive match)
       const accountNames = [
         ...new Set(parsedRows.map((row) => csvKey(row, "account_name")).filter(Boolean)),
       ];
-      const { data: accountData } = await supabase
-        .from("accounts")
-        .select("id, name")
-        .in("name", accountNames);
-
-      const accountMap: Record<string, string> = {};
-      accountData?.forEach((acc) => {
-        accountMap[acc.name] = acc.id;
-      });
+      const { accountMap, accountErrors } =
+        await fetchAccountsForMandateCsvUpload(accountNames);
 
       // Get KAM name to ID mapping for validation
       const kamNames = [
@@ -2528,7 +2678,10 @@ export default function Mandates() {
 
         // Validate lookup fields
         if (accountName && !accountId) {
-          errors.push(`Account "${accountName}" does not exist`);
+          errors.push(
+            accountErrors[accountName] ??
+              `Account "${accountName}" was not found. Copy the exact name from the Accounts page.`,
+          );
         }
         if (kamName && !kamId) {
           errors.push(`KAM "${kamName}" does not exist`);
@@ -2566,33 +2719,82 @@ export default function Mandates() {
         if (!csvKey(row, "project_name")) {
           errors.push("Project Name is required");
         }
-        if (!csvKey(row, "lob")) {
+        const lobRaw = csvKey(row, "lob");
+        if (!lobRaw) {
           errors.push("LoB (Vertical) is required");
+        } else {
+          const lobNorm = ensureMandateEnumValue(lobRaw, MANDATE_LOB_VALUES);
+          appendInvalidMandateEnumError(
+            errors,
+            lobRaw,
+            lobNorm,
+            "LoB (Vertical)",
+            MANDATE_LOB_VALUES,
+          );
         }
 
-        const mandateType = csvKey(row, "type");
-        if (
-          mandateType &&
-          !["New Acquisition", "New Cross Sell", "Existing"].includes(mandateType)
-        ) {
-          errors.push(
-            "Type must be 'New Acquisition', 'New Cross Sell', or 'Existing'",
+        const mandateTypeRaw = csvKey(row, "type");
+        if (mandateTypeRaw) {
+          const mandateTypeNorm = ensureMandateEnumValue(
+            mandateTypeRaw,
+            MANDATE_TYPE_VALUES,
+          );
+          appendInvalidMandateEnumError(
+            errors,
+            mandateTypeRaw,
+            mandateTypeNorm,
+            "Type",
+            MANDATE_TYPE_VALUES,
+          );
+        }
+
+        const mandateHealthRaw = csvKey(row, "mandate_health");
+        if (mandateHealthRaw) {
+          const mandateHealthNorm = ensureMandateEnumValue(
+            mandateHealthRaw,
+            MANDATE_HEALTH_VALUES,
+          );
+          appendInvalidMandateEnumError(
+            errors,
+            mandateHealthRaw,
+            mandateHealthNorm,
+            "Mandate Health",
+            MANDATE_HEALTH_VALUES,
           );
         }
 
         if (templateKind === "staffing") {
-          const useCase = csvKey(row, "use_case");
-          const subUseCase = csvKey(row, "sub_use_case");
-          if (!useCase) {
+          const useCaseRaw = csvKey(row, "use_case");
+          const subUseCaseRaw = csvKey(row, "sub_use_case");
+          if (!useCaseRaw) {
             errors.push("Use Case is required");
+          } else {
+            appendInvalidMandateEnumError(
+              errors,
+              useCaseRaw,
+              ensureMandateEnumValue(useCaseRaw, MANDATE_USE_CASE_VALUES),
+              "Use Case",
+              MANDATE_USE_CASE_VALUES,
+            );
           }
-          if (useCase === "Retail Branding" && !subUseCase) {
+          const useCaseNorm = ensureMandateEnumValue(useCaseRaw, MANDATE_USE_CASE_VALUES);
+          if (useCaseNorm === "Retail Branding" && !subUseCaseRaw) {
             errors.push("Sub Use Case is required when Use Case is Retail Branding");
           }
-          const sectionType = calculateRevenueSectionType(
-            useCase && useCase !== "N/A" ? useCase : null,
-            subUseCase && subUseCase !== "N/A" ? subUseCase : null,
+          if (subUseCaseRaw && subUseCaseRaw !== "N/A") {
+            appendInvalidMandateEnumError(
+              errors,
+              subUseCaseRaw,
+              ensureMandateEnumValue(subUseCaseRaw, MANDATE_SUB_USE_CASE_VALUES),
+              "Sub Use Case",
+              MANDATE_SUB_USE_CASE_VALUES,
+            );
+          }
+          const subUseCaseNorm = ensureMandateEnumValue(
+            subUseCaseRaw && subUseCaseRaw !== "N/A" ? subUseCaseRaw : null,
+            MANDATE_SUB_USE_CASE_VALUES,
           );
+          const sectionType = calculateRevenueSectionType(useCaseNorm, subUseCaseNorm);
           if (!sectionType) {
             errors.push("Use Case / Sub Use Case combination is not valid for staffing");
           } else if (sectionType === "A") {
@@ -2620,6 +2822,27 @@ export default function Mandates() {
               errors.push("Active Months per year is required");
             }
             if (!csvKey(row, "staffing_gm_percent")) errors.push("GM % is required");
+          }
+        } else {
+          const handoverPrjType = csvKey(row, "handover_prj_type");
+          if (handoverPrjType) {
+            appendInvalidMandateEnumError(
+              errors,
+              handoverPrjType,
+              ensureMandateEnumValue(handoverPrjType, MANDATE_PRJ_TYPE_VALUES),
+              "Handover PRJ Type",
+              MANDATE_PRJ_TYPE_VALUES,
+            );
+          }
+          const revenuePrjType = csvKey(row, "revenue_prj_type");
+          if (revenuePrjType) {
+            appendInvalidMandateEnumError(
+              errors,
+              revenuePrjType,
+              ensureMandateEnumValue(revenuePrjType, MANDATE_PRJ_TYPE_VALUES),
+              "Revenue PRJ Type",
+              MANDATE_PRJ_TYPE_VALUES,
+            );
           }
         }
 
@@ -2714,19 +2937,11 @@ export default function Mandates() {
         throw new Error("You must be logged in to upload mandates");
       }
 
-      // Get account name to ID mapping
+      // Resolve account names (global lookup + case-insensitive match)
       const accountNames = [
         ...new Set(validPreviewRows.map((row) => csvKey(row, "account_name")).filter(Boolean)),
       ];
-      const { data: accountData } = await supabase
-        .from("accounts")
-        .select("id, name")
-        .in("name", accountNames);
-
-      const accountMap: Record<string, string> = {};
-      accountData?.forEach((acc) => {
-        accountMap[acc.name] = acc.id;
-      });
+      const { accountMap } = await fetchAccountsForMandateCsvUpload(accountNames);
 
       // Get KAM name to ID mapping
       const kamNames = [
@@ -2912,17 +3127,15 @@ export default function Mandates() {
           validatedUpsellConstraintSub2 = null;
         }
 
-        const mandateType =
-          k.type && ["New Acquisition", "New Cross Sell", "Existing"].includes(k.type)
-            ? k.type
-            : null;
+        const mandateType = ensureMandateEnumValue(k.type, MANDATE_TYPE_VALUES);
+        const lob = ensureMandateEnumValue(k.lob, MANDATE_LOB_VALUES);
 
         return {
           project_code: k.project_id.trim(),
           project_name: k.project_name,
           account_id: accountMap[k.account_name],
           kam_id: kamMap[k.kam_name],
-          lob: k.lob,
+          lob,
           type: mandateType,
           new_sales_owner: rowShowHandover ? k.new_sales_owner || null : null,
           handover_monthly_volume: rowShowHandover ? handoverMonthlyVolume || null : null,

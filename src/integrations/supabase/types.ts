@@ -760,6 +760,9 @@ export type Database = {
       prj_type: "Recurring" | "One-time"
       retention_type: "Star" | "A" | "B" | "C" | "D" | "E" | "NI"
       sub_use_case:
+        | "Merchandiser Driven Programs"
+        | "Signage Deployments"
+        | "Onetime POS and deployment"
         | "Stock Audit"
         | "Store Audit"
         | "Warehouse Audit"
@@ -785,6 +788,10 @@ export type Database = {
         | "-"
       upsell_constraint_type: "Internal" | "External" | "-"
       use_case:
+        | "Staffing"
+        | "Staffing - Core"
+        | "Retail Branding"
+        | "Loyalty Programs"
         | "Mystery Audit"
         | "Non-Mystery Audit"
         | "Background Verification"
@@ -974,6 +981,9 @@ export const Constants = {
       prj_type: ["Recurring", "One-time"],
       retention_type: ["Star", "A", "B", "C", "D", "E", "NI"],
       sub_use_case: [
+        "Merchandiser Driven Programs",
+        "Signage Deployments",
+        "Onetime POS and deployment",
         "Stock Audit",
         "Store Audit",
         "Warehouse Audit",
@@ -1002,6 +1012,10 @@ export const Constants = {
       ],
       upsell_constraint_type: ["Internal", "External", "-"],
       use_case: [
+        "Staffing",
+        "Staffing - Core",
+        "Retail Branding",
+        "Loyalty Programs",
         "Mystery Audit",
         "Non-Mystery Audit",
         "Background Verification",
