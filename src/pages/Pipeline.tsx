@@ -14,6 +14,14 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useEffect, useMemo } from "react";
+import { loadPersistedFilters, savePersistedFilters } from "@/lib/pageSession";
+import {
+  deserializeDateRange,
+  invalidateListData,
+  restoreListData,
+  serializeDateRange,
+  storeListData,
+} from "@/lib/listPageCache";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -282,7 +290,7 @@ const getStatusBadgeStyle = (status: string): { variant: "default" | "secondary"
 };
 
 export default function Pipeline() {
-  const { canMutatePortal, team, canSelectAllTeams } = useAuth();
+  const { canMutatePortal, team, canSelectAllTeams, user } = useAuth();
   const allLobOptions = useMemo(() => Object.keys(lobUseCaseMapping), []);
   const allowedLobOptions = useMemo(
     () => getAllowedLobOptions(allLobOptions, team, canSelectAllTeams),
@@ -317,14 +325,67 @@ export default function Pipeline() {
   const [deletingDeal, setDeletingDeal] = useState(false);
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
   
+  type PipelinePageFilters = {
+    searchTerm: string;
+    filterAccount: string;
+    filterKam: string;
+    filterLob: string;
+    filterStatus: string;
+    filterExpectedContractSignDateRange?: { from?: string; to?: string };
+    sortBy: "newest" | "oldest" | "status";
+  };
+
+  const defaultPipelineFilters: PipelinePageFilters = {
+    searchTerm: "",
+    filterAccount: "all",
+    filterKam: "all",
+    filterLob: "all",
+    filterStatus: "all",
+    filterExpectedContractSignDateRange: undefined,
+    sortBy: "newest",
+  };
+
+  const savedPipelineFilters = loadPersistedFilters<PipelinePageFilters>("pipeline-filters");
+  const initialPipelineFilters = savedPipelineFilters
+    ? { ...defaultPipelineFilters, ...savedPipelineFilters }
+    : defaultPipelineFilters;
+
   // Filters for view mode
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterAccount, setFilterAccount] = useState("all");
-  const [filterKam, setFilterKam] = useState("all");
-  const [filterLob, setFilterLob] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterExpectedContractSignDateRange, setFilterExpectedContractSignDateRange] = useState<{ from?: Date; to?: Date } | undefined>(undefined);
-  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "status">("newest");
+  const [searchTerm, setSearchTerm] = useState(initialPipelineFilters.searchTerm);
+  const [filterAccount, setFilterAccount] = useState(initialPipelineFilters.filterAccount);
+  const [filterKam, setFilterKam] = useState(initialPipelineFilters.filterKam);
+  const [filterLob, setFilterLob] = useState(initialPipelineFilters.filterLob);
+  const [filterStatus, setFilterStatus] = useState(initialPipelineFilters.filterStatus);
+  const [filterExpectedContractSignDateRange, setFilterExpectedContractSignDateRange] = useState<
+    { from?: Date; to?: Date } | undefined
+  >(deserializeDateRange(initialPipelineFilters.filterExpectedContractSignDateRange));
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "status">(
+    initialPipelineFilters.sortBy,
+  );
+
+  useEffect(() => {
+    savePersistedFilters("pipeline-filters", {
+      searchTerm,
+      filterAccount,
+      filterKam,
+      filterLob,
+      filterStatus,
+      filterExpectedContractSignDateRange: serializeDateRange(
+        filterExpectedContractSignDateRange,
+      ),
+      sortBy,
+    });
+  }, [
+    searchTerm,
+    filterAccount,
+    filterKam,
+    filterLob,
+    filterStatus,
+    filterExpectedContractSignDateRange,
+    sortBy,
+  ]);
+
+  const pipelineListKey = `pipeline-${user?.id ?? "guest"}`;
 
   // Search terms for dropdowns in forms
   const [accountSearch, setAccountSearch] = useState("");
@@ -1209,6 +1270,7 @@ export default function Pipeline() {
 
   // Fetch deals from database
   const fetchDeals = async () => {
+    invalidateListData(pipelineListKey);
     setLoadingDeals(true);
     try {
       const { data, error } = await supabase
@@ -1285,6 +1347,7 @@ export default function Pipeline() {
 
       console.log("Transformed deals:", transformedDeals.length);
       setDeals(transformedDeals);
+      storeListData(pipelineListKey, transformedDeals);
     } catch (error: any) {
       console.error("Error fetching deals:", error);
       toast({
@@ -1299,8 +1362,13 @@ export default function Pipeline() {
 
   // Fetch deals on component mount
   useEffect(() => {
+    const cached = restoreListData<any[]>(pipelineListKey);
+    if (cached) {
+      setDeals(cached);
+      return;
+    }
     fetchDeals();
-  }, []);
+  }, [pipelineListKey]);
 
   // Fetch contacts when account changes
   useEffect(() => {

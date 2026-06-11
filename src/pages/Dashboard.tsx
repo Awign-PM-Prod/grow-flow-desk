@@ -4,7 +4,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
-import { Fragment, useState, useEffect, useMemo, useRef } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { getPageDataCache, hashPageFilters, loadPersistedFilters, savePersistedFilters, setPageDataCache } from "@/lib/pageSession";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen, Check, ChevronsUpDown, Minus, SlidersHorizontal } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
@@ -307,10 +308,75 @@ function filterMandatesActiveAsOf(mandates: any[] | null | undefined, asOf: Date
   );
 }
 
+type DashboardPersistedFilters = {
+  filterDashboardMonth: string;
+  filterFinancialYear: string;
+  filterUpsellStatus: string;
+  selectedLobs: string[];
+  filterKam: string;
+  filterNso: string;
+  selectedTeam: "all" | "ce" | "staffing" | "experts" | null;
+};
+
+type DashboardDataCache = {
+  activeMandatesCount: number;
+  allMandatesCount: number;
+  mandatesThisMonth: number;
+  totalAccounts: number;
+  avgAwignShare: number | null;
+  overlapFactor: number | null;
+  mcvPlanned: number;
+  ffmAchieved: number;
+  ffmAchievedFyPercentage: number;
+  mcvThisQuarter: number;
+  mcvLastMonth: number;
+  targetMcvNextQuarter: number;
+  annualAchieved: number;
+  annualTarget: number;
+  quarterAchieved: number;
+  quarterTarget: number;
+  currentMonthAchieved: number;
+  currentMonthTarget: number;
+  droppedSalesData: Array<{ name: string; value: number; color: string }>;
+  mcvTierData: Array<{
+    category: string;
+    tier: string;
+    rowType: string;
+    lastQuarter?: string | number;
+    [key: string]: string | number | undefined;
+  }>;
+  tierMonthColumns: Array<{ month: number; year: number; key: string; label: string }>;
+  rawGroupBMandates: any[];
+  rawGroupCMandates: any[];
+  rawAllMandates: any[];
+  accountMcvTierMapState: Record<string, string | null>;
+  lobSalesPerformance: Array<{ lob: string; targetMpv: number; achievedMpv: number }>;
+  kamSalesPerformance: Array<{ kamId: string; kamName: string; targetMpv: number; achievedMpv: number }>;
+  mandatesPerLobChart: Array<{ lob: string; count: number }>;
+  maxMcvPerLobChart: Array<{ lob: string; sumMaxMcv: number }>;
+};
+
+const defaultDashboardFilters = (): DashboardPersistedFilters => ({
+  filterDashboardMonth: "all",
+  filterFinancialYear: getCurrentFinancialYear(),
+  filterUpsellStatus: "All mandate types",
+  selectedLobs: [],
+  filterKam: "all",
+  filterNso: "all",
+  selectedTeam: null,
+});
+
 export default function Dashboard() {
   const { user, hasRole, isNSO, isTeamAdmin, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
-  const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts" | null>(null);
+  const savedDashboardFilters = loadPersistedFilters<DashboardPersistedFilters>("dashboard-filters");
+  const initialDashboardFilters = savedDashboardFilters
+    ? { ...defaultDashboardFilters(), ...savedDashboardFilters }
+    : defaultDashboardFilters();
+
+  const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts" | null>(
+    initialDashboardFilters.selectedTeam,
+  );
 
   const chartLobOptions = useMemo(
     () =>
@@ -415,13 +481,39 @@ export default function Dashboard() {
   >([]);
   // Filter states
   /** "all" = full FY; otherwise month key e.g. "2025-04" from getFinancialYearMonths */
-  const [filterDashboardMonth, setFilterDashboardMonth] = useState<string>("all");
-  const [filterFinancialYear, setFilterFinancialYear] = useState<string>(getCurrentFinancialYear);
-  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>("All mandate types");
-  const [selectedLobs, setSelectedLobs] = useState<string[]>([]);
+  const [filterDashboardMonth, setFilterDashboardMonth] = useState<string>(
+    initialDashboardFilters.filterDashboardMonth,
+  );
+  const [filterFinancialYear, setFilterFinancialYear] = useState<string>(
+    initialDashboardFilters.filterFinancialYear,
+  );
+  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>(
+    initialDashboardFilters.filterUpsellStatus,
+  );
+  const [selectedLobs, setSelectedLobs] = useState<string[]>(initialDashboardFilters.selectedLobs);
   const [lobFilterOpen, setLobFilterOpen] = useState(false);
-  const [filterKam, setFilterKam] = useState<string>("all");
-  const [filterNso, setFilterNso] = useState<string>("all");
+  const [filterKam, setFilterKam] = useState<string>(initialDashboardFilters.filterKam);
+  const [filterNso, setFilterNso] = useState<string>(initialDashboardFilters.filterNso);
+
+  useEffect(() => {
+    savePersistedFilters("dashboard-filters", {
+      filterDashboardMonth,
+      filterFinancialYear,
+      filterUpsellStatus,
+      selectedLobs,
+      filterKam,
+      filterNso,
+      selectedTeam,
+    });
+  }, [
+    filterDashboardMonth,
+    filterFinancialYear,
+    filterUpsellStatus,
+    selectedLobs,
+    filterKam,
+    filterNso,
+    selectedTeam,
+  ]);
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [nsos, setNsos] = useState<Array<{ mail_id: string; first_name: string; last_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
@@ -485,7 +577,70 @@ export default function Dashboard() {
     setFilterNso("all");
   }, [isNSO]);
 
+  const dashboardFilterHash = useMemo(
+    () =>
+      hashPageFilters({
+        filterFinancialYear,
+        filterDashboardMonth,
+        filterUpsellStatus,
+        filterKam,
+        filterNso,
+        selectedTeam,
+        selectedLobs: [...selectedLobs].sort(),
+        userId: user?.id,
+      }),
+    [
+      filterFinancialYear,
+      filterDashboardMonth,
+      filterUpsellStatus,
+      filterKam,
+      filterNso,
+      selectedTeam,
+      selectedLobs,
+      user?.id,
+    ],
+  );
+
+  const applyDashboardCache = useCallback((cached: DashboardDataCache) => {
+    setActiveMandatesCount(cached.activeMandatesCount);
+    setAllMandatesCount(cached.allMandatesCount);
+    setMandatesThisMonth(cached.mandatesThisMonth);
+    setTotalAccounts(cached.totalAccounts);
+    setAvgAwignShare(cached.avgAwignShare);
+    setOverlapFactor(cached.overlapFactor);
+    setMcvPlanned(cached.mcvPlanned);
+    setFfmAchieved(cached.ffmAchieved);
+    setFfmAchievedFyPercentage(cached.ffmAchievedFyPercentage);
+    setMcvThisQuarter(cached.mcvThisQuarter);
+    setMcvLastMonth(cached.mcvLastMonth);
+    setTargetMcvNextQuarter(cached.targetMcvNextQuarter);
+    setAnnualAchieved(cached.annualAchieved);
+    setAnnualTarget(cached.annualTarget);
+    setQuarterAchieved(cached.quarterAchieved);
+    setQuarterTarget(cached.quarterTarget);
+    setCurrentMonthAchieved(cached.currentMonthAchieved);
+    setCurrentMonthTarget(cached.currentMonthTarget);
+    setDroppedSalesData(cached.droppedSalesData);
+    setMcvTierData(cached.mcvTierData);
+    setTierMonthColumns(cached.tierMonthColumns);
+    setRawGroupBMandates(cached.rawGroupBMandates);
+    setRawGroupCMandates(cached.rawGroupCMandates);
+    setRawAllMandates(cached.rawAllMandates);
+    setAccountMcvTierMapState(cached.accountMcvTierMapState);
+    setLobSalesPerformance(cached.lobSalesPerformance);
+    setKamSalesPerformance(cached.kamSalesPerformance);
+    setMandatesPerLobChart(cached.mandatesPerLobChart);
+    setMaxMcvPerLobChart(cached.maxMcvPerLobChart);
+  }, []);
+
   useEffect(() => {
+    if (!selectedTeam) return;
+    const cached = getPageDataCache<DashboardDataCache>("dashboard", dashboardFilterHash);
+    if (cached) {
+      applyDashboardCache(cached);
+      setLoading(false);
+      return;
+    }
     fetchDashboardData();
     if (isKAM) return;
     if (isNSO) {
@@ -494,7 +649,87 @@ export default function Dashboard() {
     }
     fetchKams();
     fetchNsos();
-  }, [filterFinancialYear, filterDashboardMonth, filterUpsellStatus, filterKam, filterNso, isKAM, isNSO, selectedTeam, selectedLobs]);
+  }, [
+    dashboardFilterHash,
+    selectedTeam,
+    applyDashboardCache,
+    filterFinancialYear,
+    filterDashboardMonth,
+    filterUpsellStatus,
+    filterKam,
+    filterNso,
+    isKAM,
+    isNSO,
+    selectedLobs,
+  ]);
+
+  useEffect(() => {
+    if (loading || !selectedTeam) return;
+    setPageDataCache("dashboard", dashboardFilterHash, {
+      activeMandatesCount,
+      allMandatesCount,
+      mandatesThisMonth,
+      totalAccounts,
+      avgAwignShare,
+      overlapFactor,
+      mcvPlanned,
+      ffmAchieved,
+      ffmAchievedFyPercentage,
+      mcvThisQuarter,
+      mcvLastMonth,
+      targetMcvNextQuarter,
+      annualAchieved,
+      annualTarget,
+      quarterAchieved,
+      quarterTarget,
+      currentMonthAchieved,
+      currentMonthTarget,
+      droppedSalesData,
+      mcvTierData,
+      tierMonthColumns,
+      rawGroupBMandates,
+      rawGroupCMandates,
+      rawAllMandates,
+      accountMcvTierMapState,
+      lobSalesPerformance,
+      kamSalesPerformance,
+      mandatesPerLobChart,
+      maxMcvPerLobChart,
+    });
+  }, [
+    loading,
+    dashboardFilterHash,
+    selectedTeam,
+    activeMandatesCount,
+    allMandatesCount,
+    mandatesThisMonth,
+    totalAccounts,
+    avgAwignShare,
+    overlapFactor,
+    mcvPlanned,
+    ffmAchieved,
+    ffmAchievedFyPercentage,
+    mcvThisQuarter,
+    mcvLastMonth,
+    targetMcvNextQuarter,
+    annualAchieved,
+    annualTarget,
+    quarterAchieved,
+    quarterTarget,
+    currentMonthAchieved,
+    currentMonthTarget,
+    droppedSalesData,
+    mcvTierData,
+    tierMonthColumns,
+    rawGroupBMandates,
+    rawGroupCMandates,
+    rawAllMandates,
+    accountMcvTierMapState,
+    lobSalesPerformance,
+    kamSalesPerformance,
+    mandatesPerLobChart,
+    maxMcvPerLobChart,
+  ]);
 
   // Helper function to convert FY string to display format (e.g., "FY25" -> "FY 2025-26")
   const formatFYForDisplay = (fyString: string): string => {
@@ -674,6 +909,10 @@ export default function Dashboard() {
     (isKAM && Boolean(user?.id)) ||
     isKamFilterActive(filterKam) ||
     isNsoFilterActive(filterNso);
+
+  /** Target MCV card: mandate upsell targets only when a KAM/NSO filter is explicitly active. */
+  const isKamOrNsoTargetMcvFilterActive = () =>
+    isKamFilterActive(filterKam) || isNsoFilterActive(filterNso);
 
   // Helper function to apply status filter to a Supabase query
   // Note: When a specific NSO is selected, skip status filter since NSOs only exist for "New Acquisition" mandates
@@ -2104,6 +2343,80 @@ export default function Dashboard() {
         );
       }
 
+      // Target MCV card: top-level manager_targets unless KAM/NSO filter → upsell targets on active mandates
+      let targetMcvCardPlanned = 0;
+
+      if (isKamOrNsoTargetMcvFilterActive()) {
+        let cardMandatesQuery = supabase
+          .from("mandates")
+          .select("id")
+          .eq("lifecycle_status", "Active");
+        cardMandatesQuery = applyKamFilter(cardMandatesQuery, filterKam, filterNso);
+
+        const { data: cardMandates } = await cardMandatesQuery;
+        const cardMandateIds =
+          cardMandates?.map((m: { id: string }) => m.id).filter(Boolean) || [];
+
+        if (cardMandateIds.length > 0) {
+          let cardTargetsQuery = supabase
+            .from("monthly_targets")
+            .select(
+              "target, month, year, mandate_id, kam_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)",
+            )
+            .eq("target_type", "existing")
+            .in("mandate_id", cardMandateIds)
+            .in("month", fyMonthNumbers)
+            .in("year", fyYears);
+
+          if (financialYearString) {
+            cardTargetsQuery = cardTargetsQuery.eq("financial_year", financialYearString);
+          }
+
+          const { data: cardUpsellTargets } = await cardTargetsQuery;
+          const inactive = inactiveMandateIdsRef.current;
+          const upsellTargets = filterTargetsByKamNso(cardUpsellTargets || []);
+          const targetMcvPeriodFilter = isMonthScoped
+            ? includeInDashboardPeriod
+            : (monthDate: Date) => monthInSelectedFY(monthDate);
+
+          targetMcvCardPlanned = sumMonthlyTargetValues(
+            upsellTargets,
+            inactive,
+            targetMcvPeriodFilter,
+          );
+        }
+      } else {
+        if (!managerTargetsFyRows) {
+          const { data } = await supabase
+            .from("manager_targets")
+            .select("month, year, existing_target, new_ac_target, team")
+            .in("team", selectedTeam === "all" ? ["ce", "staffing", "experts"] : [selectedTeam])
+            .in("year", [fyStartYear, fyEndYear]);
+          managerTargetsFyRows = data ?? null;
+        }
+
+        if (isMonthScoped) {
+          targetMcvCardPlanned = sumManagerTargetsForMonth(
+            managerTargetsFyRows,
+            refMonth,
+            refYear,
+            filterUpsellStatus,
+          );
+        } else if (managerTargetsFyRows) {
+          for (const row of managerTargetsFyRows) {
+            const k = managerMonthKey(row.month, row.year);
+            if (!fyPairSet.has(k)) continue;
+            const existing = parseFloat(String(row.existing_target ?? 0)) || 0;
+            const newAc = parseFloat(String(row.new_ac_target ?? 0)) || 0;
+            targetMcvCardPlanned += managerTargetValueForMandateFilter(
+              existing,
+              newAc,
+              filterUpsellStatus,
+            );
+          }
+        }
+      }
+
       // Fetch all mandates with monthly_data to calculate FFM Achieved for current month within selected FY
       // Apply status filter based on filterUpsellStatus
       let mandatesQuery = applyTeamFilter(
@@ -2281,10 +2594,11 @@ export default function Dashboard() {
         }
       }
 
-      // Calculate FFM Achieved percentage: (FFM Achieved / MCV Planned) * 100
-      const ffmPercentage = totalMcvPlanned > 0 
-        ? (totalFfmAchieved / totalMcvPlanned) * 100 
-        : 0;
+      // Calculate FFM Achieved percentage: (FFM Achieved / Target MCV card) * 100
+      const ffmPercentage =
+        targetMcvCardPlanned > 0
+          ? (totalFfmAchieved / targetMcvCardPlanned) * 100
+          : 0;
 
       // MCV This Quarter: full FY quarter containing ref (quarterMonthYearPairs set above)
       let totalMcvThisQuarter = 0;
@@ -2468,7 +2782,7 @@ export default function Dashboard() {
         }
       }
 
-      setMcvPlanned(totalMcvPlanned);
+      setMcvPlanned(targetMcvCardPlanned);
       setFfmAchieved(totalFfmAchieved);
       setFfmAchievedFyPercentage(ffmPercentage);
       setMcvThisQuarter(totalMcvThisQuarter);
@@ -2799,12 +3113,13 @@ export default function Dashboard() {
       setAnnualAchieved(totalAnnualAchieved);
       setAnnualTarget(totalAnnualTarget);
 
-      // When month filter is full FY, top cards should reflect FY totals.
+      // When month filter is full FY, MCV Achieved card reflects FY totals (Target MCV card already uses FY sum).
       if (!isMonthScoped) {
-        setMcvPlanned(totalAnnualTarget);
         setFfmAchieved(totalAnnualAchieved);
         const fullFyPercentage =
-          totalAnnualTarget > 0 ? (totalAnnualAchieved / totalAnnualTarget) * 100 : 0;
+          targetMcvCardPlanned > 0
+            ? (totalAnnualAchieved / targetMcvCardPlanned) * 100
+            : 0;
         setFfmAchievedFyPercentage(fullFyPercentage);
       }
 

@@ -12,7 +12,9 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { useState, useEffect, useMemo, type WheelEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type WheelEvent } from "react";
+import { loadPersistedFilters, savePersistedFilters } from "@/lib/pageSession";
+import { invalidateListData, restoreListData, storeListData } from "@/lib/listPageCache";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -77,6 +79,7 @@ import {
   isValidTeam,
   normalizeLobForTeam,
   resolveMandateTeam,
+  resolveTeamFromLob,
   shouldShowHandoverInfo,
   shouldShowStaffingMandateFields,
   STAFFING_LOB,
@@ -438,6 +441,429 @@ const normalizeMandateLabel = (value: string | null | undefined): string => {
   return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
 };
 
+type MandateHealthCascadePrev = {
+  initialized: boolean;
+  mandateHealth: string;
+  upsellConstraint: string;
+  upsellConstraintType: string;
+  upsellConstraintSub: string;
+};
+
+const emptyMandateHealthCascadePrev = (): MandateHealthCascadePrev => ({
+  initialized: false,
+  mandateHealth: "",
+  upsellConstraint: "",
+  upsellConstraintType: "",
+  upsellConstraintSub: "",
+});
+
+const formatMandateDetailNumber = (value: unknown): string => {
+  if (value == null || value === "") return "N/A";
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toLocaleString("en-IN") : String(value);
+};
+
+function MandateDetailReadonlyField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label className="font-medium text-muted-foreground">{label}</Label>
+      <p className="mt-1">{value}</p>
+    </div>
+  );
+}
+
+type StaffingRevenueFormValues = Pick<
+  MandateFormData,
+  | "staffingHeadcount"
+  | "staffingSalaryPayouts"
+  | "staffingProgramManagement"
+  | "staffingSaasUsageFee"
+  | "staffingMonthlyAgencyFeePercent"
+  | "staffingSalesForceAutomationSetupFee"
+  | "staffingRecruitmentCost"
+  | "staffingMiscRecurring"
+  | "staffingMiscOneTime"
+  | "staffingActiveMonthsPerYear"
+  | "staffingGmPercent"
+  | "staffingBNumStores"
+  | "staffingBCostPerStore"
+  | "staffingCOneTimeSetupFee"
+  | "staffingCMonthlyRecurringFees"
+>;
+
+function computeStaffingRevenueMetrics(
+  values: StaffingRevenueFormValues,
+  sectionType: "A" | "B" | "C" | null | "",
+) {
+  const staffingHeadcountValue = parseFloat(values.staffingHeadcount) || 0;
+  const staffingSalaryPayoutsValue = parseFloat(values.staffingSalaryPayouts) || 0;
+  const staffingProgramManagementValue = parseFloat(values.staffingProgramManagement) || 0;
+  const staffingSaasUsageFeeValue = parseFloat(values.staffingSaasUsageFee) || 0;
+  const staffingMonthlyAgencyFeePercentValue =
+    parseFloat(values.staffingMonthlyAgencyFeePercent) || 0;
+  const staffingSalesForceAutomationSetupFeeValue =
+    parseFloat(values.staffingSalesForceAutomationSetupFee) || 0;
+  const staffingRecruitmentCostValue = parseFloat(values.staffingRecruitmentCost) || 0;
+  const staffingMiscRecurringValue = parseFloat(values.staffingMiscRecurring) || 0;
+  const staffingMiscOneTimeValue = parseFloat(values.staffingMiscOneTime) || 0;
+  const staffingActiveMonthsPerYearValue =
+    parseFloat(values.staffingActiveMonthsPerYear) || 0;
+  const staffingGmPercentValue = parseFloat(values.staffingGmPercent) || 0;
+
+  const staffingMcvCalculated =
+    staffingHeadcountValue *
+      (staffingSalaryPayoutsValue +
+        staffingSaasUsageFeeValue +
+        staffingProgramManagementValue) +
+    ((staffingHeadcountValue * (staffingSalaryPayoutsValue + staffingSaasUsageFeeValue) +
+      staffingProgramManagementValue) *
+      staffingMonthlyAgencyFeePercentValue) /
+      100 +
+    staffingHeadcountValue * staffingMiscRecurringValue;
+
+  const staffingAcvCalculated =
+    staffingMcvCalculated * staffingActiveMonthsPerYearValue +
+    (staffingSalesForceAutomationSetupFeeValue + staffingRecruitmentCostValue) *
+      staffingHeadcountValue +
+    staffingMiscOneTimeValue;
+
+  const staffingGrossMarginCalculatedA = computeStaffingGrossMarginTypeA({
+    acv: staffingAcvCalculated,
+    gmPercent: staffingGmPercentValue,
+  });
+
+  const staffingBNumStoresParsed = parseFloat(values.staffingBNumStores) || 0;
+  const staffingBCostPerStoreParsed = parseFloat(values.staffingBCostPerStore) || 0;
+  const staffingBMcvCalculatedB =
+    staffingBNumStoresParsed * staffingBCostPerStoreParsed;
+  const staffingBAcvCalculatedB =
+    staffingBMcvCalculatedB * staffingActiveMonthsPerYearValue;
+  const staffingGrossMarginCalculatedB = computeStaffingGrossMarginTypeB({
+    acv: staffingBAcvCalculatedB,
+    gmPercent: staffingGmPercentValue,
+  });
+
+  const staffingCOneTimeParsed = parseFloat(values.staffingCOneTimeSetupFee) || 0;
+  const staffingCMonthlyRecurringParsed =
+    parseFloat(values.staffingCMonthlyRecurringFees) || 0;
+  const staffingCMcvCalculated = staffingCMonthlyRecurringParsed;
+  const staffingCAcvCalculatedC =
+    staffingCMonthlyRecurringParsed * staffingActiveMonthsPerYearValue +
+    staffingCOneTimeParsed;
+  const staffingGrossMarginCalculatedC = computeStaffingGrossMarginTypeC({
+    acv: staffingCAcvCalculatedC,
+    gmPercent: staffingGmPercentValue,
+  });
+
+  const grossMarginSubmitValue =
+    sectionType === "A"
+      ? staffingGrossMarginCalculatedA
+      : sectionType === "B"
+        ? staffingGrossMarginCalculatedB
+        : sectionType === "C"
+          ? staffingGrossMarginCalculatedC
+          : null;
+
+  return {
+    staffingHeadcountValue,
+    staffingSalaryPayoutsValue,
+    staffingProgramManagementValue,
+    staffingSaasUsageFeeValue,
+    staffingMonthlyAgencyFeePercentValue,
+    staffingSalesForceAutomationSetupFeeValue,
+    staffingRecruitmentCostValue,
+    staffingMiscRecurringValue,
+    staffingMiscOneTimeValue,
+    staffingActiveMonthsPerYearValue,
+    staffingGmPercentValue,
+    staffingMcvCalculated,
+    staffingAcvCalculated,
+    staffingGrossMarginCalculatedA,
+    staffingBNumStoresParsed,
+    staffingBCostPerStoreParsed,
+    staffingBMcvCalculatedB,
+    staffingBAcvCalculatedB,
+    staffingGrossMarginCalculatedB,
+    staffingCOneTimeParsed,
+    staffingCMonthlyRecurringParsed,
+    staffingCMcvCalculated,
+    staffingCAcvCalculatedC,
+    staffingGrossMarginCalculatedC,
+    grossMarginSubmitValue,
+  };
+}
+
+function staffingFormFieldsFromMandate(mandate: Record<string, unknown>) {
+  return {
+    staffingHeadcount: mandate.staffing_headcount?.toString() ?? "",
+    staffingSalaryPayouts: mandate.staffing_salary_payouts?.toString() ?? "",
+    staffingProgramManagement: mandate.staffing_program_management?.toString() ?? "",
+    staffingSaasUsageFee: mandate.staffing_saas_usage_fee?.toString() ?? "",
+    staffingMonthlyAgencyFeePercent:
+      mandate.staffing_monthly_agency_fee_percent?.toString() ?? "",
+    staffingSalesForceAutomationSetupFee:
+      mandate.staffing_sales_force_automation_setup_fee?.toString() ?? "",
+    staffingRecruitmentCost: mandate.staffing_recruitment_cost?.toString() ?? "",
+    staffingMiscRecurring: mandate.staffing_misc_recurring?.toString() ?? "",
+    staffingMiscOneTime: mandate.staffing_misc_one_time?.toString() ?? "",
+    staffingActiveMonthsPerYear:
+      mandate.staffing_active_months_per_year?.toString() ?? "",
+    staffingGmPercent: mandate.staffing_gm_percent?.toString() ?? "",
+    staffingBNumStores: mandate.staffing_b_num_stores?.toString() ?? "",
+    staffingBCostPerStore: mandate.staffing_b_cost_per_store?.toString() ?? "",
+    staffingBMcv: mandate.staffing_b_mcv?.toString() ?? "",
+    staffingBAcv: mandate.staffing_b_acv?.toString() ?? "",
+    staffingCOneTimeSetupFee: mandate.staffing_c_one_time_setup_fee?.toString() ?? "",
+    staffingCMonthlyRecurringFees:
+      mandate.staffing_c_monthly_recurring_fees?.toString() ?? "",
+  };
+}
+
+function buildStaffingRevenueDbFields(
+  sectionType: "A" | "B" | "C" | null,
+  metrics: ReturnType<typeof computeStaffingRevenueMetrics>,
+  values: StaffingRevenueFormValues,
+) {
+  return {
+    revenue_section_type: sectionType,
+    revenue_monthly_volume:
+      sectionType === "A"
+        ? metrics.staffingHeadcountValue
+        : sectionType === "B"
+          ? metrics.staffingBNumStoresParsed
+          : sectionType === "C"
+            ? metrics.staffingCOneTimeParsed
+            : null,
+    revenue_commercial_per_head:
+      sectionType === "A"
+        ? metrics.staffingSalaryPayoutsValue
+        : sectionType === "B"
+          ? metrics.staffingBCostPerStoreParsed
+          : null,
+    revenue_mcv:
+      sectionType === "A"
+        ? metrics.staffingMcvCalculated
+        : sectionType === "B"
+          ? metrics.staffingBMcvCalculatedB
+          : sectionType === "C"
+            ? metrics.staffingCMcvCalculated
+            : null,
+    revenue_acv:
+      sectionType === "A"
+        ? metrics.staffingAcvCalculated
+        : sectionType === "B"
+          ? metrics.staffingBAcvCalculatedB
+          : sectionType === "C"
+            ? metrics.staffingCAcvCalculatedC
+            : null,
+    revenue_prj_type: null,
+    staffing_headcount: sectionType === "A" ? metrics.staffingHeadcountValue : null,
+    staffing_salary_payouts:
+      sectionType === "A" ? metrics.staffingSalaryPayoutsValue : null,
+    staffing_program_management:
+      sectionType === "A" ? metrics.staffingProgramManagementValue : null,
+    staffing_saas_usage_fee: sectionType === "A" ? metrics.staffingSaasUsageFeeValue : null,
+    staffing_monthly_agency_fee_percent:
+      sectionType === "A" ? metrics.staffingMonthlyAgencyFeePercentValue : null,
+    staffing_sales_force_automation_setup_fee:
+      sectionType === "A" ? metrics.staffingSalesForceAutomationSetupFeeValue : null,
+    staffing_recruitment_cost:
+      sectionType === "A" ? metrics.staffingRecruitmentCostValue : null,
+    staffing_misc_recurring:
+      sectionType === "A"
+        ? values.staffingMiscRecurring
+          ? metrics.staffingMiscRecurringValue
+          : null
+        : null,
+    staffing_misc_one_time:
+      sectionType === "A"
+        ? values.staffingMiscOneTime
+          ? metrics.staffingMiscOneTimeValue
+          : null
+        : null,
+    staffing_active_months_per_year: sectionType ? metrics.staffingActiveMonthsPerYearValue : null,
+    staffing_gm_percent: sectionType ? metrics.staffingGmPercentValue : null,
+    staffing_gross_margin: sectionType ? metrics.grossMarginSubmitValue : null,
+    staffing_b_num_stores:
+      sectionType === "B" ? metrics.staffingBNumStoresParsed : null,
+    staffing_b_cost_per_store:
+      sectionType === "B" ? metrics.staffingBCostPerStoreParsed : null,
+    staffing_b_mcv: sectionType === "B" ? metrics.staffingBMcvCalculatedB : null,
+    staffing_b_acv: sectionType === "B" ? metrics.staffingBAcvCalculatedB : null,
+    staffing_c_one_time_setup_fee:
+      sectionType === "C" ? metrics.staffingCOneTimeParsed : null,
+    staffing_c_monthly_recurring_fees:
+      sectionType === "C" ? metrics.staffingCMonthlyRecurringParsed : null,
+  };
+}
+
+function StaffingMandateRevenueForm({
+  sectionType,
+  ready,
+  values,
+  onFieldChange,
+  metrics,
+}: {
+  sectionType: "A" | "B" | "C" | null | "";
+  ready: boolean;
+  values: StaffingRevenueFormValues;
+  onFieldChange: (field: keyof StaffingRevenueFormValues, value: string) => void;
+  metrics: ReturnType<typeof computeStaffingRevenueMetrics>;
+}) {
+  if (!ready) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Select the Use Case and Sub Use Case (if applicable).
+      </div>
+    );
+  }
+
+  if (sectionType === "A") {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="staffingHeadcount">Headcount <span className="text-destructive">*</span></Label>
+          <Input id="staffingHeadcount" type="number" value={values.staffingHeadcount} onChange={(e) => onFieldChange("staffingHeadcount", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingSalaryPayouts">Salary & Payouts <span className="text-destructive">*</span></Label>
+          <Input id="staffingSalaryPayouts" type="number" value={values.staffingSalaryPayouts} onChange={(e) => onFieldChange("staffingSalaryPayouts", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingProgramManagement">Program Management <span className="text-destructive">*</span></Label>
+          <Input id="staffingProgramManagement" type="number" value={values.staffingProgramManagement} onChange={(e) => onFieldChange("staffingProgramManagement", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingSaasUsageFee">SaaS Usage Fee <span className="text-destructive">*</span></Label>
+          <Input id="staffingSaasUsageFee" type="number" value={values.staffingSaasUsageFee} onChange={(e) => onFieldChange("staffingSaasUsageFee", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingMonthlyAgencyFeePercent">Monthly Agency Fee % <span className="text-destructive">*</span></Label>
+          <Input id="staffingMonthlyAgencyFeePercent" type="number" value={values.staffingMonthlyAgencyFeePercent} onChange={(e) => onFieldChange("staffingMonthlyAgencyFeePercent", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingSalesForceAutomationSetupFee">Sales Force Automation Setup Fee <span className="text-destructive">*</span></Label>
+          <Input id="staffingSalesForceAutomationSetupFee" type="number" value={values.staffingSalesForceAutomationSetupFee} onChange={(e) => onFieldChange("staffingSalesForceAutomationSetupFee", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingRecruitmentCost">Recruitment cost <span className="text-destructive">*</span></Label>
+          <Input id="staffingRecruitmentCost" type="number" value={values.staffingRecruitmentCost} onChange={(e) => onFieldChange("staffingRecruitmentCost", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingMiscRecurring">Miscellaneous - Recurring</Label>
+          <Input id="staffingMiscRecurring" type="number" value={values.staffingMiscRecurring} onChange={(e) => onFieldChange("staffingMiscRecurring", e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingMiscOneTime">Miscellaneous - One time</Label>
+          <Input id="staffingMiscOneTime" type="number" value={values.staffingMiscOneTime} onChange={(e) => onFieldChange("staffingMiscOneTime", e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingActiveMonthsPerYear">Active Months per year (1-12) <span className="text-destructive">*</span></Label>
+          <Input id="staffingActiveMonthsPerYear" type="number" min={1} max={12} value={values.staffingActiveMonthsPerYear} onChange={(e) => onFieldChange("staffingActiveMonthsPerYear", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingGmPercent">GM % <span className="text-destructive">*</span></Label>
+          <Input id="staffingGmPercent" type="number" value={values.staffingGmPercent} onChange={(e) => onFieldChange("staffingGmPercent", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="revenueMcv">MCV <span className="text-destructive">*</span></Label>
+          <Input id="revenueMcv" value={metrics.staffingMcvCalculated.toString()} placeholder="Auto" readOnly className="bg-muted" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="revenueAcv">ACV <span className="text-destructive">*</span></Label>
+          <Input id="revenueAcv" value={metrics.staffingAcvCalculated.toString()} placeholder="Auto" readOnly className="bg-muted" />
+        </div>
+        <div className="space-y-2 md:col-span-2">
+          <Label htmlFor="staffingGrossMarginA">Gross Margin <span className="text-destructive">*</span></Label>
+          <Input id="staffingGrossMarginA" value={metrics.staffingGrossMarginCalculatedA.toString()} placeholder="Auto" readOnly className="bg-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  if (sectionType === "B") {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="staffingBNumStores">No. of Stores <span className="text-destructive">*</span></Label>
+          <Input id="staffingBNumStores" type="number" value={values.staffingBNumStores} onChange={(e) => onFieldChange("staffingBNumStores", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingBCostPerStore">Cost per Store <span className="text-destructive">*</span></Label>
+          <Input id="staffingBCostPerStore" type="number" value={values.staffingBCostPerStore} onChange={(e) => onFieldChange("staffingBCostPerStore", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingGmPercentB">GM% <span className="text-destructive">*</span></Label>
+          <Input id="staffingGmPercentB" type="number" value={values.staffingGmPercent} onChange={(e) => onFieldChange("staffingGmPercent", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingActiveMonthsPerYearB">Active Months per year (1-12) <span className="text-destructive">*</span></Label>
+          <Input id="staffingActiveMonthsPerYearB" type="number" min={1} max={12} value={values.staffingActiveMonthsPerYear} onChange={(e) => onFieldChange("staffingActiveMonthsPerYear", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingBMcv">MCV <span className="text-destructive">*</span></Label>
+          <Input id="staffingBMcv" value={metrics.staffingBMcvCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingBAcv">ACV <span className="text-destructive">*</span></Label>
+          <Input id="staffingBAcv" value={metrics.staffingBAcvCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
+        </div>
+        <div className="space-y-2 md:col-span-2">
+          <Label htmlFor="staffingGrossMarginB">Gross Margin <span className="text-destructive">*</span></Label>
+          <Input id="staffingGrossMarginB" value={metrics.staffingGrossMarginCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  if (sectionType === "C") {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="staffingCOneTimeSetupFee">One Time Setup Fees <span className="text-destructive">*</span></Label>
+          <Input id="staffingCOneTimeSetupFee" type="number" value={values.staffingCOneTimeSetupFee} onChange={(e) => onFieldChange("staffingCOneTimeSetupFee", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingCMonthlyRecurringFees">Monthly Recurring Fees <span className="text-destructive">*</span></Label>
+          <Input id="staffingCMonthlyRecurringFees" type="number" value={values.staffingCMonthlyRecurringFees} onChange={(e) => onFieldChange("staffingCMonthlyRecurringFees", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingActiveMonthsPerYearC">Active Months per year (1-12) <span className="text-destructive">*</span></Label>
+          <Input id="staffingActiveMonthsPerYearC" type="number" min={1} max={12} value={values.staffingActiveMonthsPerYear} onChange={(e) => onFieldChange("staffingActiveMonthsPerYear", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingGmPercentC">GM% <span className="text-destructive">*</span></Label>
+          <Input id="staffingGmPercentC" type="number" value={values.staffingGmPercent} onChange={(e) => onFieldChange("staffingGmPercent", e.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingCMcvDisplay">MCV <span className="text-destructive">*</span></Label>
+          <Input id="staffingCMcvDisplay" value={metrics.staffingCMcvCalculated.toString()} readOnly placeholder="Auto" className="bg-muted" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="staffingCAcvDisplay">ACV <span className="text-destructive">*</span></Label>
+          <Input id="staffingCAcvDisplay" value={metrics.staffingCAcvCalculatedC.toString()} readOnly placeholder="Auto" className="bg-muted" />
+        </div>
+        <div className="space-y-2 md:col-span-2">
+          <Label htmlFor="staffingGrossMarginC">Gross Margin <span className="text-destructive">*</span></Label>
+          <Input id="staffingGrossMarginC" value={metrics.staffingGrossMarginCalculatedC.toString()} readOnly placeholder="Auto" className="bg-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-sm text-muted-foreground">
+      Revenue fields for section type {sectionType || "-"} will be configured next.
+    </div>
+  );
+}
+
 const calculateRevenueSectionType = (
   useCase: string | null | undefined,
   subUseCase: string | null | undefined
@@ -460,6 +886,70 @@ const calculateRevenueSectionType = (
 
   return null;
 };
+
+function StaffingMandateRevenueDetails({ mandate }: { mandate: Record<string, unknown> }) {
+  const sectionType =
+    (mandate.revenue_section_type as string | null) ||
+    calculateRevenueSectionType(
+      mandate.use_case as string | undefined,
+      mandate.sub_use_case as string | undefined,
+    );
+
+  if (sectionType === "A") {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <MandateDetailReadonlyField label="Headcount:" value={formatMandateDetailNumber(mandate.staffing_headcount)} />
+        <MandateDetailReadonlyField label="Salary & Payouts:" value={formatMandateDetailNumber(mandate.staffing_salary_payouts)} />
+        <MandateDetailReadonlyField label="Program Management:" value={formatMandateDetailNumber(mandate.staffing_program_management)} />
+        <MandateDetailReadonlyField label="SaaS Usage Fee:" value={formatMandateDetailNumber(mandate.staffing_saas_usage_fee)} />
+        <MandateDetailReadonlyField label="Monthly Agency Fee %:" value={formatMandateDetailNumber(mandate.staffing_monthly_agency_fee_percent)} />
+        <MandateDetailReadonlyField label="Sales Force Automation Setup Fee:" value={formatMandateDetailNumber(mandate.staffing_sales_force_automation_setup_fee)} />
+        <MandateDetailReadonlyField label="Recruitment cost:" value={formatMandateDetailNumber(mandate.staffing_recruitment_cost)} />
+        <MandateDetailReadonlyField label="Miscellaneous - Recurring:" value={formatMandateDetailNumber(mandate.staffing_misc_recurring)} />
+        <MandateDetailReadonlyField label="Miscellaneous - One time:" value={formatMandateDetailNumber(mandate.staffing_misc_one_time)} />
+        <MandateDetailReadonlyField label="Active Months per year (1-12):" value={formatMandateDetailNumber(mandate.staffing_active_months_per_year)} />
+        <MandateDetailReadonlyField label="GM %:" value={formatMandateDetailNumber(mandate.staffing_gm_percent)} />
+        <MandateDetailReadonlyField label="MCV:" value={formatMandateDetailNumber(mandate.revenue_mcv)} />
+        <MandateDetailReadonlyField label="ACV:" value={formatMandateDetailNumber(mandate.revenue_acv)} />
+        <MandateDetailReadonlyField label="Gross Margin:" value={formatMandateDetailNumber(mandate.staffing_gross_margin)} />
+      </div>
+    );
+  }
+
+  if (sectionType === "B") {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <MandateDetailReadonlyField label="No. of Stores:" value={formatMandateDetailNumber(mandate.staffing_b_num_stores)} />
+        <MandateDetailReadonlyField label="Cost per Store:" value={formatMandateDetailNumber(mandate.staffing_b_cost_per_store)} />
+        <MandateDetailReadonlyField label="GM %:" value={formatMandateDetailNumber(mandate.staffing_gm_percent)} />
+        <MandateDetailReadonlyField label="Active Months per year (1-12):" value={formatMandateDetailNumber(mandate.staffing_active_months_per_year)} />
+        <MandateDetailReadonlyField label="MCV:" value={formatMandateDetailNumber(mandate.staffing_b_mcv ?? mandate.revenue_mcv)} />
+        <MandateDetailReadonlyField label="ACV:" value={formatMandateDetailNumber(mandate.staffing_b_acv ?? mandate.revenue_acv)} />
+        <MandateDetailReadonlyField label="Gross Margin:" value={formatMandateDetailNumber(mandate.staffing_gross_margin)} />
+      </div>
+    );
+  }
+
+  if (sectionType === "C") {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <MandateDetailReadonlyField label="One Time Setup Fees:" value={formatMandateDetailNumber(mandate.staffing_c_one_time_setup_fee)} />
+        <MandateDetailReadonlyField label="Monthly Recurring Fees:" value={formatMandateDetailNumber(mandate.staffing_c_monthly_recurring_fees)} />
+        <MandateDetailReadonlyField label="Active Months per year (1-12):" value={formatMandateDetailNumber(mandate.staffing_active_months_per_year)} />
+        <MandateDetailReadonlyField label="GM %:" value={formatMandateDetailNumber(mandate.staffing_gm_percent)} />
+        <MandateDetailReadonlyField label="MCV:" value={formatMandateDetailNumber(mandate.revenue_mcv)} />
+        <MandateDetailReadonlyField label="ACV:" value={formatMandateDetailNumber(mandate.revenue_acv)} />
+        <MandateDetailReadonlyField label="Gross Margin:" value={formatMandateDetailNumber(mandate.staffing_gross_margin)} />
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-sm text-muted-foreground">
+      Staffing revenue details are not available for this use case.
+    </p>
+  );
+}
 
 type MandateUploadTemplateHeader = { key: string; label: string };
 
@@ -1059,24 +1549,103 @@ export default function Mandates() {
     upsellActionStatus: "",
   });
 
+  type MandatesPageFilters = {
+    searchTerm: string;
+    filterAccount: string;
+    filterKam: string;
+    filterNso: string;
+    filterLob: string;
+    filterType: string;
+    filterMandateHealth: string;
+    filterUpsellStatus: string;
+    filterRetentionType: string;
+    filterLifecycleStatus: string;
+    filterTeam: "all" | "ce" | "staffing" | "experts";
+    kamFilterSearch: string;
+    nsoFilterSearch: string;
+  };
+
+  const defaultMandatesFilters: MandatesPageFilters = {
+    searchTerm: "",
+    filterAccount: "all",
+    filterKam: "all",
+    filterNso: "all",
+    filterLob: "all",
+    filterType: "all",
+    filterMandateHealth: "all",
+    filterUpsellStatus: "all",
+    filterRetentionType: "all",
+    filterLifecycleStatus: "all",
+    filterTeam: "all",
+    kamFilterSearch: "",
+    nsoFilterSearch: "",
+  };
+
+  const savedMandatesFilters = loadPersistedFilters<MandatesPageFilters>("mandates-filters");
+  const initialMandatesFilters = savedMandatesFilters
+    ? { ...defaultMandatesFilters, ...savedMandatesFilters }
+    : defaultMandatesFilters;
+
   // Filters for view mode
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterAccount, setFilterAccount] = useState("all");
-  const [filterKam, setFilterKam] = useState<string>("all");
-  const [filterNso, setFilterNso] = useState<string>("all");
-  const [filterLob, setFilterLob] = useState("all");
-  const [filterType, setFilterType] = useState("all");
-  const [filterMandateHealth, setFilterMandateHealth] = useState("all");
-  const [filterUpsellStatus, setFilterUpsellStatus] = useState("all");
-  const [filterRetentionType, setFilterRetentionType] = useState("all");
-  const [filterLifecycleStatus, setFilterLifecycleStatus] = useState("all");
-  const [filterTeam, setFilterTeam] = useState<"all" | "ce" | "staffing" | "experts">("all");
+  const [searchTerm, setSearchTerm] = useState(initialMandatesFilters.searchTerm);
+  const [filterAccount, setFilterAccount] = useState(initialMandatesFilters.filterAccount);
+  const [filterKam, setFilterKam] = useState<string>(initialMandatesFilters.filterKam);
+  const [filterNso, setFilterNso] = useState<string>(initialMandatesFilters.filterNso);
+  const [filterLob, setFilterLob] = useState(initialMandatesFilters.filterLob);
+  const [filterType, setFilterType] = useState(initialMandatesFilters.filterType);
+  const [filterMandateHealth, setFilterMandateHealth] = useState(
+    initialMandatesFilters.filterMandateHealth,
+  );
+  const [filterUpsellStatus, setFilterUpsellStatus] = useState(
+    initialMandatesFilters.filterUpsellStatus,
+  );
+  const [filterRetentionType, setFilterRetentionType] = useState(
+    initialMandatesFilters.filterRetentionType,
+  );
+  const [filterLifecycleStatus, setFilterLifecycleStatus] = useState(
+    initialMandatesFilters.filterLifecycleStatus,
+  );
+  const [filterTeam, setFilterTeam] = useState<"all" | "ce" | "staffing" | "experts">(
+    initialMandatesFilters.filterTeam,
+  );
 
   // Search terms for dropdowns in forms
   const [accountSearch, setAccountSearch] = useState("");
   const [kamSearch, setKamSearch] = useState("");
-  const [kamFilterSearch, setKamFilterSearch] = useState("");
-  const [nsoFilterSearch, setNsoFilterSearch] = useState("");
+  const [kamFilterSearch, setKamFilterSearch] = useState(initialMandatesFilters.kamFilterSearch);
+  const [nsoFilterSearch, setNsoFilterSearch] = useState(initialMandatesFilters.nsoFilterSearch);
+
+  useEffect(() => {
+    savePersistedFilters("mandates-filters", {
+      searchTerm,
+      filterAccount,
+      filterKam,
+      filterNso,
+      filterLob,
+      filterType,
+      filterMandateHealth,
+      filterUpsellStatus,
+      filterRetentionType,
+      filterLifecycleStatus,
+      filterTeam,
+      kamFilterSearch,
+      nsoFilterSearch,
+    });
+  }, [
+    searchTerm,
+    filterAccount,
+    filterKam,
+    filterNso,
+    filterLob,
+    filterType,
+    filterMandateHealth,
+    filterUpsellStatus,
+    filterRetentionType,
+    filterLifecycleStatus,
+    filterTeam,
+    kamFilterSearch,
+    nsoFilterSearch,
+  ]);
   const [editAccountSearch, setEditAccountSearch] = useState("");
   const [editKamSearch, setEditKamSearch] = useState("");
   const [nsoSelectOpen, setNsoSelectOpen] = useState(false);
@@ -1200,6 +1769,21 @@ export default function Mandates() {
   const showHandoverInfo = shouldShowHandoverInfo(createEffectiveTeam);
   const editShowHandoverInfo = shouldShowHandoverInfo(editEffectiveTeam);
 
+  const detailsMandateTeam = useMemo((): Team | null => {
+    if (!selectedMandate) return null;
+    if (isValidTeam(selectedMandate.team)) return selectedMandate.team;
+    const kamId = selectedMandate.kam_id as string | undefined;
+    if (kamId && isValidTeam(kamTeamById[kamId])) return kamTeamById[kamId]!;
+    if (editEffectiveTeam) return editEffectiveTeam;
+    return resolveTeamFromLob(selectedMandate.lob);
+  }, [selectedMandate, editEffectiveTeam, kamTeamById]);
+
+  const detailsShowStaffingFields = shouldShowStaffingMandateFields(detailsMandateTeam);
+  const detailsShowHandoverInfo = shouldShowHandoverInfo(detailsMandateTeam);
+
+  const formHealthCascadePrev = useRef(emptyMandateHealthCascadePrev());
+  const editHealthCascadePrev = useRef(emptyMandateHealthCascadePrev());
+
   const staffingNeedsSubUseCase =
     showStaffingMandateFields && formData.useCase === "Retail Branding";
   /** Staffing revenue fields depend on use case / sub use case; other form sections stay visible. */
@@ -1208,66 +1792,87 @@ export default function Mandates() {
     (!!formData.useCase && (!staffingNeedsSubUseCase || !!formData.subUseCase));
   const staffingRevenueSectionType =
     calculateRevenueSectionType(formData.useCase, formData.subUseCase) || "";
-  const staffingHeadcountValue = parseFloat(formData.staffingHeadcount) || 0;
-  const staffingSalaryPayoutsValue = parseFloat(formData.staffingSalaryPayouts) || 0;
-  const staffingProgramManagementValue = parseFloat(formData.staffingProgramManagement) || 0;
-  const staffingSaasUsageFeeValue = parseFloat(formData.staffingSaasUsageFee) || 0;
-  const staffingMonthlyAgencyFeePercentValue =
-    parseFloat(formData.staffingMonthlyAgencyFeePercent) || 0;
-  const staffingSalesForceAutomationSetupFeeValue =
-    parseFloat(formData.staffingSalesForceAutomationSetupFee) || 0;
-  const staffingRecruitmentCostValue = parseFloat(formData.staffingRecruitmentCost) || 0;
-  const staffingMiscRecurringValue = parseFloat(formData.staffingMiscRecurring) || 0;
-  const staffingMiscOneTimeValue = parseFloat(formData.staffingMiscOneTime) || 0;
-  const staffingActiveMonthsPerYearValue =
-    parseFloat(formData.staffingActiveMonthsPerYear) || 0;
-  const staffingGmPercentValue = parseFloat(formData.staffingGmPercent) || 0;
-  /** Staffing revenue type A: MCV per agreed formula (Headcount × per-head components + agency % on partial base + misc recurring). */
-  const staffingMcvCalculated =
-    staffingHeadcountValue *
-      (staffingSalaryPayoutsValue +
-        staffingSaasUsageFeeValue +
-        staffingProgramManagementValue) +
-    ((staffingHeadcountValue * (staffingSalaryPayoutsValue + staffingSaasUsageFeeValue) +
-      staffingProgramManagementValue) *
-      staffingMonthlyAgencyFeePercentValue) /
-      100 +
-    staffingHeadcountValue * staffingMiscRecurringValue;
-  /** ACV = (MCV × active months) + ((SFA setup + recruitment) × headcount) + misc one-time. */
-  const staffingAcvCalculated =
-    staffingMcvCalculated * staffingActiveMonthsPerYearValue +
-    (staffingSalesForceAutomationSetupFeeValue + staffingRecruitmentCostValue) *
-      staffingHeadcountValue +
-    staffingMiscOneTimeValue;
-  const staffingGrossMarginCalculatedA = computeStaffingGrossMarginTypeA({
-    acv: staffingAcvCalculated,
-    gmPercent: staffingGmPercentValue,
-  });
+  const createStaffingMetrics = useMemo(
+    () => computeStaffingRevenueMetrics(formData, staffingRevenueSectionType),
+    [formData, staffingRevenueSectionType],
+  );
+  const {
+    staffingHeadcountValue,
+    staffingSalaryPayoutsValue,
+    staffingProgramManagementValue,
+    staffingSaasUsageFeeValue,
+    staffingMonthlyAgencyFeePercentValue,
+    staffingSalesForceAutomationSetupFeeValue,
+    staffingRecruitmentCostValue,
+    staffingMiscRecurringValue,
+    staffingMiscOneTimeValue,
+    staffingActiveMonthsPerYearValue,
+    staffingGmPercentValue,
+    staffingMcvCalculated,
+    staffingAcvCalculated,
+    staffingGrossMarginCalculatedA,
+    staffingBNumStoresParsed,
+    staffingBCostPerStoreParsed,
+    staffingBMcvCalculatedB,
+    staffingBAcvCalculatedB,
+    staffingGrossMarginCalculatedB,
+    staffingCOneTimeParsed,
+    staffingCMonthlyRecurringParsed,
+    staffingCMcvCalculated,
+    staffingCAcvCalculatedC,
+    staffingGrossMarginCalculatedC,
+    grossMarginSubmitValue: staffingGrossMarginSubmitValue,
+  } = createStaffingMetrics;
 
-  const staffingBNumStoresParsed = parseFloat(formData.staffingBNumStores) || 0;
-  const staffingBCostPerStoreParsed = parseFloat(formData.staffingBCostPerStore) || 0;
-  /** Staffing revenue type B: MCV = No. of Stores × Cost per Store; ACV = MCV × Active months per year. */
-  const staffingBMcvCalculatedB =
-    staffingBNumStoresParsed * staffingBCostPerStoreParsed;
-  const staffingBAcvCalculatedB =
-    staffingBMcvCalculatedB * staffingActiveMonthsPerYearValue;
-  const staffingGrossMarginCalculatedB = computeStaffingGrossMarginTypeB({
-    acv: staffingBAcvCalculatedB,
-    gmPercent: staffingGmPercentValue,
-  });
-
-  const staffingCOneTimeParsed = parseFloat(formData.staffingCOneTimeSetupFee) || 0;
-  const staffingCMonthlyRecurringParsed =
-    parseFloat(formData.staffingCMonthlyRecurringFees) || 0;
-  /** Staffing revenue type C: MCV = monthly recurring; ACV = (monthly recurring × active months) + one-time setup. */
-  const staffingCMcvCalculated = staffingCMonthlyRecurringParsed;
-  const staffingCAcvCalculatedC =
-    staffingCMonthlyRecurringParsed * staffingActiveMonthsPerYearValue +
-    staffingCOneTimeParsed;
-  const staffingGrossMarginCalculatedC = computeStaffingGrossMarginTypeC({
-    acv: staffingCAcvCalculatedC,
-    gmPercent: staffingGmPercentValue,
-  });
+  const editStaffingNeedsSubUseCase =
+    editShowStaffingMandateFields && editMandateData?.useCase === "Retail Branding";
+  const editStaffingRevenueReady =
+    !editShowStaffingMandateFields ||
+    (!!editMandateData?.useCase &&
+      (!editStaffingNeedsSubUseCase || !!editMandateData?.subUseCase));
+  const editStaffingRevenueSectionType =
+    calculateRevenueSectionType(
+      editMandateData?.useCase,
+      editMandateData?.subUseCase,
+    ) || "";
+  const editStaffingMetrics = useMemo(
+    () =>
+      editMandateData
+        ? computeStaffingRevenueMetrics(editMandateData, editStaffingRevenueSectionType)
+        : computeStaffingRevenueMetrics(
+            {
+              staffingHeadcount: "",
+              staffingSalaryPayouts: "",
+              staffingProgramManagement: "",
+              staffingSaasUsageFee: "",
+              staffingMonthlyAgencyFeePercent: "",
+              staffingSalesForceAutomationSetupFee: "",
+              staffingRecruitmentCost: "",
+              staffingMiscRecurring: "",
+              staffingMiscOneTime: "",
+              staffingActiveMonthsPerYear: "",
+              staffingGmPercent: "",
+              staffingBNumStores: "",
+              staffingBCostPerStore: "",
+              staffingCOneTimeSetupFee: "",
+              staffingCMonthlyRecurringFees: "",
+            },
+            "",
+          ),
+    [editMandateData, editStaffingRevenueSectionType],
+  );
+  const detailsStaffingRevenueSectionType = useMemo(
+    () =>
+      selectedMandate
+        ? (selectedMandate.revenue_section_type as string | null) ||
+          calculateRevenueSectionType(
+            selectedMandate.use_case as string | undefined,
+            selectedMandate.sub_use_case as string | undefined,
+          ) ||
+          ""
+        : "",
+    [selectedMandate],
+  );
 
   const { toast } = useToast();
 
@@ -1435,108 +2040,178 @@ export default function Mandates() {
     staffingCAcvCalculatedC,
   ]);
 
-  // Reset dependent fields when Mandate Health changes
   useEffect(() => {
-    if (formData.mandateHealth === "Need Improvement") {
-      // If health is "Need Improvement", reset all dependent fields
-      setFormData((prev) => ({
-        ...prev,
-        upsellConstraint: "",
-        upsellConstraintType: "-",
-        upsellConstraintSub: "-",
-        upsellConstraintSub2: "-",
-        clientBudgetTrend: "",
-        awignSharePercent: "",
-      }));
-    }
-    // Note: When health changes between "Exceeds" and "Meets", we don't reset
-    // because both allow the same upsell constraint values
-  }, [formData.mandateHealth]);
-
-  // Reset upsell constraint fields and retention-related fields when parent changes
-  useEffect(() => {
-    if (formData.upsellConstraint === "NO") {
-      setFormData((prev) => ({
-        ...prev,
-        upsellConstraintType: "-",
-        upsellConstraintSub: "-",
-        upsellConstraintSub2: "-",
-        // Reset client budget trend and awign share when constraint changes to NO
-        // This forces user to reselect them based on new constraint value
-        clientBudgetTrend: "",
-        awignSharePercent: "",
-      }));
-    } else if (formData.upsellConstraint === "YES") {
-      // Reset sub fields when constraint changes to YES
-      setFormData((prev) => ({
-        ...prev,
-        upsellConstraintType: "",
-        upsellConstraintSub: "",
-        upsellConstraintSub2: "",
-        // Reset client budget trend and awign share when constraint changes to YES
-        // Since YES means retention type is "E", these fields are not needed
-        clientBudgetTrend: "",
-        awignSharePercent: "",
-      }));
-    }
-  }, [formData.upsellConstraint]);
+    if (!editShowStaffingMandateFields || !editStaffingRevenueReady || editStaffingRevenueSectionType !== "A") return;
+    const nextMcv = editStaffingMetrics.staffingMcvCalculated.toString();
+    const nextAcv = editStaffingMetrics.staffingAcvCalculated.toString();
+    setEditMandateData((prev: any) => {
+      if (!prev) return prev;
+      if (prev.revenueMcv === nextMcv && prev.revenueAcv === nextAcv) return prev;
+      return { ...prev, revenueMcv: nextMcv, revenueAcv: nextAcv };
+    });
+  }, [
+    editShowStaffingMandateFields,
+    editStaffingRevenueReady,
+    editStaffingRevenueSectionType,
+    editStaffingMetrics.staffingMcvCalculated,
+    editStaffingMetrics.staffingAcvCalculated,
+  ]);
 
   useEffect(() => {
-    if (formData.upsellConstraint === "YES" && formData.upsellConstraintType) {
-      // When constraint type changes, always reset sub and sub2 to ensure valid hierarchy
-      const validSubs = getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType);
-      if (formData.upsellConstraintSub && !validSubs.includes(formData.upsellConstraintSub)) {
-        // Reset if current sub is invalid for new type
+    if (!editShowStaffingMandateFields || !editStaffingRevenueReady || editStaffingRevenueSectionType !== "B") return;
+    const nextMcv = editStaffingMetrics.staffingBMcvCalculatedB.toString();
+    const nextAcv = editStaffingMetrics.staffingBAcvCalculatedB.toString();
+    setEditMandateData((prev: any) => {
+      if (!prev) return prev;
+      if (prev.staffingBMcv === nextMcv && prev.staffingBAcv === nextAcv) return prev;
+      return { ...prev, staffingBMcv: nextMcv, staffingBAcv: nextAcv };
+    });
+  }, [
+    editShowStaffingMandateFields,
+    editStaffingRevenueReady,
+    editStaffingRevenueSectionType,
+    editStaffingMetrics.staffingBMcvCalculatedB,
+    editStaffingMetrics.staffingBAcvCalculatedB,
+  ]);
+
+  useEffect(() => {
+    if (!editShowStaffingMandateFields || !editStaffingRevenueReady || editStaffingRevenueSectionType !== "C") return;
+    const nextMcv = editStaffingMetrics.staffingCMcvCalculated.toString();
+    const nextAcv = editStaffingMetrics.staffingCAcvCalculatedC.toString();
+    setEditMandateData((prev: any) => {
+      if (!prev) return prev;
+      if (prev.revenueMcv === nextMcv && prev.revenueAcv === nextAcv) return prev;
+      return { ...prev, revenueMcv: nextMcv, revenueAcv: nextAcv };
+    });
+  }, [
+    editShowStaffingMandateFields,
+    editStaffingRevenueReady,
+    editStaffingRevenueSectionType,
+    editStaffingMetrics.staffingCMcvCalculated,
+    editStaffingMetrics.staffingCAcvCalculatedC,
+  ]);
+
+  useEffect(() => {
+    if (!formDialogOpen) {
+      formHealthCascadePrev.current = emptyMandateHealthCascadePrev();
+      return;
+    }
+    const cascade = formHealthCascadePrev.current;
+    const syncSnapshot = () => {
+      cascade.mandateHealth = formData.mandateHealth;
+      cascade.upsellConstraint = formData.upsellConstraint;
+      cascade.upsellConstraintType = formData.upsellConstraintType;
+      cascade.upsellConstraintSub = formData.upsellConstraintSub;
+    };
+    if (!cascade.initialized) {
+      cascade.initialized = true;
+      syncSnapshot();
+      return;
+    }
+
+    if (cascade.mandateHealth !== formData.mandateHealth) {
+      cascade.mandateHealth = formData.mandateHealth;
+      if (formData.mandateHealth === "Need Improvement") {
         setFormData((prev) => ({
           ...prev,
+          upsellConstraint: "",
+          upsellConstraintType: "-",
+          upsellConstraintSub: "-",
+          upsellConstraintSub2: "-",
+          clientBudgetTrend: "",
+          awignSharePercent: "",
+        }));
+        syncSnapshot();
+      }
+    }
+
+    if (cascade.upsellConstraint !== formData.upsellConstraint) {
+      cascade.upsellConstraint = formData.upsellConstraint;
+      if (formData.upsellConstraint === "NO") {
+        setFormData((prev) => ({
+          ...prev,
+          upsellConstraintType: "-",
+          upsellConstraintSub: "-",
+          upsellConstraintSub2: "-",
+          clientBudgetTrend: "",
+          awignSharePercent: "",
+        }));
+      } else if (formData.upsellConstraint === "YES") {
+        setFormData((prev) => ({
+          ...prev,
+          upsellConstraintType: "",
           upsellConstraintSub: "",
           upsellConstraintSub2: "",
+          clientBudgetTrend: "",
+          awignSharePercent: "",
         }));
-      } else {
-        // Even if sub is valid, reset it to force user to reselect based on new type
-        // This ensures proper hierarchy validation
+      }
+      syncSnapshot();
+    }
+
+    if (cascade.upsellConstraintType !== formData.upsellConstraintType) {
+      cascade.upsellConstraintType = formData.upsellConstraintType;
+      if (formData.upsellConstraint === "YES" && formData.upsellConstraintType) {
+        const validSubs = getUpsellConstraintSubs(
+          formData.upsellConstraint,
+          formData.upsellConstraintType,
+        );
+        setFormData((prev) => ({
+          ...prev,
+          upsellConstraintSub:
+            prev.upsellConstraintSub && validSubs.includes(prev.upsellConstraintSub)
+              ? prev.upsellConstraintSub
+              : "",
+          upsellConstraintSub2: "",
+        }));
+      } else if (formData.upsellConstraint === "YES" && !formData.upsellConstraintType) {
         setFormData((prev) => ({
           ...prev,
           upsellConstraintSub: "",
           upsellConstraintSub2: "",
         }));
       }
-    } else if (formData.upsellConstraint === "YES" && !formData.upsellConstraintType) {
-      // If type is cleared, reset sub fields
-      setFormData((prev) => ({
-        ...prev,
-        upsellConstraintSub: "",
-        upsellConstraintSub2: "",
-      }));
+      cascade.upsellConstraintSub = formData.upsellConstraintSub;
     }
-  }, [formData.upsellConstraintType]);
 
-  useEffect(() => {
-    if (formData.upsellConstraint === "YES" && formData.upsellConstraintType && formData.upsellConstraintSub) {
-      // When constraint sub changes, always reset sub2 to ensure valid hierarchy
-      const validSub2s = getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub);
-      if (formData.upsellConstraintSub2 && validSub2s.length > 0 && !validSub2s.includes(formData.upsellConstraintSub2)) {
-        // Reset if current sub2 is invalid for new sub
+    if (cascade.upsellConstraintSub !== formData.upsellConstraintSub) {
+      cascade.upsellConstraintSub = formData.upsellConstraintSub;
+      if (
+        formData.upsellConstraint === "YES" &&
+        formData.upsellConstraintType &&
+        formData.upsellConstraintSub
+      ) {
+        const validSub2s = getUpsellConstraintSub2s(
+          formData.upsellConstraint,
+          formData.upsellConstraintType,
+          formData.upsellConstraintSub,
+        );
         setFormData((prev) => ({
           ...prev,
-          upsellConstraintSub2: "",
+          upsellConstraintSub2:
+            prev.upsellConstraintSub2 &&
+            (validSub2s.length === 0 || validSub2s.includes(prev.upsellConstraintSub2))
+              ? prev.upsellConstraintSub2
+              : "",
         }));
-      } else {
-        // Even if sub2 is valid, reset it to force user to reselect based on new sub
-        // This ensures proper hierarchy validation
+      } else if (
+        formData.upsellConstraint === "YES" &&
+        formData.upsellConstraintType &&
+        !formData.upsellConstraintSub
+      ) {
         setFormData((prev) => ({
           ...prev,
           upsellConstraintSub2: "",
         }));
       }
-    } else if (formData.upsellConstraint === "YES" && formData.upsellConstraintType && !formData.upsellConstraintSub) {
-      // If sub is cleared, reset sub2
-      setFormData((prev) => ({
-        ...prev,
-        upsellConstraintSub2: "",
-      }));
     }
-  }, [formData.upsellConstraintSub]);
+  }, [
+    formDialogOpen,
+    formData.mandateHealth,
+    formData.upsellConstraint,
+    formData.upsellConstraintType,
+    formData.upsellConstraintSub,
+  ]);
 
   // Clear Sub2 if it's "-" when field becomes free text input
   useEffect(() => {
@@ -1797,11 +2472,29 @@ export default function Mandates() {
     }
   }, [monthlyRecordForm.month, monthlyRecordForm.year, mandateForUpdate]);
 
-  // Reset dependent fields when Mandate Health changes in edit mode
   useEffect(() => {
-    if (editMandateData) {
+    if (!detailsModalOpen) {
+      editHealthCascadePrev.current = emptyMandateHealthCascadePrev();
+      return;
+    }
+    if (!editMandateData) return;
+
+    const cascade = editHealthCascadePrev.current;
+    const syncSnapshot = () => {
+      cascade.mandateHealth = editMandateData.mandateHealth;
+      cascade.upsellConstraint = editMandateData.upsellConstraint;
+      cascade.upsellConstraintType = editMandateData.upsellConstraintType;
+      cascade.upsellConstraintSub = editMandateData.upsellConstraintSub;
+    };
+    if (!cascade.initialized) {
+      cascade.initialized = true;
+      syncSnapshot();
+      return;
+    }
+
+    if (cascade.mandateHealth !== editMandateData.mandateHealth) {
+      cascade.mandateHealth = editMandateData.mandateHealth;
       if (editMandateData.mandateHealth === "Need Improvement") {
-        // If health is "Need Improvement", reset all dependent fields
         setEditMandateData((prev: any) => ({
           ...prev,
           upsellConstraint: "",
@@ -1811,94 +2504,103 @@ export default function Mandates() {
           clientBudgetTrend: "",
           awignSharePercent: "",
         }));
+        syncSnapshot();
       }
-      // Note: When health changes between "Exceeds" and "Meets", we don't reset
-      // because both allow the same upsell constraint values
     }
-  }, [editMandateData?.mandateHealth]);
 
-  // Reset upsell constraint fields and retention-related fields for edit mode when parent changes
-  useEffect(() => {
-    if (editMandateData) {
+    if (cascade.upsellConstraint !== editMandateData.upsellConstraint) {
+      cascade.upsellConstraint = editMandateData.upsellConstraint;
       if (editMandateData.upsellConstraint === "NO") {
         setEditMandateData((prev: any) => ({
           ...prev,
           upsellConstraintType: "-",
           upsellConstraintSub: "-",
           upsellConstraintSub2: "-",
-          // Reset client budget trend and awign share when constraint changes to NO
           clientBudgetTrend: "",
           awignSharePercent: "",
         }));
       } else if (editMandateData.upsellConstraint === "YES") {
-        // Reset sub fields when constraint changes to YES
         setEditMandateData((prev: any) => ({
           ...prev,
           upsellConstraintType: "",
           upsellConstraintSub: "",
           upsellConstraintSub2: "",
-          // Reset client budget trend and awign share when constraint changes to YES
           clientBudgetTrend: "",
           awignSharePercent: "",
         }));
       }
+      syncSnapshot();
     }
-  }, [editMandateData?.upsellConstraint]);
 
-  useEffect(() => {
-    if (editMandateData && editMandateData.upsellConstraint === "YES" && editMandateData.upsellConstraintType) {
-      // When constraint type changes, always reset sub and sub2 to ensure valid hierarchy
-      const validSubs = getUpsellConstraintSubs(editMandateData.upsellConstraint, editMandateData.upsellConstraintType);
-      if (editMandateData.upsellConstraintSub && !validSubs.includes(editMandateData.upsellConstraintSub)) {
-        // Reset if current sub is invalid for new type
+    if (cascade.upsellConstraintType !== editMandateData.upsellConstraintType) {
+      cascade.upsellConstraintType = editMandateData.upsellConstraintType;
+      if (
+        editMandateData.upsellConstraint === "YES" &&
+        editMandateData.upsellConstraintType
+      ) {
+        const validSubs = getUpsellConstraintSubs(
+          editMandateData.upsellConstraint,
+          editMandateData.upsellConstraintType,
+        );
         setEditMandateData((prev: any) => ({
           ...prev,
-          upsellConstraintSub: "",
+          upsellConstraintSub:
+            prev.upsellConstraintSub && validSubs.includes(prev.upsellConstraintSub)
+              ? prev.upsellConstraintSub
+              : "",
           upsellConstraintSub2: "",
         }));
-      } else {
-        // Even if sub is valid, reset it to force user to reselect based on new type
+      } else if (
+        editMandateData.upsellConstraint === "YES" &&
+        !editMandateData.upsellConstraintType
+      ) {
         setEditMandateData((prev: any) => ({
           ...prev,
           upsellConstraintSub: "",
           upsellConstraintSub2: "",
         }));
       }
-    } else if (editMandateData && editMandateData.upsellConstraint === "YES" && !editMandateData.upsellConstraintType) {
-      // If type is cleared, reset sub fields
-      setEditMandateData((prev: any) => ({
-        ...prev,
-        upsellConstraintSub: "",
-        upsellConstraintSub2: "",
-      }));
+      cascade.upsellConstraintSub = editMandateData.upsellConstraintSub;
     }
-  }, [editMandateData?.upsellConstraintType]);
 
-  useEffect(() => {
-    if (editMandateData && editMandateData.upsellConstraint === "YES" && editMandateData.upsellConstraintType && editMandateData.upsellConstraintSub) {
-      // When constraint sub changes, always reset sub2 to ensure valid hierarchy
-      const validSub2s = getUpsellConstraintSub2s(editMandateData.upsellConstraint, editMandateData.upsellConstraintType, editMandateData.upsellConstraintSub);
-      if (editMandateData.upsellConstraintSub2 && validSub2s.length > 0 && !validSub2s.includes(editMandateData.upsellConstraintSub2)) {
-        // Reset if current sub2 is invalid for new sub
+    if (cascade.upsellConstraintSub !== editMandateData.upsellConstraintSub) {
+      cascade.upsellConstraintSub = editMandateData.upsellConstraintSub;
+      if (
+        editMandateData.upsellConstraint === "YES" &&
+        editMandateData.upsellConstraintType &&
+        editMandateData.upsellConstraintSub
+      ) {
+        const validSub2s = getUpsellConstraintSub2s(
+          editMandateData.upsellConstraint,
+          editMandateData.upsellConstraintType,
+          editMandateData.upsellConstraintSub,
+        );
         setEditMandateData((prev: any) => ({
           ...prev,
-          upsellConstraintSub2: "",
+          upsellConstraintSub2:
+            prev.upsellConstraintSub2 &&
+            (validSub2s.length === 0 || validSub2s.includes(prev.upsellConstraintSub2))
+              ? prev.upsellConstraintSub2
+              : "",
         }));
-      } else {
-        // Even if sub2 is valid, reset it to force user to reselect based on new sub
+      } else if (
+        editMandateData.upsellConstraint === "YES" &&
+        editMandateData.upsellConstraintType &&
+        !editMandateData.upsellConstraintSub
+      ) {
         setEditMandateData((prev: any) => ({
           ...prev,
           upsellConstraintSub2: "",
         }));
       }
-    } else if (editMandateData && editMandateData.upsellConstraint === "YES" && editMandateData.upsellConstraintType && !editMandateData.upsellConstraintSub) {
-      // If sub is cleared, reset sub2
-      setEditMandateData((prev: any) => ({
-        ...prev,
-        upsellConstraintSub2: "",
-      }));
     }
-  }, [editMandateData?.upsellConstraintSub]);
+  }, [
+    detailsModalOpen,
+    editMandateData?.mandateHealth,
+    editMandateData?.upsellConstraint,
+    editMandateData?.upsellConstraintType,
+    editMandateData?.upsellConstraintSub,
+  ]);
 
   // Auto-calculate Retention Type for edit mode
   useEffect(() => {
@@ -2148,15 +2850,6 @@ export default function Mandates() {
       const staffingCMonthlyRecurringFeesValue = staffingCMonthlyRecurringParsed;
       const staffingCMcvSubmitValue = staffingCMcvCalculated;
       const staffingCAcvSubmitValue = staffingCAcvCalculatedC;
-
-      const staffingGrossMarginSubmitValue =
-        staffingRevenueSectionType === "A"
-          ? staffingGrossMarginCalculatedA
-          : staffingRevenueSectionType === "B"
-            ? staffingGrossMarginCalculatedB
-            : staffingRevenueSectionType === "C"
-              ? staffingGrossMarginCalculatedC
-              : null;
 
       // Prepare data for insertion
       const normalizedLob =
@@ -3660,7 +4353,10 @@ export default function Mandates() {
     }
   };
 
+  const mandatesListKey = `mandates-${user?.id ?? "guest"}`;
+
   const fetchMandates = async () => {
+    invalidateListData(mandatesListKey);
     setLoadingMandates(true);
     try {
       // Get current user and KAM status (in case they changed)
@@ -3760,6 +4456,12 @@ export default function Mandates() {
       // Extract unique Retention Type values for filter
       const uniqueRetentionTypes = [...new Set((data || []).map((m: any) => m.retention_type).filter(Boolean))];
       setAvailableRetentionTypes(uniqueRetentionTypes.sort());
+
+      storeListData(mandatesListKey, {
+        mandates: transformedMandates,
+        availableLobs: uniqueLobs.sort(),
+        availableRetentionTypes: uniqueRetentionTypes.sort(),
+      });
     } catch (error: any) {
       console.error("Error fetching mandates:", error);
       toast({
@@ -3816,10 +4518,20 @@ export default function Mandates() {
 
   // Fetch mandates when switching to view mode or when user/auth state changes
   useEffect(() => {
-    if (viewMode === "view") {
-      fetchMandates();
+    if (viewMode !== "view") return;
+    const cached = restoreListData<{
+      mandates: any[];
+      availableLobs: string[];
+      availableRetentionTypes: string[];
+    }>(mandatesListKey);
+    if (cached) {
+      setMandates(cached.mandates);
+      setAvailableLobs(cached.availableLobs);
+      setAvailableRetentionTypes(cached.availableRetentionTypes);
+      return;
     }
-  }, [viewMode, user?.id, isKAM]);
+    fetchMandates();
+  }, [viewMode, user?.id, isKAM, mandatesListKey]);
 
   const clearFilters = () => {
     setSearchTerm("");
@@ -3869,6 +4581,7 @@ export default function Mandates() {
       awignSharePercent: mandate.awign_share_percent || "",
       retentionType: mandate.retention_type || "",
       upsellActionStatus: mandate.upsell_action_status || "",
+      ...staffingFormFieldsFromMandate(mandate),
     });
     setIsEditMode(false);
     setIsMandateCheckerEditMode(false);
@@ -3915,6 +4628,70 @@ export default function Mandates() {
     
     setUpdatingMandate(true);
     try {
+      const editShowsStaffingFields = shouldShowStaffingMandateFields(
+        editEffectiveTeam,
+      );
+      const editSectionType = editShowsStaffingFields
+        ? calculateRevenueSectionType(
+            editMandateData.useCase,
+            editMandateData.subUseCase,
+          )
+        : null;
+
+      if (editShowsStaffingFields && !editStaffingRevenueReady) {
+        throw new Error("Select the Use Case and Sub Use Case (if applicable) before saving.");
+      }
+
+      if (editShowsStaffingFields && editSectionType === "A") {
+        const requiredStaffingFields = [
+          editMandateData.staffingHeadcount,
+          editMandateData.staffingSalaryPayouts,
+          editMandateData.staffingProgramManagement,
+          editMandateData.staffingSaasUsageFee,
+          editMandateData.staffingMonthlyAgencyFeePercent,
+          editMandateData.staffingSalesForceAutomationSetupFee,
+          editMandateData.staffingRecruitmentCost,
+          editMandateData.staffingActiveMonthsPerYear,
+          editMandateData.staffingGmPercent,
+        ];
+        if (requiredStaffingFields.some((value) => !value)) {
+          throw new Error("Please fill all required Revenue Info fields for Staffing.");
+        }
+      }
+
+      if (editShowsStaffingFields && editSectionType === "B") {
+        const requiredStaffingBFields = [
+          editMandateData.staffingBNumStores,
+          editMandateData.staffingBCostPerStore,
+          editMandateData.staffingGmPercent,
+          editMandateData.staffingActiveMonthsPerYear,
+        ];
+        if (requiredStaffingBFields.some((value) => !value)) {
+          throw new Error("Please fill all required Revenue Info fields for Staffing (section B).");
+        }
+      }
+
+      if (editShowsStaffingFields && editSectionType === "C") {
+        const requiredStaffingCFields = [
+          editMandateData.staffingCOneTimeSetupFee,
+          editMandateData.staffingCMonthlyRecurringFees,
+          editMandateData.staffingActiveMonthsPerYear,
+          editMandateData.staffingGmPercent,
+        ];
+        if (requiredStaffingCFields.some((value) => !value)) {
+          throw new Error("Please fill all required Revenue Info fields for Staffing (section C).");
+        }
+      }
+
+      const staffingRevenuePayload =
+        editShowsStaffingFields && editSectionType
+          ? buildStaffingRevenueDbFields(
+              editSectionType,
+              editStaffingMetrics,
+              editMandateData,
+            )
+          : null;
+
       const updateData: any = {
         project_code: editMandateData.projectCode || null,
         project_name: editMandateData.projectName || null,
@@ -4003,11 +4780,45 @@ export default function Mandates() {
         handover_prj_type: !editShowHandoverInfo
           ? null
           : ensureEnumValue(editMandateData.handoverPrjType, ['Recurring', 'One-time']),
-        revenue_monthly_volume: editMandateData.revenueMonthlyVolume ? parseFloat(editMandateData.revenueMonthlyVolume) : null,
-        revenue_commercial_per_head: editMandateData.revenueCommercialPerHead ? parseFloat(editMandateData.revenueCommercialPerHead) : null,
-        revenue_mcv: editMandateData.revenueMcv ? parseFloat(editMandateData.revenueMcv) : null,
-        revenue_acv: editMandateData.revenueAcv ? parseFloat(editMandateData.revenueAcv) : null,
-        revenue_prj_type: ensureEnumValue(editMandateData.revenuePrjType, ['Recurring', 'One-time']),
+        ...(staffingRevenuePayload
+          ? staffingRevenuePayload
+          : {
+              revenue_section_type: null,
+              revenue_monthly_volume: editMandateData.revenueMonthlyVolume
+                ? parseFloat(editMandateData.revenueMonthlyVolume)
+                : null,
+              revenue_commercial_per_head: editMandateData.revenueCommercialPerHead
+                ? parseFloat(editMandateData.revenueCommercialPerHead)
+                : null,
+              revenue_mcv: editMandateData.revenueMcv
+                ? parseFloat(editMandateData.revenueMcv)
+                : null,
+              revenue_acv: editMandateData.revenueAcv
+                ? parseFloat(editMandateData.revenueAcv)
+                : null,
+              revenue_prj_type: ensureEnumValue(editMandateData.revenuePrjType, [
+                "Recurring",
+                "One-time",
+              ]),
+              staffing_headcount: null,
+              staffing_salary_payouts: null,
+              staffing_program_management: null,
+              staffing_saas_usage_fee: null,
+              staffing_monthly_agency_fee_percent: null,
+              staffing_sales_force_automation_setup_fee: null,
+              staffing_recruitment_cost: null,
+              staffing_misc_recurring: null,
+              staffing_misc_one_time: null,
+              staffing_active_months_per_year: null,
+              staffing_gm_percent: null,
+              staffing_gross_margin: null,
+              staffing_b_num_stores: null,
+              staffing_b_cost_per_store: null,
+              staffing_b_mcv: null,
+              staffing_b_acv: null,
+              staffing_c_one_time_setup_fee: null,
+              staffing_c_monthly_recurring_fees: null,
+            }),
         mandate_health: ensureEnumValue(editMandateData.mandateHealth, [
           'Exceeds Expectations',
           'Meets Expectations',
@@ -4040,15 +4851,6 @@ export default function Mandates() {
         );
       }
       updateData.team = updatedTeam;
-      const editShowsStaffingFields = shouldShowStaffingMandateFields(
-        editEffectiveTeam,
-      );
-      updateData.revenue_section_type = editShowsStaffingFields
-        ? calculateRevenueSectionType(
-            editMandateData.useCase,
-            editMandateData.subUseCase,
-          )
-        : null;
 
       const { error } = await supabase
         .from("mandates")
@@ -4393,6 +5195,102 @@ export default function Mandates() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="accountId">
+                      Account Name <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.accountId}
+                      onValueChange={(value) => handleInputChange("accountId", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select account" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search accounts..."
+                            value={accountSearch}
+                            onChange={(e) => setAccountSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
+                        {accounts.length > 0 ? (
+                          accounts
+                            .filter((account) =>
+                              account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                            )
+                            .map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.name}
+                              </SelectItem>
+                            ))
+                        ) : (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No accounts available
+                          </div>
+                        )}
+                        {accounts.length > 0 && accounts.filter((account) =>
+                          account.name.toLowerCase().includes(accountSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No accounts found
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="kamId">
+                      KAM <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.kamId}
+                      onValueChange={(value) => handleInputChange("kamId", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select KAM" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="px-2 pb-2">
+                          <Input
+                            placeholder="Search KAMs..."
+                            value={kamSearch}
+                            onChange={(e) => setKamSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="h-8"
+                          />
+                        </div>
+                        {kams.length > 0 ? (
+                          kams
+                            .filter((kam) =>
+                              (kam.full_name || "Unknown").toLowerCase().includes(kamSearch.toLowerCase())
+                            )
+                            .map((kam) => (
+                              <SelectItem key={kam.id} value={kam.id}>
+                                {kam.full_name || "Unknown"}
+                              </SelectItem>
+                            ))
+                        ) : (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No KAMs available
+                          </div>
+                        )}
+                        {kams.length > 0 && kams.filter((kam) =>
+                          (kam.full_name || "Unknown").toLowerCase().includes(kamSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No KAMs found
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="useCase">
                       Use Case <span className="text-destructive">*</span>
                     </Label>
@@ -4490,123 +5388,25 @@ export default function Mandates() {
                       />
                     </div>
                   )}
-                  <>
-                      <div className="space-y-2">
-                        <Label htmlFor="accountId">
-                          Account Name <span className="text-destructive">*</span>
-                        </Label>
-                        <Select
-                          value={formData.accountId}
-                          onValueChange={(value) => handleInputChange("accountId", value)}
-                          required
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select account" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <div className="px-2 pb-2">
-                              <Input
-                                placeholder="Search accounts..."
-                                value={accountSearch}
-                                onChange={(e) => setAccountSearch(e.target.value)}
-                                onClick={(e) => e.stopPropagation()}
-                                onKeyDown={(e) => e.stopPropagation()}
-                                className="h-8"
-                              />
-                            </div>
-                            {accounts.length > 0 ? (
-                              accounts
-                                .filter((account) =>
-                                  account.name.toLowerCase().includes(accountSearch.toLowerCase())
-                                )
-                                .map((account) => (
-                                  <SelectItem key={account.id} value={account.id}>
-                                    {account.name}
-                                  </SelectItem>
-                                ))
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No accounts available
-                              </div>
-                            )}
-                            {accounts.length > 0 && accounts.filter((account) =>
-                              account.name.toLowerCase().includes(accountSearch.toLowerCase())
-                            ).length === 0 && (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No accounts found
-                              </div>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="kamId">
-                          KAM <span className="text-destructive">*</span>
-                        </Label>
-                        <Select
-                          value={formData.kamId}
-                          onValueChange={(value) => handleInputChange("kamId", value)}
-                          required
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select KAM" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <div className="px-2 pb-2">
-                              <Input
-                                placeholder="Search KAMs..."
-                                value={kamSearch}
-                                onChange={(e) => setKamSearch(e.target.value)}
-                                onClick={(e) => e.stopPropagation()}
-                                onKeyDown={(e) => e.stopPropagation()}
-                                className="h-8"
-                              />
-                            </div>
-                            {kams.length > 0 ? (
-                              kams
-                                .filter((kam) =>
-                                  (kam.full_name || "Unknown").toLowerCase().includes(kamSearch.toLowerCase())
-                                )
-                                .map((kam) => (
-                                  <SelectItem key={kam.id} value={kam.id}>
-                                    {kam.full_name || "Unknown"}
-                                  </SelectItem>
-                                ))
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No KAMs available
-                              </div>
-                            )}
-                            {kams.length > 0 && kams.filter((kam) =>
-                              (kam.full_name || "Unknown").toLowerCase().includes(kamSearch.toLowerCase())
-                            ).length === 0 && (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No KAMs found
-                              </div>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="type">
-                          Type <span className="text-destructive">*</span>
-                        </Label>
-                        <Select
-                          value={formData.type}
-                          onValueChange={(value) => handleInputChange("type", value)}
-                          required
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="New Acquisition">New Acquisition</SelectItem>
-                            <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
-                            <SelectItem value="Existing">Existing</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                  </>
+                  <div className="space-y-2">
+                    <Label htmlFor="type">
+                      Type <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.type}
+                      onValueChange={(value) => handleInputChange("type", value)}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="New Acquisition">New Acquisition</SelectItem>
+                        <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
+                        <SelectItem value="Existing">Existing</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   </div>
                 </CardContent>
               </Card>
@@ -4790,136 +5590,13 @@ export default function Mandates() {
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-purple-900">Revenue Info</h3>
                   {showStaffingMandateFields ? (
-                    !staffingRevenueReady ? (
-                      <div className="text-sm text-muted-foreground">
-                        Select the Use Case and Sub Use Case (if applicable).
-                      </div>
-                    ) : staffingRevenueSectionType === "A" ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingHeadcount">Headcount <span className="text-destructive">*</span></Label>
-                          <Input id="staffingHeadcount" type="number" value={formData.staffingHeadcount} onChange={(e) => handleInputChange("staffingHeadcount", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingSalaryPayouts">Salary & Payouts <span className="text-destructive">*</span></Label>
-                          <Input id="staffingSalaryPayouts" type="number" value={formData.staffingSalaryPayouts} onChange={(e) => handleInputChange("staffingSalaryPayouts", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingProgramManagement">Program Management <span className="text-destructive">*</span></Label>
-                          <Input id="staffingProgramManagement" type="number" value={formData.staffingProgramManagement} onChange={(e) => handleInputChange("staffingProgramManagement", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingSaasUsageFee">SaaS Usage Fee <span className="text-destructive">*</span></Label>
-                          <Input id="staffingSaasUsageFee" type="number" value={formData.staffingSaasUsageFee} onChange={(e) => handleInputChange("staffingSaasUsageFee", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingMonthlyAgencyFeePercent">Monthly Agency Fee % <span className="text-destructive">*</span></Label>
-                          <Input id="staffingMonthlyAgencyFeePercent" type="number" value={formData.staffingMonthlyAgencyFeePercent} onChange={(e) => handleInputChange("staffingMonthlyAgencyFeePercent", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingSalesForceAutomationSetupFee">Sales Force Automation Setup Fee <span className="text-destructive">*</span></Label>
-                          <Input id="staffingSalesForceAutomationSetupFee" type="number" value={formData.staffingSalesForceAutomationSetupFee} onChange={(e) => handleInputChange("staffingSalesForceAutomationSetupFee", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingRecruitmentCost">Recruitment cost <span className="text-destructive">*</span></Label>
-                          <Input id="staffingRecruitmentCost" type="number" value={formData.staffingRecruitmentCost} onChange={(e) => handleInputChange("staffingRecruitmentCost", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingMiscRecurring">Miscellaneous - Recurring</Label>
-                          <Input id="staffingMiscRecurring" type="number" value={formData.staffingMiscRecurring} onChange={(e) => handleInputChange("staffingMiscRecurring", e.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingMiscOneTime">Miscellaneous - One time</Label>
-                          <Input id="staffingMiscOneTime" type="number" value={formData.staffingMiscOneTime} onChange={(e) => handleInputChange("staffingMiscOneTime", e.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingActiveMonthsPerYear">Active Months per year (1-12) <span className="text-destructive">*</span></Label>
-                          <Input id="staffingActiveMonthsPerYear" type="number" min={1} max={12} value={formData.staffingActiveMonthsPerYear} onChange={(e) => handleInputChange("staffingActiveMonthsPerYear", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingGmPercent">GM % <span className="text-destructive">*</span></Label>
-                          <Input id="staffingGmPercent" type="number" value={formData.staffingGmPercent} onChange={(e) => handleInputChange("staffingGmPercent", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="revenueMcv">MCV <span className="text-destructive">*</span></Label>
-                          <Input id="revenueMcv" value={staffingMcvCalculated.toString()} placeholder="Auto" readOnly className="bg-muted" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="revenueAcv">ACV <span className="text-destructive">*</span></Label>
-                          <Input id="revenueAcv" value={staffingAcvCalculated.toString()} placeholder="Auto" readOnly className="bg-muted" />
-                        </div>
-                        <div className="space-y-2 md:col-span-2">
-                          <Label htmlFor="staffingGrossMarginA">Gross Margin <span className="text-destructive">*</span></Label>
-                          <Input id="staffingGrossMarginA" value={staffingGrossMarginCalculatedA.toString()} placeholder="Auto" readOnly className="bg-muted" />
-                        </div>
-                      </div>
-                    ) : staffingRevenueSectionType === "B" ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingBNumStores">No. of Stores <span className="text-destructive">*</span></Label>
-                          <Input id="staffingBNumStores" type="number" value={formData.staffingBNumStores} onChange={(e) => handleInputChange("staffingBNumStores", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingBCostPerStore">Cost per Store <span className="text-destructive">*</span></Label>
-                          <Input id="staffingBCostPerStore" type="number" value={formData.staffingBCostPerStore} onChange={(e) => handleInputChange("staffingBCostPerStore", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingGmPercentB">GM% <span className="text-destructive">*</span></Label>
-                          <Input id="staffingGmPercentB" type="number" value={formData.staffingGmPercent} onChange={(e) => handleInputChange("staffingGmPercent", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingActiveMonthsPerYearB">Active Months per year (1-12) <span className="text-destructive">*</span></Label>
-                          <Input id="staffingActiveMonthsPerYearB" type="number" min={1} max={12} value={formData.staffingActiveMonthsPerYear} onChange={(e) => handleInputChange("staffingActiveMonthsPerYear", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingBMcv">MCV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingBMcv" value={staffingBMcvCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingBAcv">ACV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingBAcv" value={staffingBAcvCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
-                        </div>
-                        <div className="space-y-2 md:col-span-2">
-                          <Label htmlFor="staffingGrossMarginB">Gross Margin <span className="text-destructive">*</span></Label>
-                          <Input id="staffingGrossMarginB" value={staffingGrossMarginCalculatedB.toString()} placeholder="Auto" readOnly className="bg-muted" />
-                        </div>
-                      </div>
-                    ) : staffingRevenueSectionType === "C" ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCOneTimeSetupFee">One Time Setup Fees <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCOneTimeSetupFee" type="number" value={formData.staffingCOneTimeSetupFee} onChange={(e) => handleInputChange("staffingCOneTimeSetupFee", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCMonthlyRecurringFees">Monthly Recurring Fees <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCMonthlyRecurringFees" type="number" value={formData.staffingCMonthlyRecurringFees} onChange={(e) => handleInputChange("staffingCMonthlyRecurringFees", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingActiveMonthsPerYearC">Active Months per year (1-12) <span className="text-destructive">*</span></Label>
-                          <Input id="staffingActiveMonthsPerYearC" type="number" min={1} max={12} value={formData.staffingActiveMonthsPerYear} onChange={(e) => handleInputChange("staffingActiveMonthsPerYear", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingGmPercentC">GM% <span className="text-destructive">*</span></Label>
-                          <Input id="staffingGmPercentC" type="number" value={formData.staffingGmPercent} onChange={(e) => handleInputChange("staffingGmPercent", e.target.value)} required />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCMcvDisplay">MCV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCMcvDisplay" value={staffingCMcvCalculated.toString()} readOnly placeholder="Auto" className="bg-muted" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="staffingCAcvDisplay">ACV <span className="text-destructive">*</span></Label>
-                          <Input id="staffingCAcvDisplay" value={staffingCAcvCalculatedC.toString()} readOnly placeholder="Auto" className="bg-muted" />
-                        </div>
-                        <div className="space-y-2 md:col-span-2">
-                          <Label htmlFor="staffingGrossMarginC">Gross Margin <span className="text-destructive">*</span></Label>
-                          <Input id="staffingGrossMarginC" value={staffingGrossMarginCalculatedC.toString()} readOnly placeholder="Auto" className="bg-muted" />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-sm text-muted-foreground">
-                        Revenue fields for section type {staffingRevenueSectionType || "-"} will be configured next.
-                      </div>
-                    )
+                    <StaffingMandateRevenueForm
+                      sectionType={staffingRevenueSectionType}
+                      ready={staffingRevenueReady}
+                      values={formData}
+                      onFieldChange={handleInputChange}
+                      metrics={createStaffingMetrics}
+                    />
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2 md:col-span-2">
@@ -4998,118 +5675,215 @@ export default function Mandates() {
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-orange-900">Mandate Checker</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="mandateHealth">
-                      Mandate Health <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.mandateHealth}
-                      onValueChange={(value) => handleInputChange("mandateHealth", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select health" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Exceeds Expectations">Exceeds Expectations</SelectItem>
-                        <SelectItem value="Meets Expectations">Meets Expectations</SelectItem>
-                        <SelectItem value="Need Improvement">Need Improvement</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="clientBudgetTrend">
-                      Client Budget Trend <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.clientBudgetTrend}
-                      onValueChange={(value) => handleInputChange("clientBudgetTrend", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select trend" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Increase">Increase</SelectItem>
-                        <SelectItem value="Same">Same</SelectItem>
-                        <SelectItem value="Decrease">Decrease</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="upsellConstraint">
-                      Upsell Constraint <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.upsellConstraint}
-                      onValueChange={(value) => handleInputChange("upsellConstraint", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="YES">YES</SelectItem>
-                        <SelectItem value="NO">NO</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="awignSharePercent">
-                      Awign Share % <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.awignSharePercent}
-                      onValueChange={(value) => handleInputChange("awignSharePercent", value)}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select share" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Below 70%">Below 70%</SelectItem>
-                        <SelectItem value="70% & Above">70% & Above</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="upsellConstraintType">
-                      Upsell Constraint Type <span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={formData.upsellConstraintType}
-                      onValueChange={(value) => handleInputChange("upsellConstraintType", value)}
-                      required
-                      disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO"}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {formData.upsellConstraint === "NO" ? (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            Not applicable
-                          </div>
-                        ) : formData.upsellConstraint === "YES" ? (
-                          getUpsellConstraintTypes(formData.upsellConstraint).length > 0 ? (
-                            getUpsellConstraintTypes(formData.upsellConstraint).map((type) => (
-                              <SelectItem key={type} value={type}>
-                                {type}
-                              </SelectItem>
-                            ))
+                    <div className="space-y-2">
+                      <Label htmlFor="mandateHealth">
+                        Mandate Health <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={formData.mandateHealth}
+                        onValueChange={(value) => handleInputChange("mandateHealth", value)}
+                        required
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select health" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Exceeds Expectations">Exceeds Expectations</SelectItem>
+                          <SelectItem value="Meets Expectations">Meets Expectations</SelectItem>
+                          <SelectItem value="Need Improvement">Need Improvement</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="upsellConstraint">
+                        Upsell Constraint <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={formData.upsellConstraint}
+                        onValueChange={(value) => handleInputChange("upsellConstraint", value)}
+                        required
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="YES">YES</SelectItem>
+                          <SelectItem value="NO">NO</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="upsellConstraintType">
+                        Upsell Constraint Type <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={formData.upsellConstraintType}
+                        onValueChange={(value) => handleInputChange("upsellConstraintType", value)}
+                        required
+                        disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO"}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.upsellConstraint === "NO" ? (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              Not applicable
+                            </div>
+                          ) : formData.upsellConstraint === "YES" ? (
+                            getUpsellConstraintTypes(formData.upsellConstraint).length > 0 ? (
+                              getUpsellConstraintTypes(formData.upsellConstraint).map((type) => (
+                                <SelectItem key={type} value={type}>
+                                  {type}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No types available
+                              </div>
+                            )
                           ) : (
                             <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              No types available
+                              Select Upsell Constraint first
                             </div>
-                          )
-                        ) : (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            Select Upsell Constraint first
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="upsellConstraintSub">
+                        Upsell Constraint Type - Sub <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={formData.upsellConstraintSub}
+                        onValueChange={(value) => handleInputChange("upsellConstraintSub", value)}
+                        required
+                        disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-"}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formData.upsellConstraint === "NO" ? (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              Not applicable
+                            </div>
+                          ) : formData.upsellConstraint === "YES" && formData.upsellConstraintType ? (
+                            getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).length > 0 ? (
+                              getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).map((sub) => (
+                                <SelectItem key={sub} value={sub}>
+                                  {sub}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No sub types available
+                              </div>
+                            )
+                          ) : (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {!formData.upsellConstraint ? "Select Upsell Constraint first" : "Select Type first"}
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="upsellConstraintSub2">
+                        Upsell Constraint Type - Sub 2 <span className="text-destructive">*</span>
+                      </Label>
+                      {formData.upsellConstraint === "NO" ? (
+                        <Input
+                          id="upsellConstraintSub2"
+                          value="-"
+                          readOnly
+                          className="bg-muted"
+                        />
+                      ) : isReadOnlySub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
+                        <Input
+                          id="upsellConstraintSub2"
+                          value="-"
+                          readOnly
+                          className="bg-muted"
+                        />
+                      ) : isFreeTextSub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
+                        <Input
+                          id="upsellConstraintSub2"
+                          value={formData.upsellConstraintSub2 === "-" ? "" : formData.upsellConstraintSub2}
+                          onChange={(e) => handleInputChange("upsellConstraintSub2", e.target.value)}
+                          placeholder="Enter details (free text)"
+                          required
+                          disabled={!formData.upsellConstraintSub || formData.upsellConstraintSub === "-"}
+                        />
+                      ) : (
+                        <Select
+                          value={formData.upsellConstraintSub2}
+                          onValueChange={(value) => handleInputChange("upsellConstraintSub2", value)}
+                          required
+                          disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-" || !formData.upsellConstraintSub || formData.upsellConstraintSub === "-" || getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length === 0}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {formData.upsellConstraint === "YES" && formData.upsellConstraintType && formData.upsellConstraintSub ? (
+                              getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length > 0 ? (
+                                getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).map((sub2) => (
+                                  <SelectItem key={sub2} value={sub2}>
+                                    {sub2}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  No options available
+                                </div>
+                              )
+                            ) : (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                {!formData.upsellConstraint ? "Select Upsell Constraint first" : !formData.upsellConstraintType ? "Select Type first" : "Select Sub first"}
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="clientBudgetTrend">
+                        Client Budget Trend <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={formData.clientBudgetTrend}
+                        onValueChange={(value) => handleInputChange("clientBudgetTrend", value)}
+                        required
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select trend" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Increase">Increase</SelectItem>
+                          <SelectItem value="Same">Same</SelectItem>
+                          <SelectItem value="Decrease">Decrease</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="awignSharePercent">
+                        Awign Share % <span className="text-destructive">*</span>
+                      </Label>
+                      <Select
+                        value={formData.awignSharePercent}
+                        onValueChange={(value) => handleInputChange("awignSharePercent", value)}
+                        required
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select share" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Below 70%">Below 70%</SelectItem>
+                          <SelectItem value="70% & Above">70% & Above</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="retentionType">Retention Type</Label>
                       <Input
@@ -5120,100 +5894,6 @@ export default function Mandates() {
                         className="bg-muted"
                       />
                     </div>
-                  {formData.upsellConstraint === "YES" && (
-                    <>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="upsellConstraintSub">
-                          Upsell Constraint Type - Sub <span className="text-destructive">*</span>
-                        </Label>
-                        <Select
-                          value={formData.upsellConstraintSub}
-                          onValueChange={(value) => handleInputChange("upsellConstraintSub", value)}
-                          required
-                          disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-"}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {formData.upsellConstraint === "NO" ? (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                Not applicable
-                              </div>
-                            ) : formData.upsellConstraint === "YES" && formData.upsellConstraintType ? (
-                              getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).length > 0 ? (
-                                getUpsellConstraintSubs(formData.upsellConstraint, formData.upsellConstraintType).map((sub) => (
-                                  <SelectItem key={sub} value={sub}>
-                                    {sub}
-                                  </SelectItem>
-                                ))
-                              ) : (
-                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                  No sub types available
-                                </div>
-                              )
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                {!formData.upsellConstraint ? "Select Upsell Constraint first" : "Select Type first"}
-                              </div>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="upsellConstraintSub2">
-                          Upsell Constraint Type - Sub 2 <span className="text-destructive">*</span>
-                        </Label>
-                        {isReadOnlySub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
-                          <Input
-                            id="upsellConstraintSub2"
-                            value="-"
-                            readOnly
-                            className="bg-muted"
-                          />
-                        ) : isFreeTextSub2(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub) ? (
-                          <Input
-                            id="upsellConstraintSub2"
-                            value={formData.upsellConstraintSub2 === "-" ? "" : formData.upsellConstraintSub2}
-                            onChange={(e) => handleInputChange("upsellConstraintSub2", e.target.value)}
-                            placeholder="Enter details (free text)"
-                            required
-                            disabled={!formData.upsellConstraintSub || formData.upsellConstraintSub === "-"}
-                          />
-                        ) : (
-                          <Select
-                            value={formData.upsellConstraintSub2}
-                            onValueChange={(value) => handleInputChange("upsellConstraintSub2", value)}
-                            required
-                            disabled={!formData.upsellConstraint || formData.upsellConstraint === "NO" || !formData.upsellConstraintType || formData.upsellConstraintType === "-" || !formData.upsellConstraintSub || formData.upsellConstraintSub === "-" || getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length === 0}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {formData.upsellConstraint === "YES" && formData.upsellConstraintType && formData.upsellConstraintSub ? (
-                                getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).length > 0 ? (
-                                  getUpsellConstraintSub2s(formData.upsellConstraint, formData.upsellConstraintType, formData.upsellConstraintSub).map((sub2) => (
-                                    <SelectItem key={sub2} value={sub2}>
-                                      {sub2}
-                                    </SelectItem>
-                                  ))
-                                ) : (
-                                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                    No options available
-                                  </div>
-                                )
-                              ) : (
-                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                  {!formData.upsellConstraint ? "Select Upsell Constraint first" : !formData.upsellConstraintType ? "Select Type first" : "Select Sub first"}
-                                </div>
-                              )}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-                    </>
-                  )}
                   </div>
                 </CardContent>
               </Card>
@@ -5979,7 +6659,7 @@ export default function Mandates() {
               </Card>
 
               {/* 2nd Section: Handover Info (CE only — not staffing / experts) */}
-              {editShowHandoverInfo &&
+              {(isEditMode ? editShowHandoverInfo : detailsShowHandoverInfo) &&
                 ((isEditMode &&
                   (editMandateData.type === "New Acquisition" ||
                     editMandateData.type === "Existing" ||
@@ -6184,78 +6864,111 @@ export default function Mandates() {
               <Card className="border-purple-200 bg-purple-50/50">
                 <CardContent className="pt-6">
                   <h3 className="font-semibold text-lg mb-4 text-purple-900">Revenue Info</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2 md:col-span-2">
-                      <Label className="font-medium text-muted-foreground">MCV:</Label>
+                  {(isEditMode ? editShowStaffingMandateFields : detailsShowStaffingFields) ? (
+                    <>
+                      <div className="mb-4 max-w-md space-y-2">
+                        <Label className="font-medium text-muted-foreground">
+                          Revenue Section Type
+                        </Label>
+                        {isEditMode ? (
+                          <Input
+                            value={editStaffingRevenueSectionType}
+                            placeholder="Auto calculated"
+                            readOnly
+                            className="bg-muted"
+                          />
+                        ) : (
+                          <p className="mt-1">{detailsStaffingRevenueSectionType || "N/A"}</p>
+                        )}
+                      </div>
                       {isEditMode ? (
-                        <Input
-                          value={editMandateData.revenueMcv}
-                          placeholder="Auto"
-                          readOnly
-                          className="bg-muted"
+                        <StaffingMandateRevenueForm
+                          sectionType={editStaffingRevenueSectionType}
+                          ready={editStaffingRevenueReady}
+                          values={editMandateData}
+                          onFieldChange={(field, value) =>
+                            setEditMandateData({ ...editMandateData, [field]: value })
+                          }
+                          metrics={editStaffingMetrics}
                         />
                       ) : (
-                        <p className="mt-1">{selectedMandate.revenue_mcv ? selectedMandate.revenue_mcv.toLocaleString("en-IN") : "N/A"}</p>
+                        <StaffingMandateRevenueDetails mandate={selectedMandate} />
                       )}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Monthly Volume:</Label>
-                          {isEditMode ? (
-                            <Input
-                              type="number" 
-                              value={editMandateData.revenueMonthlyVolume}
-                              onChange={(e) => setEditMandateData({ ...editMandateData, revenueMonthlyVolume: e.target.value })}
-                            />
-                          ) : (
-                            <p className="mt-1">{selectedMandate.revenue_monthly_volume ? selectedMandate.revenue_monthly_volume.toLocaleString("en-IN") : "N/A"}</p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="font-medium text-muted-foreground">Commercial per head/task:</Label>
-                          {isEditMode ? (
-                            <Input
-                              type="number" 
-                              value={editMandateData.revenueCommercialPerHead}
-                              onChange={(e) => setEditMandateData({ ...editMandateData, revenueCommercialPerHead: e.target.value })}
-                            />
-                          ) : (
-                            <p className="mt-1">{selectedMandate.revenue_commercial_per_head ? selectedMandate.revenue_commercial_per_head.toLocaleString("en-IN") : "N/A"}</p>
-                          )}
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2 md:col-span-2">
+                        <Label className="font-medium text-muted-foreground">MCV:</Label>
+                        {isEditMode ? (
+                          <Input
+                            value={editMandateData.revenueMcv}
+                            placeholder="Auto"
+                            readOnly
+                            className="bg-muted"
+                          />
+                        ) : (
+                          <p className="mt-1">{selectedMandate.revenue_mcv ? selectedMandate.revenue_mcv.toLocaleString("en-IN") : "N/A"}</p>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                          <div className="space-y-2">
+                            <Label className="font-medium text-muted-foreground">Monthly Volume:</Label>
+                            {isEditMode ? (
+                              <Input
+                                type="number"
+                                value={editMandateData.revenueMonthlyVolume}
+                                onChange={(e) => setEditMandateData({ ...editMandateData, revenueMonthlyVolume: e.target.value })}
+                              />
+                            ) : (
+                              <p className="mt-1">{selectedMandate.revenue_monthly_volume ? selectedMandate.revenue_monthly_volume.toLocaleString("en-IN") : "N/A"}</p>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="font-medium text-muted-foreground">Commercial per head/task:</Label>
+                            {isEditMode ? (
+                              <Input
+                                type="number"
+                                value={editMandateData.revenueCommercialPerHead}
+                                onChange={(e) => setEditMandateData({ ...editMandateData, revenueCommercialPerHead: e.target.value })}
+                              />
+                            ) : (
+                              <p className="mt-1">{selectedMandate.revenue_commercial_per_head ? selectedMandate.revenue_commercial_per_head.toLocaleString("en-IN") : "N/A"}</p>
+                            )}
+                          </div>
                         </div>
                       </div>
+                      <div className="space-y-2">
+                        <Label className="font-medium text-muted-foreground">ACV:</Label>
+                        {isEditMode ? (
+                          <Input
+                            type="number"
+                            value={editMandateData.revenueAcv}
+                            onChange={(e) => setEditMandateData({ ...editMandateData, revenueAcv: e.target.value })}
+                          />
+                        ) : (
+                          <p className="mt-1">{selectedMandate.revenue_acv ? selectedMandate.revenue_acv.toLocaleString("en-IN") : "N/A"}</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="font-medium text-muted-foreground">PRJ Type:</Label>
+                        {isEditMode ? (
+                          <Select
+                            value={editMandateData.revenuePrjType}
+                            onValueChange={(value) => setEditMandateData({ ...editMandateData, revenuePrjType: value })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Recurring">Recurring</SelectItem>
+                              <SelectItem value="One-time">One-time</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="mt-1">{selectedMandate.revenue_prj_type || "N/A"}</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">ACV:</Label>
-                      {isEditMode ? (
-                        <Input
-                          type="number" 
-                          value={editMandateData.revenueAcv}
-                          onChange={(e) => setEditMandateData({ ...editMandateData, revenueAcv: e.target.value })}
-                        />
-                      ) : (
-                        <p className="mt-1">{selectedMandate.revenue_acv ? selectedMandate.revenue_acv.toLocaleString("en-IN") : "N/A"}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-medium text-muted-foreground">PRJ Type:</Label>
-                      {isEditMode ? (
-                        <Select
-                          value={editMandateData.revenuePrjType}
-                          onValueChange={(value) => setEditMandateData({ ...editMandateData, revenuePrjType: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Recurring">Recurring</SelectItem>
-                            <SelectItem value="One-time">One-time</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="mt-1">{selectedMandate.revenue_prj_type || "N/A"}</p>
-                      )}
-                    </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
 

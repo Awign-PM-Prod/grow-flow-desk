@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useState, useEffect } from "react";
+import { loadPersistedFilters, savePersistedFilters } from "@/lib/pageSession";
+import { invalidateListData, restoreListData, storeListData } from "@/lib/listPageCache";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -86,13 +88,58 @@ export default function Contacts() {
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
 
+  type ContactsPageFilters = {
+    searchTerm: string;
+    filterAccount: string;
+    filterDepartment: string;
+    filterTitle: string;
+    filterLevel: string;
+    filterAwignChampion: string;
+  };
+
+  const defaultContactsFilters: ContactsPageFilters = {
+    searchTerm: "",
+    filterAccount: "all",
+    filterDepartment: "all",
+    filterTitle: "all",
+    filterLevel: "all",
+    filterAwignChampion: "all",
+  };
+
+  const savedContactsFilters = loadPersistedFilters<ContactsPageFilters>("contacts-filters");
+  const initialContactsFilters = savedContactsFilters
+    ? { ...defaultContactsFilters, ...savedContactsFilters }
+    : defaultContactsFilters;
+
   // Filters for view mode
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterAccount, setFilterAccount] = useState("all");
-  const [filterDepartment, setFilterDepartment] = useState("all");
-  const [filterTitle, setFilterTitle] = useState("all");
-  const [filterLevel, setFilterLevel] = useState("all");
-  const [filterAwignChampion, setFilterAwignChampion] = useState("all");
+  const [searchTerm, setSearchTerm] = useState(initialContactsFilters.searchTerm);
+  const [filterAccount, setFilterAccount] = useState(initialContactsFilters.filterAccount);
+  const [filterDepartment, setFilterDepartment] = useState(initialContactsFilters.filterDepartment);
+  const [filterTitle, setFilterTitle] = useState(initialContactsFilters.filterTitle);
+  const [filterLevel, setFilterLevel] = useState(initialContactsFilters.filterLevel);
+  const [filterAwignChampion, setFilterAwignChampion] = useState(
+    initialContactsFilters.filterAwignChampion,
+  );
+
+  useEffect(() => {
+    savePersistedFilters("contacts-filters", {
+      searchTerm,
+      filterAccount,
+      filterDepartment,
+      filterTitle,
+      filterLevel,
+      filterAwignChampion,
+    });
+  }, [
+    searchTerm,
+    filterAccount,
+    filterDepartment,
+    filterTitle,
+    filterLevel,
+    filterAwignChampion,
+  ]);
+
+  const contactsListKey = `contacts-${user?.id ?? "guest"}`;
 
   // Search terms for dropdowns in forms
   const [accountSearch, setAccountSearch] = useState("");
@@ -340,6 +387,7 @@ export default function Contacts() {
   };
 
   const fetchContacts = async () => {
+    invalidateListData(contactsListKey);
     setLoadingContacts(true);
     try {
       const { data, error } = await supabase
@@ -373,6 +421,7 @@ export default function Contacts() {
       }));
 
       setContacts(contactsWithAccounts);
+      storeListData(contactsListKey, contactsWithAccounts);
     } catch (error: any) {
       console.error("Error fetching contacts:", error);
       toast({
@@ -942,10 +991,14 @@ export default function Contacts() {
   };
 
   useEffect(() => {
-    if (viewMode === "view") {
-      fetchContacts();
+    if (viewMode !== "view") return;
+    const cached = restoreListData<any[]>(contactsListKey);
+    if (cached) {
+      setContacts(cached);
+      return;
     }
-  }, [viewMode]);
+    fetchContacts();
+  }, [viewMode, contactsListKey]);
 
   const filteredContacts = contacts.filter((contact) => {
     // Search across all displayed fields

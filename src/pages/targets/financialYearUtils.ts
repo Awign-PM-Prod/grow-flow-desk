@@ -200,3 +200,128 @@ export function formatMonthYearLong(month: number, year: number): string {
   if (month < 1 || month > 12) return "";
   return `${LONG_MONTH_NAMES[month - 1]} ${year}`;
 }
+
+/** Sentinel for cross-sell dashboard FY filter — show lifetime data. */
+export const FY_FILTER_ALL = "all";
+
+export function getFinancialYearDateRange(fyKey: string): { start: Date; end: Date } {
+  const yearMatch = fyKey.match(/FY(\d{2})/);
+  if (!yearMatch) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const startYear = currentMonth >= 4 ? currentYear : currentYear - 1;
+    return {
+      start: new Date(startYear, 3, 1),
+      end: new Date(startYear + 1, 2, 31, 23, 59, 59, 999),
+    };
+  }
+
+  const startYear = 2000 + parseInt(yearMatch[1], 10);
+  return {
+    start: new Date(startYear, 3, 1),
+    end: new Date(startYear + 1, 2, 31, 23, 59, 59, 999),
+  };
+}
+
+export function getYearForMonthInFY(month: number, fyKey: string): number {
+  const fyStartYear = getFinancialYearDateRange(fyKey).start.getFullYear();
+  if (month >= 1 && month <= 3) return fyStartYear + 1;
+  return fyStartYear;
+}
+
+export function isLifetimeFySelection(selectedFys: string[]): boolean {
+  return selectedFys.includes(FY_FILTER_ALL);
+}
+
+export function resolveSelectedFyKeys(
+  selectedFys: string[],
+  availableFyKeys: string[],
+): string[] {
+  if (isLifetimeFySelection(selectedFys)) return [...availableFyKeys];
+  return selectedFys.filter((fy) => fy !== FY_FILTER_ALL && availableFyKeys.includes(fy));
+}
+
+export function formatCrossSellFyFilterLabel(
+  selectedFys: string[],
+  availableFyKeys: string[],
+): string {
+  if (isLifetimeFySelection(selectedFys)) return "All (lifetime)";
+  const keys = resolveSelectedFyKeys(selectedFys, availableFyKeys);
+  if (keys.length === 0) return "Select FY";
+  if (keys.length === 1) return formatFYLabel(keys[0]);
+  return keys.map(formatFYLabel).join(", ");
+}
+
+export function getMonthYearPairsForSelectedFys(
+  selectedFys: string[],
+  availableFyKeys: string[],
+): Array<{ month: number; year: number }> {
+  const keys = resolveSelectedFyKeys(selectedFys, availableFyKeys);
+  const seen = new Set<string>();
+  const pairs: Array<{ month: number; year: number }> = [];
+  for (const fyKey of keys) {
+    for (const pair of getMonthYearPairsForFY(fyKey)) {
+      const key = `${pair.year}-${pair.month}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pairs.push(pair);
+    }
+  }
+  return pairs;
+}
+
+export function getFinancialYearStringsForSelectedFys(
+  selectedFys: string[],
+  availableFyKeys: string[],
+): string[] {
+  return resolveSelectedFyKeys(selectedFys, availableFyKeys)
+    .map(fyKeyToFinancialYearString)
+    .filter(Boolean);
+}
+
+export function isDateWithinSelectedFys(
+  date: Date,
+  selectedFys: string[],
+  availableFyKeys: string[],
+): boolean {
+  if (isLifetimeFySelection(selectedFys)) return true;
+  return resolveSelectedFyKeys(selectedFys, availableFyKeys).some((fyKey) => {
+    const range = getFinancialYearDateRange(fyKey);
+    return date >= range.start && date <= range.end;
+  });
+}
+
+/** Calendar-month windows for expected contract sign date (one per FY × month, or all years when lifetime). */
+export function getExpectedContractSignRangesForMonth(
+  month: number,
+  selectedFys: string[],
+  availableFyKeys: string[],
+): Array<{ start: Date; end: Date }> {
+  if (isLifetimeFySelection(selectedFys)) {
+    const ranges: Array<{ start: Date; end: Date }> = [];
+    for (let year = 2018; year <= 2032; year++) {
+      ranges.push({
+        start: new Date(year, month - 1, 1),
+        end: new Date(year, month, 0, 23, 59, 59, 999),
+      });
+    }
+    return ranges;
+  }
+
+  return resolveSelectedFyKeys(selectedFys, availableFyKeys).map((fyKey) => {
+    const year = getYearForMonthInFY(month, fyKey);
+    return {
+      start: new Date(year, month - 1, 1),
+      end: new Date(year, month, 0, 23, 59, 59, 999),
+    };
+  });
+}
+
+export function getCreatedAtRangesForSelectedFys(
+  selectedFys: string[],
+  availableFyKeys: string[],
+): Array<{ start: Date; end: Date }> {
+  if (isLifetimeFySelection(selectedFys)) return [];
+  return resolveSelectedFyKeys(selectedFys, availableFyKeys).map(getFinancialYearDateRange);
+}

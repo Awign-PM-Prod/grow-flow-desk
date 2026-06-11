@@ -9,7 +9,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import {
   Navigate,
   Outlet,
@@ -19,6 +20,13 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { formatFYLabel, getCurrentFYKey, listFYKeysDescending } from "./financialYearUtils";
 import { cn } from "@/lib/utils";
+
+export type TargetsFilters = {
+  filterFinancialYear: string;
+  selectedTeam: "all" | "ce" | "staffing" | "experts";
+  filterKam: string;
+  filterLifecycleStatus: "all" | "Active" | "Inactive";
+};
 
 export type TargetsOutletContext = {
   filterFinancialYear: string;
@@ -45,16 +53,29 @@ export function TargetsLayout() {
   const isKamOnly =
     hasRole("kam") && !hasRole("manager") && !hasRole("superadmin");
 
-  const [filterFinancialYear, setFilterFinancialYear] = useState<string>(() =>
-    getCurrentFYKey()
+  const [pageFilters, setPageFilters] = usePersistedFilters<TargetsFilters>("targets-layout", {
+    filterFinancialYear: getCurrentFYKey(),
+    selectedTeam: "all",
+    filterKam: "all",
+    filterLifecycleStatus: "all",
+  });
+  const { filterFinancialYear, selectedTeam, filterKam, filterLifecycleStatus } = pageFilters;
+  const setFilterFinancialYear = useCallback(
+    (v: string) => setPageFilters({ filterFinancialYear: v }),
+    [setPageFilters],
   );
-  const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts">(
-    "all"
+  const setSelectedTeam = useCallback(
+    (v: "all" | "ce" | "staffing" | "experts") => setPageFilters({ selectedTeam: v }),
+    [setPageFilters],
   );
-  const [filterKam, setFilterKam] = useState("all");
-  const [filterLifecycleStatus, setFilterLifecycleStatus] = useState<
-    "all" | "Active" | "Inactive"
-  >("all");
+  const setFilterKam = useCallback(
+    (v: string) => setPageFilters({ filterKam: v }),
+    [setPageFilters],
+  );
+  const setFilterLifecycleStatus = useCallback(
+    (v: "all" | "Active" | "Inactive") => setPageFilters({ filterLifecycleStatus: v }),
+    [setPageFilters],
+  );
   const [kamSearch, setKamSearch] = useState("");
   const [filterKams, setFilterKams] = useState<Array<{ id: string; full_name: string }>>([]);
 
@@ -66,13 +87,17 @@ export function TargetsLayout() {
   useEffect(() => {
     if (canSelectAllTeams) return;
     if (userTeam) {
-      setSelectedTeam(userTeam);
+      setPageFilters((prev) =>
+        prev.selectedTeam === userTeam ? prev : { ...prev, selectedTeam: userTeam },
+      );
     }
-  }, [canSelectAllTeams, userTeam]);
+  }, [canSelectAllTeams, userTeam, setPageFilters]);
 
   useEffect(() => {
-    setFilterKam("all");
-  }, [selectedTeam]);
+    setPageFilters((prev) =>
+      prev.filterKam === "all" ? prev : { ...prev, filterKam: "all" },
+    );
+  }, [selectedTeam, setPageFilters]);
 
   useEffect(() => {
     if (isKamOnly) return;

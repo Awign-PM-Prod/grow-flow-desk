@@ -12,6 +12,8 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
+import { loadPersistedFilters, savePersistedFilters } from "@/lib/pageSession";
+import { invalidateListData, restoreListData, storeListData } from "@/lib/listPageCache";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -75,6 +77,34 @@ const industrySubCategories: Record<string, string[]> = {
   "Others": ["Others"],
 };
 
+type AccountsPageFilters = {
+  searchTerm: string;
+  filterAccountName: string;
+  filterCountry: string;
+  filterIndustry: string;
+  filterSubCategory: string;
+  filterRevenue: string;
+  filterMCVTier: string;
+  filterCompanyTier: string;
+  filterTeam: "all" | "ce" | "staffing" | "experts";
+  accountNameSearch: string;
+  countrySearch: string;
+};
+
+const DEFAULT_ACCOUNTS_FILTERS: AccountsPageFilters = {
+  searchTerm: "",
+  filterAccountName: "",
+  filterCountry: "",
+  filterIndustry: "",
+  filterSubCategory: "",
+  filterRevenue: "",
+  filterMCVTier: "",
+  filterCompanyTier: "",
+  filterTeam: "all",
+  accountNameSearch: "",
+  countrySearch: "",
+};
+
 export default function Accounts() {
   const { canMutatePortal, canSelectAllTeams } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>("view");
@@ -116,21 +146,56 @@ export default function Accounts() {
     companySizeTier: "",
   });
 
+  const savedFilters = loadPersistedFilters<AccountsPageFilters>("accounts-filters");
+  const initialFilters = savedFilters
+    ? { ...DEFAULT_ACCOUNTS_FILTERS, ...savedFilters }
+    : DEFAULT_ACCOUNTS_FILTERS;
+
   // Filters
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterAccountName, setFilterAccountName] = useState("");
-  const [filterCountry, setFilterCountry] = useState("");
-  const [filterIndustry, setFilterIndustry] = useState("");
-  const [filterSubCategory, setFilterSubCategory] = useState("");
-  const [filterRevenue, setFilterRevenue] = useState("");
-  const [filterMCVTier, setFilterMCVTier] = useState("");
-  const [filterCompanyTier, setFilterCompanyTier] = useState("");
-  const [filterTeam, setFilterTeam] = useState<"all" | "ce" | "staffing" | "experts">("all");
+  const [searchTerm, setSearchTerm] = useState(initialFilters.searchTerm);
+  const [filterAccountName, setFilterAccountName] = useState(initialFilters.filterAccountName);
+  const [filterCountry, setFilterCountry] = useState(initialFilters.filterCountry);
+  const [filterIndustry, setFilterIndustry] = useState(initialFilters.filterIndustry);
+  const [filterSubCategory, setFilterSubCategory] = useState(initialFilters.filterSubCategory);
+  const [filterRevenue, setFilterRevenue] = useState(initialFilters.filterRevenue);
+  const [filterMCVTier, setFilterMCVTier] = useState(initialFilters.filterMCVTier);
+  const [filterCompanyTier, setFilterCompanyTier] = useState(initialFilters.filterCompanyTier);
+  const [filterTeam, setFilterTeam] = useState<"all" | "ce" | "staffing" | "experts">(
+    initialFilters.filterTeam,
+  );
   const [accountTeamsById, setAccountTeamsById] = useState<Record<string, Set<"ce" | "staffing" | "experts">>>({});
   
   // Search states for filter dropdowns
-  const [accountNameSearch, setAccountNameSearch] = useState("");
-  const [countrySearch, setCountrySearch] = useState("");
+  const [accountNameSearch, setAccountNameSearch] = useState(initialFilters.accountNameSearch);
+  const [countrySearch, setCountrySearch] = useState(initialFilters.countrySearch);
+
+  useEffect(() => {
+    savePersistedFilters("accounts-filters", {
+      searchTerm,
+      filterAccountName,
+      filterCountry,
+      filterIndustry,
+      filterSubCategory,
+      filterRevenue,
+      filterMCVTier,
+      filterCompanyTier,
+      filterTeam,
+      accountNameSearch,
+      countrySearch,
+    });
+  }, [
+    searchTerm,
+    filterAccountName,
+    filterCountry,
+    filterIndustry,
+    filterSubCategory,
+    filterRevenue,
+    filterMCVTier,
+    filterCompanyTier,
+    filterTeam,
+    accountNameSearch,
+    countrySearch,
+  ]);
 
   const { toast } = useToast();
 
@@ -258,7 +323,9 @@ export default function Accounts() {
   };
 
   const fetchAccounts = async () => {
+    invalidateListData("accounts");
     setLoadingAccounts(true);
+    let teamsById: Record<string, ("ce" | "staffing" | "experts")[]> = {};
     try {
       const { data, error } = await supabase
         .from("accounts")
@@ -304,8 +371,12 @@ export default function Accounts() {
           teamMap[row.account_id].add(row.team);
         });
         setAccountTeamsById(teamMap);
+        teamsById = Object.fromEntries(
+          Object.entries(teamMap).map(([id, teams]) => [id, [...teams]]),
+        );
       } else {
         setAccountTeamsById({});
+        teamsById = {};
       }
 
       // Calculate Total ACV and MCV from mandates for each account (if mandates table exists)
@@ -499,6 +570,10 @@ export default function Accounts() {
       }
 
       setAccounts(accountsWithTotals);
+      storeListData("accounts", {
+        accounts: accountsWithTotals,
+        accountTeamsById: teamsById,
+      });
     } catch (error: any) {
       console.error("Error fetching accounts:", error);
       setAccounts([]);
@@ -514,10 +589,21 @@ export default function Accounts() {
 
 
   useEffect(() => {
-    if (viewMode === "view") {
-      console.log("View mode changed to 'view', fetching accounts...");
-      fetchAccounts();
+    if (viewMode !== "view") return;
+    const cached = restoreListData<{
+      accounts: any[];
+      accountTeamsById: Record<string, ("ce" | "staffing" | "experts")[]>;
+    }>("accounts");
+    if (cached) {
+      setAccounts(cached.accounts);
+      const teams: Record<string, Set<"ce" | "staffing" | "experts">> = {};
+      Object.entries(cached.accountTeamsById).forEach(([id, teamList]) => {
+        teams[id] = new Set(teamList);
+      });
+      setAccountTeamsById(teams);
+      return;
     }
+    fetchAccounts();
   }, [viewMode]);
 
   const clearFilters = () => {

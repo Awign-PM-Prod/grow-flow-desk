@@ -1,18 +1,108 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, BookOpen } from "lucide-react";
+import { ChevronDown, Loader2, BookOpen } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
 import { formatNumber } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
+import { getPageDataCache, hashPageFilters, setPageDataCache } from "@/lib/pageSession";
 import { ALL_LOB_OPTIONS, getAllowedLobOptions } from "@/lib/teamLob";
+import {
+  FY_FILTER_ALL,
+  formatCrossSellFyFilterLabel,
+  getCreatedAtRangesForSelectedFys,
+  getExpectedContractSignRangesForMonth,
+  isDateWithinSelectedFys,
+  isLifetimeFySelection,
+} from "@/pages/targets/financialYearUtils";
 
 const lobOptions = [...ALL_LOB_OPTIONS];
+const CROSS_SELL_FY_OPTIONS = ["FY24", "FY25", "FY26", "FY27", "FY28"] as const;
+
+type CrossSellFilters = {
+  selectedFys: string[];
+  filterKam: string;
+  filterExpectedContractSignMonth: string;
+};
+
+type CrossSellDataCache = {
+  conversionTableData: Array<{
+    status: string;
+    records: number;
+    mcv: number;
+    cvr: string;
+    remaining: number;
+    dropped: number;
+    maxRecords?: number;
+  }>;
+  funnelCounts: { tofu: number; mofu: number; bofu: number; closedWon: number; dropped: number };
+  waterfallFunnelCounts: { tofu: number; mofu: number; bofu: number; closedWon: number; dropped: number };
+  funnelRevenue: { tofu: number; mofu: number; bofu: number; closedWon: number; dropped: number };
+  totalDealsCount: number;
+  meetingsDoneLastWeek: number;
+  meetingsDoneThisWeek: number;
+  proposalMadeLastWeek: number;
+  proposalMadeThisWeek: number;
+  lobSalesPerformance: Array<{ lob: string; targetMpv: number; achievedMpv: number }>;
+  kamSalesPerformance: Array<{ kamId: string; kamName: string; targetMpv: number; achievedMpv: number }>;
+};
+
+const DEFAULT_CROSS_SELL_FILTERS: CrossSellFilters = {
+  selectedFys: [FY_FILTER_ALL],
+  filterKam: "",
+  filterExpectedContractSignMonth: "",
+};
+
+type DateRange = { start: Date; end: Date };
+
+function formatDealsFilterDate(field: "created_at" | "expected_contract_sign_date", date: Date) {
+  return field === "expected_contract_sign_date"
+    ? date.toISOString().split("T")[0]
+    : date.toISOString();
+}
+
+function applyDealsDateFilter(
+  query: any,
+  field: "created_at" | "expected_contract_sign_date",
+  ranges: DateRange[],
+) {
+  if (ranges.length === 0) return query;
+  if (ranges.length === 1) {
+    return query
+      .gte(field, formatDealsFilterDate(field, ranges[0].start))
+      .lte(field, formatDealsFilterDate(field, ranges[0].end));
+  }
+  const orClause = ranges
+    .map(
+      (range) =>
+        `and(${field}.gte.${formatDealsFilterDate(field, range.start)},${field}.lte.${formatDealsFilterDate(field, range.end)})`,
+    )
+    .join(",");
+  return query.or(orClause);
+}
+
+function getDealsFyDateRanges(
+  selectedFys: string[],
+  filterExpectedContractSignMonth: string,
+): DateRange[] {
+  if (filterExpectedContractSignMonth) {
+    const month = parseInt(filterExpectedContractSignMonth, 10);
+    return getExpectedContractSignRangesForMonth(
+      month,
+      selectedFys,
+      [...CROSS_SELL_FY_OPTIONS],
+    );
+  }
+  return getCreatedAtRangesForSelectedFys(selectedFys, [...CROSS_SELL_FY_OPTIONS]);
+}
 
 export default function CrossSellDashboard() {
   const { user, hasRole, team, canSelectAllTeams } = useAuth();
@@ -78,98 +168,71 @@ export default function CrossSellDashboard() {
     achievedMpv: number;
   }>>([]);
   
-  // Filter states
-  const [performanceDashboardFY, setPerformanceDashboardFY] = useState<string>(() => {
-    // Calculate current financial year on component mount
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-12
-    
-    // Financial year starts in April (month 4)
-    // If current month is April or later, FY started in current year
-    // If current month is Jan-Mar, FY started in previous year
-    const fyStartYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-    
-    // Convert to 2-digit format (e.g., 2025 -> 25)
-    const fyYearDigits = fyStartYear.toString().slice(-2);
-    
-    return `FY${fyYearDigits}`;
-  });
-  const [filterKam, setFilterKam] = useState<string>("");
+  const [pageFilters, setPageFilters] = usePersistedFilters<CrossSellFilters>(
+    "cross-sell-dashboard",
+    DEFAULT_CROSS_SELL_FILTERS,
+  );
+  const { selectedFys, filterKam, filterExpectedContractSignMonth } = pageFilters;
+  const setSelectedFys = useCallback(
+    (update: string[] | ((prev: string[]) => string[])) => {
+      setPageFilters((prev) => ({
+        ...prev,
+        selectedFys:
+          typeof update === "function" ? update(prev.selectedFys) : update,
+      }));
+    },
+    [setPageFilters],
+  );
+  const setFilterKam = useCallback(
+    (value: string) => setPageFilters({ filterKam: value }),
+    [setPageFilters],
+  );
+  const setFilterExpectedContractSignMonth = useCallback(
+    (value: string) => setPageFilters({ filterExpectedContractSignMonth: value }),
+    [setPageFilters],
+  );
+
+  const [fyFilterOpen, setFyFilterOpen] = useState(false);
+  const selectedFyLabel = useMemo(
+    () => formatCrossSellFyFilterLabel(selectedFys, [...CROSS_SELL_FY_OPTIONS]),
+    [selectedFys],
+  );
+
+  const handleFyToggle = (value: string, checked: boolean) => {
+    if (value === FY_FILTER_ALL) {
+      if (checked) setSelectedFys([FY_FILTER_ALL]);
+      return;
+    }
+    setSelectedFys((prev) => {
+      const withoutAll = prev.filter((fy) => fy !== FY_FILTER_ALL);
+      let next = checked
+        ? [...withoutAll, value]
+        : withoutAll.filter((fy) => fy !== value);
+      if (next.length === 0) next = [FY_FILTER_ALL];
+      return next;
+    });
+  };
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [kamSearch, setKamSearch] = useState("");
-  const [filterExpectedContractSignMonth, setFilterExpectedContractSignMonth] = useState<string>("");
   const [guideDialogOpen, setGuideDialogOpen] = useState(false);
-
-  // Helper function to convert FY string to date range
-  const getFinancialYearDateRange = (fyString: string): { start: Date; end: Date } => {
-    // Extract year from FY string (e.g., "FY26" -> 2025)
-    const yearMatch = fyString.match(/FY(\d{2})/);
-    if (!yearMatch) {
-      // Default to current year if parsing fails
-      const now = new Date();
-      const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth() + 1;
-      const startYear = currentMonth >= 4 ? currentYear : currentYear - 1;
-      return {
-        start: new Date(startYear, 3, 1), // April 1
-        end: new Date(startYear + 1, 2, 31, 23, 59, 59, 999), // March 31
-      };
-    }
-    
-    const yearDigits = parseInt(yearMatch[1], 10);
-    // Convert 2-digit year to 4-digit (e.g., 26 -> 2025, assuming 2000s)
-    const startYear = 2000 + yearDigits;
-    
-    return {
-      start: new Date(startYear, 3, 1), // April 1
-      end: new Date(startYear + 1, 2, 31, 23, 59, 59, 999), // March 31
-    };
-  };
-
-  // Helper function to get the year for a month within the selected FY
-  // FY runs from April (month 4) to March (month 3)
-  // If month is 1-3, it's in the second year of the FY
-  // If month is 4-12, it's in the first year of the FY
-  const getYearForMonthInFY = (month: number, fyString: string): number => {
-    const fyDateRange = getFinancialYearDateRange(fyString);
-    const fyStartYear = fyDateRange.start.getFullYear();
-    
-    // Months 1-3 (Jan-Mar) are in the second year of FY
-    // Months 4-12 (Apr-Dec) are in the first year of FY
-    if (month >= 1 && month <= 3) {
-      return fyStartYear + 1;
-    } else {
-      return fyStartYear;
-    }
-  };
 
   const fetchMeetingsAndProposalsData = async () => {
     try {
-      // Get financial year date range from Performance Dashboard FY filter
-      const perfFyDateRange = getFinancialYearDateRange(performanceDashboardFY);
-      
+      const dealsFyRanges = getDealsFyDateRanges(
+        selectedFys,
+        filterExpectedContractSignMonth,
+      );
+
       // Get filtered deal IDs first
       let dealsQuery = supabase
         .from("pipeline_deals" as any)
         .select("id, kam_id, expected_contract_sign_date");
 
-      // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
-      // Otherwise, filter by created_at for the FY
-      if (filterExpectedContractSignMonth) {
-        const month = parseInt(filterExpectedContractSignMonth);
-        const year = getYearForMonthInFY(month, performanceDashboardFY);
-        const startDate = new Date(year, month - 1, 1);
-        const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-        dealsQuery = dealsQuery
-          .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
-          .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
-      } else {
-        // When no month filter, filter by created_at for the FY
-        dealsQuery = dealsQuery
-          .gte("created_at", perfFyDateRange.start.toISOString())
-          .lte("created_at", perfFyDateRange.end.toISOString());
-      }
+      dealsQuery = applyDealsDateFilter(
+        dealsQuery,
+        filterExpectedContractSignMonth ? "expected_contract_sign_date" : "created_at",
+        dealsFyRanges,
+      );
 
       if (filterKam) {
         dealsQuery = dealsQuery.eq("kam_id", filterKam);
@@ -200,13 +263,12 @@ export default function CrossSellDashboard() {
       lastWeekStart.setDate(lastWeekEnd.getDate() - 6);
       lastWeekStart.setHours(0, 0, 0, 0);
       
-      // Calculate effective week ranges (intersection of week range and FY range)
-      const effectiveLastWeekStart = lastWeekStart < perfFyDateRange.start ? perfFyDateRange.start : lastWeekStart;
-      const effectiveLastWeekEnd = lastWeekEnd > perfFyDateRange.end ? perfFyDateRange.end : lastWeekEnd;
-      const effectiveCurrentWeekStart = currentWeekStart < perfFyDateRange.start ? perfFyDateRange.start : currentWeekStart;
-      const effectiveCurrentWeekEnd = currentWeekEnd > perfFyDateRange.end ? perfFyDateRange.end : currentWeekEnd;
-      
-      // Only query if the effective date range is valid (start <= end)
+      // Deals are already FY-scoped via filteredDealIds; use full calendar weeks.
+      const effectiveLastWeekStart = lastWeekStart;
+      const effectiveLastWeekEnd = lastWeekEnd;
+      const effectiveCurrentWeekStart = currentWeekStart;
+      const effectiveCurrentWeekEnd = currentWeekEnd;
+
       const hasValidLastWeek = effectiveLastWeekStart <= effectiveLastWeekEnd;
       const hasValidCurrentWeek = effectiveCurrentWeekStart <= effectiveCurrentWeekEnd;
       
@@ -289,9 +351,15 @@ export default function CrossSellDashboard() {
 
   const fetchConversionTableData = async () => {
     try {
-      // Get financial year date range from Performance Dashboard FY filter
-      const perfFyDateRange = getFinancialYearDateRange(performanceDashboardFY);
-      
+      const dealsFyRanges = getDealsFyDateRanges(
+        selectedFys,
+        filterExpectedContractSignMonth,
+      );
+      const historyFyRanges = getCreatedAtRangesForSelectedFys(
+        selectedFys,
+        [...CROSS_SELL_FY_OPTIONS],
+      );
+
       // Status order matching Pipeline.tsx
       const statusOrder = [
         "Listed",
@@ -311,22 +379,11 @@ export default function CrossSellDashboard() {
         .from("pipeline_deals" as any)
         .select("id, status, created_at, mcv, kam_id, expected_contract_sign_date");
 
-      // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
-      // Otherwise, filter by created_at for the FY
-      if (filterExpectedContractSignMonth) {
-        const month = parseInt(filterExpectedContractSignMonth);
-        const year = getYearForMonthInFY(month, performanceDashboardFY);
-        const startDate = new Date(year, month - 1, 1);
-        const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-        dealsQuery = dealsQuery
-          .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
-          .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
-      } else {
-        // When no month filter, filter by created_at for the FY
-        dealsQuery = dealsQuery
-          .gte("created_at", perfFyDateRange.start.toISOString())
-          .lte("created_at", perfFyDateRange.end.toISOString());
-      }
+      dealsQuery = applyDealsDateFilter(
+        dealsQuery,
+        filterExpectedContractSignMonth ? "expected_contract_sign_date" : "created_at",
+        dealsFyRanges,
+      );
 
       // Apply KAM filter
       if (filterKam) {
@@ -334,7 +391,6 @@ export default function CrossSellDashboard() {
       }
 
       // Fetch current deals to handle deals that might not have history yet (newly created with "Listed" status)
-      // Filter by created_at within selected FY
       // Also fetch mcv to calculate MCV per status
       const { data: currentDeals, error: dealsError } = await dealsQuery as any;
 
@@ -344,12 +400,15 @@ export default function CrossSellDashboard() {
       const filteredDealIds = currentDeals ? currentDeals.map((d: any) => d.id) : [];
 
       // Fetch all status history records to track all statuses each deal has been in
-      // Filter by created_at within selected FY and deal IDs
       let allStatusHistoryQuery = supabase
         .from("deal_status_history" as any)
-        .select("deal_id, old_status, new_status, created_at")
-        .gte("created_at", perfFyDateRange.start.toISOString())
-        .lte("created_at", perfFyDateRange.end.toISOString());
+        .select("deal_id, old_status, new_status, created_at");
+
+      allStatusHistoryQuery = applyDealsDateFilter(
+        allStatusHistoryQuery,
+        "created_at",
+        historyFyRanges,
+      );
 
       let allStatusHistory: any[] | null = [];
       if (filteredDealIds.length > 0) {
@@ -526,30 +585,21 @@ export default function CrossSellDashboard() {
       setFunnelRevenue({ tofu: 0, mofu: 0, bofu: 0, closedWon: 0, dropped: 0 });
       setTotalDealsCount(0);
       
-      // Get financial year date range from Performance Dashboard FY filter
-      const perfFyDateRange = getFinancialYearDateRange(performanceDashboardFY);
-      
+      const dealsFyRanges = getDealsFyDateRanges(
+        selectedFys,
+        filterExpectedContractSignMonth,
+      );
+
       // Build base query for pipeline_deals with filters (including expected_revenue for both counts and revenue)
       let dealsQuery = supabase
         .from("pipeline_deals" as any)
         .select("id, status, created_at, kam_id, expected_contract_sign_date, expected_revenue");
 
-      // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
-      // Otherwise, filter by created_at for the FY
-      if (filterExpectedContractSignMonth) {
-        const month = parseInt(filterExpectedContractSignMonth);
-        const year = getYearForMonthInFY(month, performanceDashboardFY);
-        const startDate = new Date(year, month - 1, 1);
-        const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-        dealsQuery = dealsQuery
-          .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
-          .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
-      } else {
-        // When no month filter, filter by created_at for the FY
-        dealsQuery = dealsQuery
-          .gte("created_at", perfFyDateRange.start.toISOString())
-          .lte("created_at", perfFyDateRange.end.toISOString());
-      }
+      dealsQuery = applyDealsDateFilter(
+        dealsQuery,
+        filterExpectedContractSignMonth ? "expected_contract_sign_date" : "created_at",
+        dealsFyRanges,
+      );
 
       // Apply KAM filter
       if (filterKam) {
@@ -628,22 +678,11 @@ export default function CrossSellDashboard() {
           .from("pipeline_deals" as any)
           .select("id, status, kam_id, expected_contract_sign_date, created_at");
 
-        // Apply Expected Contract Signing month filter - when selected, filter by expected_contract_sign_date
-        // Otherwise, filter by created_at for the FY
-        if (filterExpectedContractSignMonth) {
-          const month = parseInt(filterExpectedContractSignMonth);
-          const year = getYearForMonthInFY(month, performanceDashboardFY);
-          const startDate = new Date(year, month - 1, 1);
-          const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-          waterfallDealsQuery = waterfallDealsQuery
-            .gte("expected_contract_sign_date", startDate.toISOString().split("T")[0])
-            .lte("expected_contract_sign_date", endDate.toISOString().split("T")[0]);
-        } else {
-          // When no month filter, filter by created_at for the FY
-          waterfallDealsQuery = waterfallDealsQuery
-            .gte("created_at", perfFyDateRange.start.toISOString())
-            .lte("created_at", perfFyDateRange.end.toISOString());
-        }
+        waterfallDealsQuery = applyDealsDateFilter(
+          waterfallDealsQuery,
+          filterExpectedContractSignMonth ? "expected_contract_sign_date" : "created_at",
+          dealsFyRanges,
+        );
 
         // Apply KAM filter
         if (filterKam) {
@@ -715,83 +754,6 @@ export default function CrossSellDashboard() {
         setTotalDealsCount(0);
       }
 
-      // Fetch Cross Sell Target Sum for selected Financial Year
-      // Convert performanceDashboardFY to financial_year format used in monthly_targets
-      const perfFyYearMatch = performanceDashboardFY.match(/FY(\d{2})/);
-      const perfFinancialYearString = perfFyYearMatch 
-        ? (() => {
-            const startYear = 2000 + parseInt(perfFyYearMatch[1], 10);
-            const endYearDigits = String(parseInt(perfFyYearMatch[1], 10) + 1).padStart(2, '0');
-            return `${startYear}-${endYearDigits}`;
-          })()
-        : null;
-
-      // Get FY date range to determine which months to include
-      const perfFyDateRangeForTarget = getFinancialYearDateRange(performanceDashboardFY);
-      const perfFyStartYear = perfFyDateRangeForTarget.start.getFullYear();
-      const perfFyEndYear = perfFyDateRangeForTarget.end.getFullYear();
-
-      // All months in the financial year (April to March)
-      const perfFyMonths = [
-        { month: 4, year: perfFyStartYear },   // April
-        { month: 5, year: perfFyStartYear },   // May
-        { month: 6, year: perfFyStartYear },   // June
-        { month: 7, year: perfFyStartYear },   // July
-        { month: 8, year: perfFyStartYear },   // August
-        { month: 9, year: perfFyStartYear },   // September
-        { month: 10, year: perfFyStartYear },  // October
-        { month: 11, year: perfFyStartYear },  // November
-        { month: 12, year: perfFyStartYear },  // December
-        { month: 1, year: perfFyEndYear },     // January
-        { month: 2, year: perfFyEndYear },     // February
-        { month: 3, year: perfFyEndYear },     // March
-      ];
-
-      // Fetch all cross sell type targets for the selected FY
-      const perfFyMonthNumbers = perfFyMonths.map(m => m.month);
-      const perfFyYears = [perfFyStartYear, perfFyEndYear];
-
-      const { data: inactiveMandateRows } = await supabase
-        .from("mandates")
-        .select("id")
-        .eq("lifecycle_status", "Inactive");
-      const inactiveMandateIdSet = new Set(
-        (inactiveMandateRows || []).map((r: { id: string }) => r.id)
-      );
-
-      let crossSellTargetsQuery = supabase
-        .from("monthly_targets")
-        .select("target, month, year, mandate_id")
-        .eq("target_type", "new_cross_sell")
-        .in("month", perfFyMonthNumbers)
-        .in("year", perfFyYears);
-
-      // Filter by financial_year if available
-      if (perfFinancialYearString) {
-        crossSellTargetsQuery = crossSellTargetsQuery.eq("financial_year", perfFinancialYearString);
-      }
-
-      const { data: crossSellTargets, error: crossSellTargetsError } = await crossSellTargetsQuery;
-
-      let totalCrossSellTarget = 0;
-      if (!crossSellTargetsError && crossSellTargets) {
-        // Filter to only include targets that match the FY months exactly
-        crossSellTargets.forEach((target: any) => {
-          if (
-            target.mandate_id &&
-            inactiveMandateIdSet.has(target.mandate_id as string)
-          ) {
-            return;
-          }
-          const matchesFyMonth = perfFyMonths.some(
-            (fyMonth) => fyMonth.month === target.month && fyMonth.year === target.year
-          );
-          if (matchesFyMonth) {
-            totalCrossSellTarget += parseFloat(target.target?.toString() || "0") || 0;
-          }
-        });
-      }
-
       setLoading(false);
     } catch (error) {
       console.error("Error fetching funnel data:", error);
@@ -828,7 +790,6 @@ export default function CrossSellDashboard() {
   const fetchLobSalesPerformance = async () => {
     try {
       console.log("Fetching LoB Sales Performance...", { isKAM, isAdmin, userId: user?.id, filterKam });
-      const fyDateRange = getFinancialYearDateRange(performanceDashboardFY);
       const currentIsKAM = hasRole("kam");
       const currentIsAdmin = hasRole("superadmin") || hasRole("team_admin") || hasRole("leadership") || hasRole("manager");
       
@@ -884,15 +845,17 @@ export default function CrossSellDashboard() {
                   const month = parseInt(monthStr);
                   const monthDate = new Date(year, month - 1, 1);
                   
-                  // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  if (
+                    isDateWithinSelectedFys(
+                      monthDate,
+                      selectedFys,
+                      [...CROSS_SELL_FY_OPTIONS],
+                    )
+                  ) {
                     const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
                     const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                    
-                    // Target MPV is sum of planned MCV
+
                     lobData[lob].targetMpv += plannedMcv;
-                    
-                    // Achieved MPV is sum of achieved MCV
                     lobData[lob].achievedMpv += achievedMcv;
                   }
                 }
@@ -926,7 +889,6 @@ export default function CrossSellDashboard() {
   const fetchKamSalesPerformance = async () => {
     try {
       console.log("Fetching KAM Sales Performance...", { isKAM, isAdmin, userId: user?.id, filterKam });
-      const fyDateRange = getFinancialYearDateRange(performanceDashboardFY);
       const currentIsKAM = hasRole("kam");
       const currentIsAdmin = hasRole("superadmin") || hasRole("team_admin") || hasRole("leadership") || hasRole("manager");
       
@@ -1000,15 +962,17 @@ export default function CrossSellDashboard() {
                   const month = parseInt(monthStr);
                   const monthDate = new Date(year, month - 1, 1);
                   
-                  // Only include if within selected FY date range
-                  if (monthDate >= fyDateRange.start && monthDate <= fyDateRange.end) {
+                  if (
+                    isDateWithinSelectedFys(
+                      monthDate,
+                      selectedFys,
+                      [...CROSS_SELL_FY_OPTIONS],
+                    )
+                  ) {
                     const plannedMcv = parseFloat(monthRecord[0]?.toString() || "0") || 0;
                     const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                    
-                    // Target MPV is sum of planned MCV
+
                     kamData[kamId].targetMpv += plannedMcv;
-                    
-                    // Achieved MPV is sum of achieved MCV
                     kamData[kamId].achievedMpv += achievedMcv;
                   }
                 }
@@ -1050,14 +1014,76 @@ export default function CrossSellDashboard() {
     }
   };
 
+  const filterHash = useMemo(
+    () =>
+      hashPageFilters({
+        selectedFys,
+        filterKam,
+        filterExpectedContractSignMonth,
+        userId: user?.id,
+      }),
+    [selectedFys, filterKam, filterExpectedContractSignMonth, user?.id],
+  );
+
+  const applyCrossSellCache = useCallback((cached: CrossSellDataCache) => {
+    setConversionTableData(cached.conversionTableData);
+    setFunnelCounts(cached.funnelCounts);
+    setWaterfallFunnelCounts(cached.waterfallFunnelCounts);
+    setFunnelRevenue(cached.funnelRevenue);
+    setTotalDealsCount(cached.totalDealsCount);
+    setMeetingsDoneLastWeek(cached.meetingsDoneLastWeek);
+    setMeetingsDoneThisWeek(cached.meetingsDoneThisWeek);
+    setProposalMadeLastWeek(cached.proposalMadeLastWeek);
+    setProposalMadeThisWeek(cached.proposalMadeThisWeek);
+    setLobSalesPerformance(cached.lobSalesPerformance);
+    setKamSalesPerformance(cached.kamSalesPerformance);
+  }, []);
+
   useEffect(() => {
-    fetchFunnelData();
-    fetchConversionTableData();
-    fetchMeetingsAndProposalsData();
-    fetchLobSalesPerformance();
-    fetchKamSalesPerformance();
+    const cached = getPageDataCache<CrossSellDataCache>("cross-sell-dashboard", filterHash);
+    if (cached) {
+      applyCrossSellCache(cached);
+      setLoading(false);
+      return;
+    }
+    void fetchFunnelData();
+    void fetchConversionTableData();
+    void fetchMeetingsAndProposalsData();
+    void fetchLobSalesPerformance();
+    void fetchKamSalesPerformance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [performanceDashboardFY, filterKam, filterExpectedContractSignMonth, user?.id]);
+  }, [filterHash, applyCrossSellCache]);
+
+  useEffect(() => {
+    if (loading) return;
+    setPageDataCache("cross-sell-dashboard", filterHash, {
+      conversionTableData,
+      funnelCounts,
+      waterfallFunnelCounts,
+      funnelRevenue,
+      totalDealsCount,
+      meetingsDoneLastWeek,
+      meetingsDoneThisWeek,
+      proposalMadeLastWeek,
+      proposalMadeThisWeek,
+      lobSalesPerformance,
+      kamSalesPerformance,
+    });
+  }, [
+    loading,
+    filterHash,
+    conversionTableData,
+    funnelCounts,
+    waterfallFunnelCounts,
+    funnelRevenue,
+    totalDealsCount,
+    meetingsDoneLastWeek,
+    meetingsDoneThisWeek,
+    proposalMadeLastWeek,
+    proposalMadeThisWeek,
+    lobSalesPerformance,
+    kamSalesPerformance,
+  ]);
 
   // Prepare data for Stage Count Graph (normal bar graph with separate bars)
   // Use the same values as Funnel Stage Count of Sales Module section
@@ -1145,19 +1171,48 @@ export default function CrossSellDashboard() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-4 items-center">
-        {/* Financial Year Filter */}
-        <Select value={performanceDashboardFY} onValueChange={setPerformanceDashboardFY}>
-          <SelectTrigger className="w-[120px]">
-            <SelectValue placeholder="Select FY" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="FY24">FY24</SelectItem>
-            <SelectItem value="FY25">FY25</SelectItem>
-            <SelectItem value="FY26">FY26</SelectItem>
-            <SelectItem value="FY27">FY27</SelectItem>
-            <SelectItem value="FY28">FY28</SelectItem>
-          </SelectContent>
-        </Select>
+        {/* Financial Year Filter (multi-select + All) */}
+        <Popover open={fyFilterOpen} onOpenChange={setFyFilterOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className="h-9 min-w-[160px] max-w-[280px] justify-between gap-2 font-normal"
+            >
+              <span className="truncate">{selectedFyLabel}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-2" align="start">
+            <div className="space-y-1">
+              <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                <Checkbox
+                  checked={isLifetimeFySelection(selectedFys)}
+                  onCheckedChange={(checked) =>
+                    handleFyToggle(FY_FILTER_ALL, checked === true)
+                  }
+                />
+                <span className="font-medium">All (lifetime)</span>
+              </label>
+              <div className="my-1 border-t" />
+              {CROSS_SELL_FY_OPTIONS.map((fy) => (
+                <label
+                  key={fy}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+                >
+                  <Checkbox
+                    checked={
+                      !isLifetimeFySelection(selectedFys) && selectedFys.includes(fy)
+                    }
+                    onCheckedChange={(checked) =>
+                      handleFyToggle(fy, checked === true)
+                    }
+                  />
+                  <span>{fy}</span>
+                </label>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
 
         {/* KAM Filter with Search */}
         <Select value={filterKam || "all"} onValueChange={(value) => setFilterKam(value === "all" ? "" : value)}>
@@ -1363,7 +1418,7 @@ export default function CrossSellDashboard() {
               ) : conversionTableData.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    No data available for {performanceDashboardFY}
+                    No data available for {selectedFyLabel}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -1721,7 +1776,7 @@ export default function CrossSellDashboard() {
         {/* FY Annual Sales Target - Individual */}
         <Card>
           <CardHeader>
-            <CardTitle>{performanceDashboardFY} Annual Sales Target - Individual</CardTitle>
+            <CardTitle>{selectedFyLabel} Annual Sales Target - Individual</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">Compare target vs achieved sales for individual staff members.</p>
           </CardHeader>
           <CardContent>

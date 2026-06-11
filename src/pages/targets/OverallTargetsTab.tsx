@@ -40,6 +40,7 @@ import {
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { clearPageDataCache, getPageDataCache, hashPageFilters, setPageDataCache } from "@/lib/pageSession";
 import { useOutletContext } from "react-router-dom";
 import type { TargetsOutletContext } from "./TargetsLayout";
 import {
@@ -73,7 +74,6 @@ export function OverallTargetsTab() {
   const [month, setMonth] = useState<string>("");
   const [year, setYear] = useState<string>("");
   const [existingTarget, setExistingTarget] = useState<string>("");
-  const [newAcTarget, setNewAcTarget] = useState<string>("");
   const [formTeam, setFormTeam] = useState<ManagerTargetRow["team"]>("ce");
 
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -90,6 +90,16 @@ export function OverallTargetsTab() {
   const [uploading, setUploading] = useState(false);
   const effectiveTeam =
     canSelectAllTeams && selectedTeam !== "all" ? selectedTeam : userTeam;
+  const overallTargetsPageKey = "overall-targets";
+  const filterHash = useMemo(
+    () =>
+      hashPageFilters({
+        filterFinancialYear,
+        selectedTeam,
+        effectiveTeam,
+      }),
+    [filterFinancialYear, selectedTeam, effectiveTeam],
+  );
   const canMutateToolbar = canMutatePortal;
   const canMutateRows = canMutatePortal && !(canSelectAllTeams && selectedTeam === "all");
 
@@ -103,6 +113,7 @@ export function OverallTargetsTab() {
   );
 
   const load = useCallback(async () => {
+    clearPageDataCache(overallTargetsPageKey);
     setLoading(true);
     try {
       const yearMatch = filterFinancialYear.match(/FY(\d{2})/);
@@ -134,8 +145,6 @@ export function OverallTargetsTab() {
           if (existing) {
             existing.existing_target =
               Number(existing.existing_target || 0) + Number(r.existing_target || 0);
-            existing.new_ac_target =
-              Number(existing.new_ac_target || 0) + Number(r.new_ac_target || 0);
           } else {
             aggregatedMap.set(key, {
               ...r,
@@ -162,8 +171,19 @@ export function OverallTargetsTab() {
   }, [filterFinancialYear, pairs, selectedTeam, effectiveTeam]);
 
   useEffect(() => {
+    const cached = getPageDataCache<ManagerTargetRow[]>(overallTargetsPageKey, filterHash);
+    if (cached) {
+      setRows(cached);
+      setLoading(false);
+      return;
+    }
     void load();
-  }, [load]);
+  }, [load, filterHash]);
+
+  useEffect(() => {
+    if (loading) return;
+    setPageDataCache(overallTargetsPageKey, filterHash, rows);
+  }, [loading, filterHash, rows]);
 
   const rowMap = new Map<string, ManagerTargetRow>();
   rows.forEach((r) => {
@@ -174,14 +194,10 @@ export function OverallTargetsTab() {
     return monthColumns.reduce(
       (acc, col) => {
         const row = rowMap.get(col.key);
-        const existing = Number(row?.existing_target ?? 0);
-        const newAc = Number(row?.new_ac_target ?? 0);
-        acc.existing += existing;
-        acc.newAc += newAc;
-        acc.total += existing + newAc;
+        acc.existing += Number(row?.existing_target ?? 0);
         return acc;
       },
-      { existing: 0, newAc: 0, total: 0 }
+      { existing: 0 }
     );
   }, [monthColumns, rows]);
 
@@ -190,7 +206,6 @@ export function OverallTargetsTab() {
     setMonth("");
     setYear("");
     setExistingTarget("");
-    setNewAcTarget("");
     setFormTeam(effectiveTeam ?? "ce");
     setFormOpen(true);
   };
@@ -200,7 +215,6 @@ export function OverallTargetsTab() {
     setMonth(String(col.month));
     setYear(String(col.year));
     setExistingTarget("0");
-    setNewAcTarget("0");
     setFormTeam(effectiveTeam ?? "ce");
     setFormOpen(true);
   };
@@ -210,7 +224,6 @@ export function OverallTargetsTab() {
     setMonth(String(r.month));
     setYear(String(r.year));
     setExistingTarget(String(r.existing_target ?? 0));
-    setNewAcTarget(String(r.new_ac_target ?? 0));
     setFormTeam(r.team);
     setFormOpen(true);
   };
@@ -220,11 +233,10 @@ export function OverallTargetsTab() {
     const m = parseInt(month, 10);
     const y = parseInt(year, 10);
     const ex = parseFloat(existingTarget);
-    const na = parseFloat(newAcTarget);
-    if (!m || !y || Number.isNaN(ex) || Number.isNaN(na) || ex < 0 || na < 0) {
+    if (!m || !y || Number.isNaN(ex) || ex < 0) {
       toast({
         title: "Validation",
-        description: "Enter valid month, year, and non-negative targets.",
+        description: "Enter valid month, year, and a non-negative existing target.",
         variant: "destructive",
       });
       return;
@@ -260,7 +272,7 @@ export function OverallTargetsTab() {
             month: m,
             year: y,
             existing_target: ex,
-            new_ac_target: na,
+            new_ac_target: 0,
             updated_at: new Date().toISOString(),
           })
           .eq("team", editing.team)
@@ -273,7 +285,7 @@ export function OverallTargetsTab() {
             .from("manager_targets")
             .update({
               existing_target: ex,
-              new_ac_target: na,
+              new_ac_target: 0,
               updated_at: new Date().toISOString(),
             })
             .eq("team", targetTeam)
@@ -284,7 +296,7 @@ export function OverallTargetsTab() {
             month: m,
             year: y,
             existing_target: ex,
-            new_ac_target: na,
+            new_ac_target: 0,
             team: targetTeam,
           });
           if (error) throw error;
@@ -326,7 +338,7 @@ export function OverallTargetsTab() {
   };
 
   const downloadTemplate = () => {
-    const headers = ["Month", "Year", "Existing Target", "New AC Target", "Team"];
+    const headers = ["Month", "Year", "Existing Target", "Team"];
     const lines = [headers.join(",")];
     const templateTeamLabel = TEAM_LABELS[
       selectedTeam === "all" ? "ce" : effectiveTeam ?? "ce"
@@ -336,7 +348,6 @@ export function OverallTargetsTab() {
         [
           String(col.month),
           String(col.year),
-          "0",
           "0",
           templateTeamLabel,
         ].join(",")
@@ -367,7 +378,6 @@ export function OverallTargetsTab() {
         const mo = parseInt(row["Month"]?.trim() || "", 10);
         const yr = parseInt(row["Year"]?.trim() || "", 10);
         const exs = row["Existing Target"]?.trim() ?? "";
-        const nas = row["New AC Target"]?.trim() ?? "";
         const teamRaw = row["Team"]?.trim() ?? "";
         const normalizedTeam = normalizeTeamValue(teamRaw);
         if (!row["Month"]?.trim()) errors.push("Month required");
@@ -375,11 +385,8 @@ export function OverallTargetsTab() {
         if (!row["Year"]?.trim()) errors.push("Year required");
         else if (yr < 2000 || yr > 2100) errors.push("Invalid year");
         const ex = parseFloat(exs);
-        const na = parseFloat(nas);
         if (exs === "" || Number.isNaN(ex) || ex < 0)
           errors.push("Existing Target must be a number ≥ 0");
-        if (nas === "" || Number.isNaN(na) || na < 0)
-          errors.push("New AC Target must be a number ≥ 0");
         if (!teamRaw) errors.push("Team required");
         else if (!normalizedTeam)
           errors.push(`Team must be ${TEAM_CSV_HINT} (case-insensitive)`);
@@ -426,7 +433,6 @@ export function OverallTargetsTab() {
         const mo = parseInt(row["Month"]?.trim() || "", 10);
         const yr = parseInt(row["Year"]?.trim() || "", 10);
         const ex = parseFloat(row["Existing Target"]?.trim() || "0");
-        const na = parseFloat(row["New AC Target"]?.trim() || "0");
         const team = normalizeTeamValue(row["Team"]);
         if (!pairs.some((p) => p.month === mo && p.year === yr)) continue;
         if (!team) continue;
@@ -445,7 +451,7 @@ export function OverallTargetsTab() {
             .from("manager_targets")
             .update({
               existing_target: ex,
-              new_ac_target: na,
+              new_ac_target: 0,
               updated_at: new Date().toISOString(),
             })
             .eq("id", existing.id);
@@ -455,7 +461,7 @@ export function OverallTargetsTab() {
             month: mo,
             year: yr,
             existing_target: ex,
-            new_ac_target: na,
+            new_ac_target: 0,
             team,
           });
           if (error) throw error;
@@ -544,29 +550,19 @@ export function OverallTargetsTab() {
               >
                 <TableHeader className="[&_tr]:border-0">
                   <TableRow className="border-0 bg-transparent hover:bg-transparent">
-                    <TableHead className="w-[23%] rounded-tl-xl text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <TableHead className="w-[34%] rounded-tl-xl text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Month
                     </TableHead>
-                    <TableHead className="w-[21%] text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Existing target
-                    </TableHead>
                     <TableHead
                       className={cn(
-                        "w-[21%] text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                      )}
-                    >
-                      New AC target
-                    </TableHead>
-                    <TableHead
-                      className={cn(
-                        "w-[21%] text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+                        "w-[34%] text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground",
                         !canMutateRows && "rounded-tr-xl"
                       )}
                     >
-                      Total
+                      Existing target
                     </TableHead>
                     {canMutateRows ? (
-                      <TableHead className="w-[14%] rounded-tr-xl pl-6 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <TableHead className="w-[32%] rounded-tr-xl pl-6 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Actions
                       </TableHead>
                     ) : null}
@@ -576,10 +572,7 @@ export function OverallTargetsTab() {
                   {monthColumns.map((col, idx) => {
                     const key = col.key;
                     const r = rowMap.get(key);
-                    const hasValue =
-                      !!r &&
-                      (Number(r.existing_target) > 0 ||
-                        Number(r.new_ac_target) > 0);
+                    const hasValue = !!r && Number(r.existing_target) > 0;
                     const isLast = idx === monthColumns.length - 1;
                     return (
                       <TableRow
@@ -597,33 +590,14 @@ export function OverallTargetsTab() {
                         >
                           {col.label}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                        <TableCell
+                          className={cn(
+                            "text-right tabular-nums text-muted-foreground",
+                            isLast && !canMutateRows && "rounded-br-xl"
+                          )}
+                        >
                           {r
                             ? formatNumber(Math.round(Number(r.existing_target)))
-                            : "—"}
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right tabular-nums text-muted-foreground",
-                            isLast && !canMutateRows && "rounded-br-none"
-                          )}
-                        >
-                          {r
-                            ? formatNumber(Math.round(Number(r.new_ac_target)))
-                            : "—"}
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right tabular-nums text-muted-foreground",
-                            isLast && !canMutateRows && "rounded-br-none"
-                          )}
-                        >
-                          {r
-                            ? formatNumber(
-                                Math.round(
-                                  Number(r.existing_target) + Number(r.new_ac_target)
-                                )
-                              )
                             : "—"}
                         </TableCell>
                         {canMutateRows ? (
@@ -677,19 +651,13 @@ export function OverallTargetsTab() {
                   })}
                   <TableRow className="border-0 bg-background/60 font-semibold">
                     <TableCell className="rounded-bl-xl text-foreground">Total</TableCell>
-                    <TableCell className="text-right tabular-nums text-foreground">
-                      {formatNumber(Math.round(totals.existing))}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-foreground">
-                      {formatNumber(Math.round(totals.newAc))}
-                    </TableCell>
                     <TableCell
                       className={cn(
                         "text-right tabular-nums text-foreground",
                         !canMutateRows && "rounded-br-xl"
                       )}
                     >
-                      {formatNumber(Math.round(totals.total))}
+                      {formatNumber(Math.round(totals.existing))}
                     </TableCell>
                     {canMutateRows ? (
                       <TableCell className="rounded-br-xl pl-6 text-center text-muted-foreground">
@@ -750,18 +718,6 @@ export function OverallTargetsTab() {
                   step="0.01"
                   value={existingTarget}
                   onChange={(e) => setExistingTarget(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="na">New AC target</Label>
-                <Input
-                  id="na"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={newAcTarget}
-                  onChange={(e) => setNewAcTarget(e.target.value)}
                   required
                 />
               </div>

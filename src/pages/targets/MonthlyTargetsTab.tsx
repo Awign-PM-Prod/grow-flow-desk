@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth, type Team } from "@/hooks/useAuth";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { clearPageDataCache, getPageDataCache, hashPageFilters, setPageDataCache } from "@/lib/pageSession";
 import { useOutletContext } from "react-router-dom";
 import {
   Dialog,
@@ -170,6 +171,63 @@ export function MonthlyTargetsTab({
   const effectiveTeam =
     canSelectAllTeams && selectedTeam !== "all" ? selectedTeam : userTeam;
 
+  const monthlyTargetsPageKey = `monthly-targets-${mode}`;
+  const filterHash = useMemo(
+    () =>
+      hashPageFilters({
+        filterFinancialYear,
+        selectedTeam,
+        filterKam,
+        filterLifecycleStatus,
+        mode,
+        userId: user?.id,
+        effectiveTeam,
+      }),
+    [
+      filterFinancialYear,
+      selectedTeam,
+      filterKam,
+      filterLifecycleStatus,
+      mode,
+      user?.id,
+      effectiveTeam,
+    ],
+  );
+
+  const applyMonthlyTargetsCache = useCallback(
+    (cached: {
+      monthlyTargets: MonthlyTarget[];
+      existingTargetsData: Record<string, Record<string, number>>;
+      crossSellTargetsData: Record<string, Record<string, number>>;
+      crossSellKamAccountCombos: Array<{
+        kamId: string;
+        kamName: string;
+        accountId: string;
+        accountName: string;
+      }>;
+      allMandates: typeof allMandates;
+      allAccounts: typeof allAccounts;
+      monthColumns: typeof monthColumns;
+      kams: KAM[];
+      accounts: Account[];
+      mandates: Mandate[];
+      filteredAccounts: Account[];
+    }) => {
+      setMonthlyTargets(cached.monthlyTargets);
+      setExistingTargetsData(cached.existingTargetsData);
+      setCrossSellTargetsData(cached.crossSellTargetsData);
+      setCrossSellKamAccountCombos(cached.crossSellKamAccountCombos);
+      setAllMandates(cached.allMandates);
+      setAllAccounts(cached.allAccounts);
+      setMonthColumns(cached.monthColumns);
+      setKams(cached.kams);
+      setAccounts(cached.accounts);
+      setMandates(cached.mandates);
+      setFilteredAccounts(cached.filteredAccounts);
+    },
+    [],
+  );
+
   const applyMandateTeamFilter = (query: any) => {
     if (canSelectAllTeams && selectedTeam === "all") return query;
     if (!effectiveTeam) return query;
@@ -177,6 +235,7 @@ export function MonthlyTargetsTab({
   };
 
   const fetchMonthlyTargets = async () => {
+    clearPageDataCache(monthlyTargetsPageKey);
     setLoadingTargets(true);
     try {
       // Get current user and KAM status (in case they changed)
@@ -677,6 +736,17 @@ export function MonthlyTargetsTab({
 
   useEffect(() => {
     if (!loading && userRoles.length > 0 && user !== undefined) {
+      const cached = getPageDataCache<Parameters<typeof applyMonthlyTargetsCache>[0]>(
+        monthlyTargetsPageKey,
+        filterHash,
+      );
+      if (cached) {
+        applyMonthlyTargetsCache(cached);
+        if (isKamOnly && user?.id) {
+          setKams([{ id: user.id, full_name: fullName || "You" }]);
+        }
+        return;
+      }
       fetchMonthlyTargets();
       if (isKamOnly && user?.id) {
         setKams([{ id: user.id, full_name: fullName || "You" }]);
@@ -693,7 +763,52 @@ export function MonthlyTargetsTab({
     }
     // Omit `user` from deps: session refresh replaces the object reference with the same id and would refetch on every tab focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userRoles.length, filterFinancialYear, isKAM, user?.id, mode, selectedTeam, effectiveTeam, canSelectAllTeams, filterKam]);
+  }, [
+    loading,
+    userRoles.length,
+    filterHash,
+    applyMonthlyTargetsCache,
+    filterFinancialYear,
+    isKAM,
+    user?.id,
+    mode,
+    selectedTeam,
+    effectiveTeam,
+    canSelectAllTeams,
+    filterKam,
+  ]);
+
+  useEffect(() => {
+    if (loadingTargets) return;
+    setPageDataCache(monthlyTargetsPageKey, filterHash, {
+      monthlyTargets,
+      existingTargetsData,
+      crossSellTargetsData,
+      crossSellKamAccountCombos,
+      allMandates,
+      allAccounts,
+      monthColumns,
+      kams,
+      accounts,
+      mandates,
+      filteredAccounts,
+    });
+  }, [
+    loadingTargets,
+    filterHash,
+    monthlyTargetsPageKey,
+    monthlyTargets,
+    existingTargetsData,
+    crossSellTargetsData,
+    crossSellKamAccountCombos,
+    allMandates,
+    allAccounts,
+    monthColumns,
+    kams,
+    accounts,
+    mandates,
+    filteredAccounts,
+  ]);
 
   // Calculate Financial Year when month or year changes
   useEffect(() => {
