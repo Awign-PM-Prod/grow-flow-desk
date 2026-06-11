@@ -68,10 +68,10 @@ import {
   parseMandateLifecycleLog,
 } from "@/lib/mandateLifecycleLog";
 import {
-  computeStaffingGrossMarginTypeA,
-  computeStaffingGrossMarginTypeB,
-  computeStaffingGrossMarginTypeC,
-} from "@/lib/staffingGrossMargin";
+  computeStaffingRevenueTypeA,
+  computeStaffingRevenueTypeB,
+  computeStaffingRevenueTypeC,
+} from "@/lib/staffingRevenue";
 import type { Team } from "@/hooks/useAuth";
 import {
   getAllowedLobOptions,
@@ -516,50 +516,47 @@ function computeStaffingRevenueMetrics(
     parseFloat(values.staffingActiveMonthsPerYear) || 0;
   const staffingGmPercentValue = parseFloat(values.staffingGmPercent) || 0;
 
-  const staffingMcvCalculated =
-    staffingHeadcountValue *
-      (staffingSalaryPayoutsValue +
-        staffingSaasUsageFeeValue +
-        staffingProgramManagementValue) +
-    ((staffingHeadcountValue * (staffingSalaryPayoutsValue + staffingSaasUsageFeeValue) +
-      staffingProgramManagementValue) *
-      staffingMonthlyAgencyFeePercentValue) /
-      100 +
-    staffingHeadcountValue * staffingMiscRecurringValue;
-
-  const staffingAcvCalculated =
-    staffingMcvCalculated * staffingActiveMonthsPerYearValue +
-    (staffingSalesForceAutomationSetupFeeValue + staffingRecruitmentCostValue) *
-      staffingHeadcountValue +
-    staffingMiscOneTimeValue;
-
-  const staffingGrossMarginCalculatedA = computeStaffingGrossMarginTypeA({
-    acv: staffingAcvCalculated,
+  const typeARevenue = computeStaffingRevenueTypeA({
+    headcount: staffingHeadcountValue,
+    salaryPayouts: staffingSalaryPayoutsValue,
+    programManagement: staffingProgramManagementValue,
+    saasUsageFee: staffingSaasUsageFeeValue,
+    monthlyAgencyFeePercent: staffingMonthlyAgencyFeePercentValue,
+    salesForceAutomationSetupFee: staffingSalesForceAutomationSetupFeeValue,
+    recruitmentCost: staffingRecruitmentCostValue,
+    miscRecurring: staffingMiscRecurringValue,
+    miscOneTime: staffingMiscOneTimeValue,
+    activeMonthsPerYear: staffingActiveMonthsPerYearValue,
     gmPercent: staffingGmPercentValue,
   });
+  const staffingMcvCalculated = typeARevenue.mcv;
+  const staffingAcvCalculated = typeARevenue.acv;
+  const staffingGrossMarginCalculatedA = typeARevenue.grossMargin;
 
   const staffingBNumStoresParsed = parseFloat(values.staffingBNumStores) || 0;
   const staffingBCostPerStoreParsed = parseFloat(values.staffingBCostPerStore) || 0;
-  const staffingBMcvCalculatedB =
-    staffingBNumStoresParsed * staffingBCostPerStoreParsed;
-  const staffingBAcvCalculatedB =
-    staffingBMcvCalculatedB * staffingActiveMonthsPerYearValue;
-  const staffingGrossMarginCalculatedB = computeStaffingGrossMarginTypeB({
-    acv: staffingBAcvCalculatedB,
+  const typeBRevenue = computeStaffingRevenueTypeB({
+    numStores: staffingBNumStoresParsed,
+    costPerStore: staffingBCostPerStoreParsed,
+    activeMonthsPerYear: staffingActiveMonthsPerYearValue,
     gmPercent: staffingGmPercentValue,
   });
+  const staffingBMcvCalculatedB = typeBRevenue.mcv;
+  const staffingBAcvCalculatedB = typeBRevenue.acv;
+  const staffingGrossMarginCalculatedB = typeBRevenue.grossMargin;
 
   const staffingCOneTimeParsed = parseFloat(values.staffingCOneTimeSetupFee) || 0;
   const staffingCMonthlyRecurringParsed =
     parseFloat(values.staffingCMonthlyRecurringFees) || 0;
-  const staffingCMcvCalculated = staffingCMonthlyRecurringParsed;
-  const staffingCAcvCalculatedC =
-    staffingCMonthlyRecurringParsed * staffingActiveMonthsPerYearValue +
-    staffingCOneTimeParsed;
-  const staffingGrossMarginCalculatedC = computeStaffingGrossMarginTypeC({
-    acv: staffingCAcvCalculatedC,
+  const typeCRevenue = computeStaffingRevenueTypeC({
+    monthlyRecurringFees: staffingCMonthlyRecurringParsed,
+    oneTimeSetupFee: staffingCOneTimeParsed,
+    activeMonthsPerYear: staffingActiveMonthsPerYearValue,
     gmPercent: staffingGmPercentValue,
   });
+  const staffingCMcvCalculated = typeCRevenue.mcv;
+  const staffingCAcvCalculatedC = typeCRevenue.acv;
+  const staffingGrossMarginCalculatedC = typeCRevenue.grossMargin;
 
   const grossMarginSubmitValue =
     sectionType === "A"
@@ -1271,21 +1268,33 @@ function buildStaffingMandatePayloadFromCsv(args: {
   const cOneTime = parseFloat(k.staffing_c_one_time_setup_fee) || 0;
   const cMonthly = parseFloat(k.staffing_c_monthly_recurring_fees) || 0;
 
-  const mcvA =
-    headcount * (salaryPayouts + saasFee + programMgmt) +
-    ((headcount * (salaryPayouts + saasFee) + programMgmt) * agencyPct) / 100 +
-    headcount * miscRecurring;
-  const acvA =
-    mcvA * activeMonths + (sfaSetup + recruitment) * headcount + miscOneTime;
-  const gmA = computeStaffingGrossMarginTypeA({ acv: acvA, gmPercent });
+  const { mcv: mcvA, acv: acvA, grossMargin: gmA } = computeStaffingRevenueTypeA({
+    headcount,
+    salaryPayouts,
+    programManagement: programMgmt,
+    saasUsageFee: saasFee,
+    monthlyAgencyFeePercent: agencyPct,
+    salesForceAutomationSetupFee: sfaSetup,
+    recruitmentCost: recruitment,
+    miscRecurring,
+    miscOneTime,
+    activeMonthsPerYear: activeMonths,
+    gmPercent,
+  });
 
-  const mcvB = numStores * costPerStore;
-  const acvB = mcvB * activeMonths;
-  const gmB = computeStaffingGrossMarginTypeB({ acv: acvB, gmPercent });
+  const { mcv: mcvB, acv: acvB, grossMargin: gmB } = computeStaffingRevenueTypeB({
+    numStores,
+    costPerStore,
+    activeMonthsPerYear: activeMonths,
+    gmPercent,
+  });
 
-  const mcvC = cMonthly;
-  const acvC = cMonthly * activeMonths + cOneTime;
-  const gmC = computeStaffingGrossMarginTypeC({ acv: acvC, gmPercent });
+  const { mcv: mcvC, acv: acvC, grossMargin: gmC } = computeStaffingRevenueTypeC({
+    monthlyRecurringFees: cMonthly,
+    oneTimeSetupFee: cOneTime,
+    activeMonthsPerYear: activeMonths,
+    gmPercent,
+  });
 
   const mandateHealth = args.normalizeMandateHealth(k.mandate_health);
   const upsellConstraint = args.normalizeUpsellConstraint(k.upsell_constraint);
