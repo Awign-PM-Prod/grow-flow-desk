@@ -323,6 +323,7 @@ type DashboardDataCache = {
   allMandatesCount: number;
   mandatesThisMonth: number;
   totalAccounts: number;
+  accountsWithActiveMandates: number;
   avgAwignShare: number | null;
   overlapFactor: number | null;
   mcvPlanned: number;
@@ -406,6 +407,7 @@ export default function Dashboard() {
   const [allMandatesCount, setAllMandatesCount] = useState(0);
   const [mandatesThisMonth, setMandatesThisMonth] = useState(0);
   const [totalAccounts, setTotalAccounts] = useState(0);
+  const [accountsWithActiveMandates, setAccountsWithActiveMandates] = useState(0);
   const [avgAwignShare, setAvgAwignShare] = useState<number | null>(null);
   const [overlapFactor, setOverlapFactor] = useState<number | null>(null);
   const [mcvPlanned, setMcvPlanned] = useState<number>(0);
@@ -606,6 +608,9 @@ export default function Dashboard() {
     setAllMandatesCount(cached.allMandatesCount);
     setMandatesThisMonth(cached.mandatesThisMonth);
     setTotalAccounts(cached.totalAccounts);
+    setAccountsWithActiveMandates(
+      cached.accountsWithActiveMandates ?? cached.totalAccounts,
+    );
     setAvgAwignShare(cached.avgAwignShare);
     setOverlapFactor(cached.overlapFactor);
     setMcvPlanned(cached.mcvPlanned);
@@ -670,6 +675,7 @@ export default function Dashboard() {
       allMandatesCount,
       mandatesThisMonth,
       totalAccounts,
+      accountsWithActiveMandates,
       avgAwignShare,
       overlapFactor,
       mcvPlanned,
@@ -704,6 +710,7 @@ export default function Dashboard() {
     allMandatesCount,
     mandatesThisMonth,
     totalAccounts,
+    accountsWithActiveMandates,
     avgAwignShare,
     overlapFactor,
     mcvPlanned,
@@ -1446,7 +1453,7 @@ export default function Dashboard() {
       let mandatesCardQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("id, lob, created_at, lifecycle_status, lifecycle_status_log")
+          .select("id, lob, account_id, created_at, lifecycle_status, lifecycle_status_log")
       );
       // Month filter: point-in-time total only includes mandates created on/before period end.
       if (isMonthScoped) {
@@ -1478,6 +1485,14 @@ export default function Dashboard() {
         m.lifecycle_status === "Active" ||
         isMandateActiveAsOf(m.created_at, m.lifecycle_status_log, mandatesCardAsOf);
       const totalCount = rows.filter((m: any) => isActiveMandateRow(m)).length;
+
+      const activeAccountIds = new Set<string>();
+      rows.forEach((m: any) => {
+        if (isActiveMandateRow(m) && m.account_id) {
+          activeAccountIds.add(m.account_id);
+        }
+      });
+      const accountsWithActiveMandatesCount = activeAccountIds.size;
 
       const mandatesPerLobCounts: Record<string, number> = {};
       chartLobOptions.forEach((l) => {
@@ -1602,16 +1617,18 @@ export default function Dashboard() {
 
       const average = count > 0 ? totalShare / count : null;
 
-      // Calculate Overlap Factor (Mandates / Accounts)
-      const overlap = accountsCount && accountsCount > 0 
-        ? (totalCount || 0) / accountsCount 
-        : null;
+      // Calculate Overlap Factor (active mandates / accounts with at least one active mandate)
+      const overlap =
+        accountsWithActiveMandatesCount > 0
+          ? (totalCount || 0) / accountsWithActiveMandatesCount
+          : null;
 
       // Update headline cards early so a later chart/tier failure cannot leave these at 0.
       setActiveMandatesCount(totalCount || 0);
       setAllMandatesCount(allMandatesTotalCount || 0);
       setMandatesThisMonth(monthCount || 0);
       setTotalAccounts(accountsCount || 0);
+      setAccountsWithActiveMandates(accountsWithActiveMandatesCount);
       setAvgAwignShare(average);
       setOverlapFactor(overlap);
 
@@ -4552,7 +4569,7 @@ export default function Dashboard() {
                   {overlapFactor !== null ? overlapFactor.toFixed(2) : "N/A"}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {formatNumber(activeMandatesCount)} mandates / {formatNumber(totalAccounts)} accounts
+                  {formatNumber(activeMandatesCount)} mandates / {formatNumber(accountsWithActiveMandates)} accounts
                 </p>
               </>
             )}
