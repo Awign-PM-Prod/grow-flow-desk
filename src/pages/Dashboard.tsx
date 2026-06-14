@@ -81,16 +81,35 @@ function getCurrentFinancialYear(): string {
 }
 
 // Helper function to extract achieved MCV from monthly_data
-// Handles both old format (array: [plannedMcv, achievedMcv]) and new format (number: achievedMcv)
+// Handles old format (array), new format (number), and string values from JSONB
 const getAchievedMcv = (monthRecord: any): number => {
   if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
     // Old format: [plannedMcv, achievedMcv]
     return parseFloat(monthRecord[1]?.toString() || "0") || 0;
-  } else if (typeof monthRecord === 'number') {
-    // New format: just achievedMcv
+  }
+  if (typeof monthRecord === "number") {
     return monthRecord;
   }
+  if (typeof monthRecord === "string") {
+    const parsed = parseFloat(monthRecord);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
   return 0;
+};
+
+/** Min achieved MCV for month-filter Active Mandates card (matches admin SQL reporting). */
+const ACTIVE_MANDATES_MONTH_ACHIEVED_MCV_MIN = 10;
+
+const getAchievedMcvForMonthKey = (
+  monthlyData: unknown,
+  monthYearKey: string,
+): number => {
+  if (!monthlyData || typeof monthlyData !== "object" || Array.isArray(monthlyData)) {
+    return 0;
+  }
+  const record = (monthlyData as Record<string, unknown>)[monthYearKey];
+  if (record === undefined || record === null) return 0;
+  return getAchievedMcv(record);
 };
 
 /** Compact rupee labels for horizontal chart value axes */
@@ -1442,18 +1461,20 @@ export default function Dashboard() {
       );
 
       /**
-       * Mandates card (x / y): point-in-time at end of selected period.
-       * - Specific month: as-of end of that month (FY calendar month).
-       * - Full FY: as-of last moment of selected financial year (March 31).
-       * Total = mandates with created_at <= asOf (same filters). Active = baseline from created_at +
-       * lifecycle_status_log replayed to asOf (see isMandateActiveAsOf).
+       * Mandates card (x / y):
+       * - Full FY: active as-of end of FY (lifecycle log replay).
+       * - Month filter: team-scoped mandates with achieved MCV for that month in
+       *   monthly_data and value > ACTIVE_MANDATES_MONTH_ACHIEVED_MCV_MIN (same as SQL).
+       * Total (y) = mandates with created_at <= period end when month-scoped.
        */
       const mandatesCardAsOf = isMonthScoped ? mandateDateRangeEnd : fyDateRange.end;
 
       let mandatesCardQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("id, lob, account_id, created_at, lifecycle_status, lifecycle_status_log")
+          .select(
+            "id, lob, account_id, created_at, lifecycle_status, lifecycle_status_log, monthly_data",
+          )
       );
       // Month filter: point-in-time total only includes mandates created on/before period end.
       if (isMonthScoped) {
@@ -1477,14 +1498,41 @@ export default function Dashboard() {
 
       const rows = mandatesForCard || [];
       const allMandatesTotalCount = rows.length;
+      const isActiveAsOf = (
+        m: {
+          lifecycle_status?: string | null;
+          created_at?: string | null;
+          lifecycle_status_log?: unknown;
+        },
+        asOf: Date,
+      ) =>
+        m.lifecycle_status === "Active" ||
+        isMandateActiveAsOf(m.created_at, m.lifecycle_status_log, asOf);
+
       const isActiveMandateRow = (m: {
         lifecycle_status?: string | null;
         created_at?: string | null;
         lifecycle_status_log?: unknown;
-      }) =>
-        m.lifecycle_status === "Active" ||
-        isMandateActiveAsOf(m.created_at, m.lifecycle_status_log, mandatesCardAsOf);
+      }) => isActiveAsOf(m, mandatesCardAsOf);
+
       const totalCount = rows.filter((m: any) => isActiveMandateRow(m)).length;
+
+      let activeMandatesCardCount = totalCount;
+      if (isMonthScoped && scopedMonthPair) {
+        // Same logic as SQL: team filter only, achieved MCV for selected month > threshold.
+        const { data: mandatesForAchievedCount, error: achievedCountError } =
+          await applyTeamFilter(
+            supabase.from("mandates").select("id, monthly_data"),
+          );
+        if (achievedCountError) throw achievedCountError;
+        activeMandatesCardCount = (mandatesForAchievedCount || []).filter((m) => {
+          const achieved = getAchievedMcvForMonthKey(
+            m.monthly_data,
+            scopedMonthPair.key,
+          );
+          return achieved > ACTIVE_MANDATES_MONTH_ACHIEVED_MCV_MIN;
+        }).length;
+      }
 
       const activeAccountIds = new Set<string>();
       rows.forEach((m: any) => {
@@ -1624,7 +1672,7 @@ export default function Dashboard() {
           : null;
 
       // Update headline cards early so a later chart/tier failure cannot leave these at 0.
-      setActiveMandatesCount(totalCount || 0);
+      setActiveMandatesCount(activeMandatesCardCount);
       setAllMandatesCount(allMandatesTotalCount || 0);
       setMandatesThisMonth(monthCount || 0);
       setTotalAccounts(accountsCount || 0);

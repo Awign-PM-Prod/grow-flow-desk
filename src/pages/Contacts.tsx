@@ -1808,14 +1808,13 @@ export default function Contacts() {
                     <TableHead>Title</TableHead>
                     <TableHead>Level</TableHead>
                     <TableHead>Awign Champion</TableHead>
-                    {canManageUsers && <TableHead>NPS</TableHead>}
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loadingContacts ? (
                     <TableRow>
-                      <TableCell colSpan={canManageUsers ? 9 : 8} className="text-center py-8">
+                      <TableCell colSpan={8} className="text-center py-8">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="text-muted-foreground">Loading contacts...</span>
@@ -1824,7 +1823,7 @@ export default function Contacts() {
                     </TableRow>
                   ) : filteredContacts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={canManageUsers ? 9 : 8} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                         No contacts found
                       </TableCell>
                     </TableRow>
@@ -1840,17 +1839,6 @@ export default function Contacts() {
                         <TableCell><HighlightedText text={contact.title} searchTerm={searchTerm} /></TableCell>
                         <TableCell><HighlightedText text={contact.level} searchTerm={searchTerm} /></TableCell>
                         <TableCell>{contact.awign_champion ? "YES" : "NO"}</TableCell>
-                        {canManageUsers && (
-                          <TableCell>
-                            <Switch
-                              checked={Boolean(contact.nps_enabled)}
-                              onCheckedChange={(checked) =>
-                                void handleToggleNpsEnabled(contact.id, checked)
-                              }
-                              aria-label="Enable NPS surveys"
-                            />
-                          </TableCell>
-                        )}
                         <TableCell>
                           <div className="flex gap-2">
                             <Button
