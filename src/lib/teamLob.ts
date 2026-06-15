@@ -127,6 +127,39 @@ export function isLobLockedForTeam(
   return getFixedLobForTeam(team, isGlobalAdmin) !== null;
 }
 
+/** LoBs hidden from dashboard filters and chart axes (data rolls into Staffing). */
+export const DASHBOARD_HIDDEN_LOBS: readonly string[] = [NEW_BUSINESS_LINE_LOB];
+
+export function filterDashboardVisibleLobs(lobs: readonly string[]): string[] {
+  const hidden = new Set<string>(DASHBOARD_HIDDEN_LOBS);
+  return lobs.filter((l) => !hidden.has(l));
+}
+
+/** Map mandate LoB to a visible dashboard chart bucket. */
+export function resolveDashboardChartLobKey(
+  lob: string | null | undefined,
+  visibleLobs: readonly string[],
+): string | null {
+  let raw = (lob && String(lob).trim()) || "";
+  if (!raw) return null;
+  if (raw === NEW_BUSINESS_LINE_LOB && visibleLobs.includes(STAFFING_LOB)) {
+    raw = STAFFING_LOB;
+  }
+  if (visibleLobs.includes(raw)) return raw;
+  if (visibleLobs.includes("Others")) return "Others";
+  return null;
+}
+
+/** DB LoB values to match when a visible LoB filter is applied. */
+export function expandDashboardLobFilterValues(selectedLobs: string[]): string[] {
+  const out = new Set<string>();
+  for (const lob of selectedLobs) {
+    out.add(lob);
+    if (lob === STAFFING_LOB) out.add(NEW_BUSINESS_LINE_LOB);
+  }
+  return [...out];
+}
+
 /** LoB list for dashboard charts and LoB filter, scoped by team selector (admin) or user team. */
 export function getChartLobOptionsForDashboard(
   allLobs: readonly string[],
@@ -137,13 +170,17 @@ export function getChartLobOptionsForDashboard(
   },
 ): string[] {
   const { canSelectAllTeams, selectedTeam, userTeam } = args;
+  let scoped: string[];
   if (canSelectAllTeams) {
     if (selectedTeam === "all" || !selectedTeam) {
-      return [...allLobs];
+      scoped = [...allLobs];
+    } else {
+      scoped = getAllowedLobOptions(allLobs, selectedTeam, false);
     }
-    return getAllowedLobOptions(allLobs, selectedTeam, false);
+  } else {
+    scoped = getAllowedLobOptions(allLobs, userTeam, false);
   }
-  return getAllowedLobOptions(allLobs, userTeam, false);
+  return filterDashboardVisibleLobs(scoped);
 }
 
 /** Dashboard LoB filter categories; when admin picks a team, only that team's category. */
@@ -158,6 +195,16 @@ export function getLobDashboardCategoriesForFilter(
   return getLobDashboardCategories(userTeam, canSelectAllTeams);
 }
 
+/** CE dashboard filter category — excludes LoBs owned by staffing/experts categories. */
+export function getCeDashboardCategoryLobs(): string[] {
+  return ALL_LOB_OPTIONS.filter(
+    (l) =>
+      l !== EXPERTS_LOB &&
+      l !== STAFFING_LOB &&
+      l !== NEW_BUSINESS_LINE_LOB,
+  );
+}
+
 /** Dashboard LoB filter categories scoped by team. */
 export function getLobDashboardCategories(
   team: Team | null,
@@ -167,13 +214,13 @@ export function getLobDashboardCategories(
     {
       id: "staffing",
       label: TEAM_LABELS.staffing,
-      lobs: [STAFFING_LOB, NEW_BUSINESS_LINE_LOB],
+      lobs: [STAFFING_LOB],
     },
     { id: "experts", label: TEAM_LABELS.experts, lobs: [EXPERTS_LOB] },
     {
       id: "ce",
       label: TEAM_LABELS.ce,
-      lobs: ALL_LOB_OPTIONS.filter((l) => l !== EXPERTS_LOB),
+      lobs: getCeDashboardCategoryLobs(),
     },
   ];
 

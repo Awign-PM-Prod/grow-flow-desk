@@ -64,21 +64,21 @@ interface DeleteUserDialogProps {
   onUserDeleted: () => void;
 }
 
-const IMPACT_LABELS: { key: keyof OwnershipCounts; label: string }[] = [
+const KAM_IMPACT_LABELS: { key: keyof OwnershipCounts; label: string }[] = [
   { key: "mandates_as_kam", label: "Mandates (assigned as KAM)" },
   { key: "pipeline_deals_as_kam", label: "Pipeline deals (assigned as KAM)" },
-  { key: "monthly_targets_as_kam", label: "Monthly targets (assigned as KAM)" },
-  { key: "mandates_created", label: "Mandates (created by user)" },
-  { key: "pipeline_deals_created", label: "Pipeline deals (created by user)" },
-  { key: "accounts_created", label: "Accounts (created by user)" },
-  { key: "contacts_created", label: "Contacts (created by user)" },
-  { key: "monthly_targets_created", label: "Monthly targets (created by user)" },
-  { key: "new_sales_officers_created", label: "NSO records (created by user)" },
-  { key: "deal_status_history_changed", label: "Deal status history entries" },
+];
+
+const NSO_IMPACT_LABELS: { key: keyof OwnershipCounts; label: string }[] = [
   { key: "mandates_as_nso", label: "Mandates (NSO email mapping)" },
   { key: "monthly_targets_as_nso", label: "Monthly targets (NSO email mapping)" },
   { key: "new_sales_officer_by_email", label: "NSO directory (email match)" },
 ];
+
+function impactLabelsForRole(role: string | null | undefined) {
+  if (role === "nso") return NSO_IMPACT_LABELS;
+  return KAM_IMPACT_LABELS;
+}
 
 export function DeleteUserDialog({
   user,
@@ -104,15 +104,20 @@ export function DeleteUserDialog({
     );
   }, [allUsers, user]);
 
+  const impactLabels = useMemo(
+    () => impactLabelsForRole(user?.role),
+    [user?.role],
+  );
+
   const impactRows = useMemo(() => {
     if (!counts) return [];
-    return IMPACT_LABELS.filter(({ key }) => counts[key] > 0);
-  }, [counts]);
+    return impactLabels.filter(({ key }) => counts[key] > 0);
+  }, [counts, impactLabels]);
 
   const totalLinked = useMemo(() => {
     if (!counts) return 0;
-    return Object.values(counts).reduce((sum, n) => sum + n, 0);
-  }, [counts]);
+    return impactLabels.reduce((sum, { key }) => sum + counts[key], 0);
+  }, [counts, impactLabels]);
 
   useEffect(() => {
     if (!open || !user) {
@@ -219,7 +224,7 @@ export function DeleteUserDialog({
             </DialogTitle>
             <DialogDescription>
               Review linked data for <strong>{user.full_name || user.email}</strong> before
-              deleting. Mandates, deals, accounts, and other records will not be deleted.
+              deleting. Records are not deleted — only assignments are transferred or cleared.
             </DialogDescription>
           </DialogHeader>
 
@@ -239,14 +244,14 @@ export function DeleteUserDialog({
                 </p>
                 <p className="mt-2 text-muted-foreground">
                   {totalLinked > 0
-                    ? `${totalLinked} linked reference(s) found across the system.`
-                    : "No linked references found. The user account can be removed safely."}
+                    ? `${totalLinked} assignment(s) currently mapped to this user.`
+                    : "No assignments mapped to this user. The account can be removed safely."}
                 </p>
               </div>
 
               {impactRows.length > 0 && (
                 <div className="space-y-2">
-                  <Label className="text-base">Data that will be unmapped or transferred</Label>
+                  <Label className="text-base">Assignments that will be transferred or cleared</Label>
                   <ul className="rounded-lg border divide-y text-sm">
                     {impactRows.map(({ key, label }) => (
                       <li key={key} className="flex justify-between px-4 py-2">
@@ -285,8 +290,9 @@ export function DeleteUserDialog({
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  If selected, all KAM assignments, created-by references, and NSO email
-                  mappings will move to this user. Entities themselves are never deleted.
+                  {user.role === "nso"
+                    ? "If selected, NSO email mappings move to the replacement user. Entities are never deleted."
+                    : "If selected, KAM assignments on mandates and pipeline deals move to this user. Creator references on related records are also updated in the background. Entities are never deleted."}
                 </p>
               </div>
             </div>
@@ -329,12 +335,12 @@ export function DeleteUserDialog({
             <AlertDialogDescription>
               {totalLinked > 0 ? (
                 <>
-                  This will remove the user and clear {totalLinked} mapping(s). Mandates, deals,
-                  accounts, and other records will remain but may have no KAM, creator, or NSO
-                  assignment until reassigned manually.
+                  This will remove the user and transfer or clear {totalLinked} assignment(s)
+                  shown above. Related records remain; creator metadata is updated when you
+                  choose a transfer target.
                 </>
               ) : (
-                <>This user has no linked data. Their account will be permanently removed.</>
+                <>This user has no mapped assignments. Their account will be permanently removed.</>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
