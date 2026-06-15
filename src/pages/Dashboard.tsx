@@ -112,6 +112,55 @@ const getAchievedMcvForMonthKey = (
   return getAchievedMcv(record);
 };
 
+type RollupMandateRow = {
+  lifecycle_status?: string | null;
+  monthly_data?: unknown;
+};
+
+/** Active mandates, or inactive mandates with achieved MCV for the scoped month. */
+function filterMandatesForRollups<T extends RollupMandateRow>(
+  mandates: T[] | null | undefined,
+  isMonthScoped: boolean,
+  scopedMonthKey: string | null,
+): T[] {
+  const rows = mandates || [];
+  if (!isMonthScoped || !scopedMonthKey) {
+    return rows.filter((m) => m.lifecycle_status === "Active");
+  }
+  return rows.filter(
+    (m) =>
+      m.lifecycle_status === "Active" ||
+      getAchievedMcvForMonthKey(m.monthly_data, scopedMonthKey) > 0,
+  );
+}
+
+function applyRollupLifecycleQueryFilter(query: any, isMonthScoped: boolean): any {
+  if (!isMonthScoped) {
+    return query.eq("lifecycle_status", "Active");
+  }
+  return query;
+}
+
+function buildInactiveMandateIdsForTargets(
+  inactiveRows: Array<{ id: string; monthly_data?: unknown }> | null | undefined,
+  isMonthScoped: boolean,
+  scopedMonthKey: string | null,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const row of inactiveRows || []) {
+    if (!row.id) continue;
+    if (
+      isMonthScoped &&
+      scopedMonthKey &&
+      getAchievedMcvForMonthKey(row.monthly_data, scopedMonthKey) > 0
+    ) {
+      continue;
+    }
+    ids.add(row.id);
+  }
+  return ids;
+}
+
 /** Compact rupee labels for horizontal chart value axes */
 function formatAxisCurrencyTick(value: number): string {
   if (value >= 10_000_000) return `₹${(value / 10_000_000).toFixed(1)}Cr`;
@@ -1453,11 +1502,16 @@ export default function Dashboard() {
 
       const { data: inactiveLifecycleRows } = await applyLobFilter(
         applyTeamFilter(
-          supabase.from("mandates").select("id").eq("lifecycle_status", "Inactive")
-        )
+          supabase
+            .from("mandates")
+            .select("id, monthly_data")
+            .eq("lifecycle_status", "Inactive"),
+        ),
       );
-      inactiveMandateIdsRef.current = new Set(
-        (inactiveLifecycleRows || []).map((r: { id: string }) => r.id)
+      inactiveMandateIdsRef.current = buildInactiveMandateIdsForTargets(
+        inactiveLifecycleRows,
+        isMonthScoped,
+        scopedMonthPair?.key ?? null,
       );
 
       /**
@@ -2071,13 +2125,22 @@ export default function Dashboard() {
       let kamMandatesQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("id, kam_id, monthly_data, type, account_id")
-          .eq("lifecycle_status", "Active")
+          .select("id, kam_id, monthly_data, type, account_id, lifecycle_status"),
+      );
+      kamMandatesQuery = applyRollupLifecycleQueryFilter(
+        kamMandatesQuery,
+        isMonthScoped,
       );
       kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
       kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam, filterNso);
       kamMandatesQuery = applyLobFilter(kamMandatesQuery);
-      const { data: kamMandatesData, error: kamMandatesError } = await kamMandatesQuery;
+      const { data: kamMandatesDataRaw, error: kamMandatesError } =
+        await kamMandatesQuery;
+      const kamMandatesData = filterMandatesForRollups(
+        kamMandatesDataRaw,
+        isMonthScoped,
+        scopedMonthPair?.key ?? null,
+      );
 
       // Get mandate IDs for fetching targets
       const kamMandateIds = kamMandatesData?.map((m: any) => m.id).filter(Boolean) || [];
@@ -2414,13 +2477,21 @@ export default function Dashboard() {
       if (isKamOrNsoTargetMcvFilterActive()) {
         let cardMandatesQuery = supabase
           .from("mandates")
-          .select("id")
-          .eq("lifecycle_status", "Active");
+          .select("id, lifecycle_status, monthly_data");
+        cardMandatesQuery = applyRollupLifecycleQueryFilter(
+          cardMandatesQuery,
+          isMonthScoped,
+        );
         cardMandatesQuery = applyKamFilter(cardMandatesQuery, filterKam, filterNso);
 
-        const { data: cardMandates } = await cardMandatesQuery;
+        const { data: cardMandatesRaw } = await cardMandatesQuery;
+        const cardMandates = filterMandatesForRollups(
+          cardMandatesRaw,
+          isMonthScoped,
+          scopedMonthPair?.key ?? null,
+        );
         const cardMandateIds =
-          cardMandates?.map((m: { id: string }) => m.id).filter(Boolean) || [];
+          cardMandates.map((m: { id: string }) => m.id).filter(Boolean) || [];
 
         if (cardMandateIds.length > 0) {
           let cardTargetsQuery = supabase
@@ -2487,13 +2558,18 @@ export default function Dashboard() {
       let mandatesQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("monthly_data, type, new_sales_owner")
-          .eq("lifecycle_status", "Active")
+          .select("monthly_data, type, new_sales_owner, lifecycle_status"),
       );
+      mandatesQuery = applyRollupLifecycleQueryFilter(mandatesQuery, isMonthScoped);
       mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
       mandatesQuery = applyKamFilter(mandatesQuery, filterKam, filterNso);
       mandatesQuery = applyLobFilter(mandatesQuery);
-      const { data: allMandatesForMcv, error: mcvError } = await mandatesQuery;
+      const { data: allMandatesForMcvRaw, error: mcvError } = await mandatesQuery;
+      const allMandatesForMcv = filterMandatesForRollups(
+        allMandatesForMcvRaw,
+        isMonthScoped,
+        scopedMonthPair?.key ?? null,
+      );
       
       // Debug logging for NSO filter
       if (isNsoFilterActive(filterNso)) {
@@ -3451,13 +3527,22 @@ export default function Dashboard() {
       let mandatesTierQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("id, account_id, monthly_data, type")
-          .eq("lifecycle_status", "Active")
+          .select("id, account_id, monthly_data, type, lifecycle_status"),
+      );
+      mandatesTierQuery = applyRollupLifecycleQueryFilter(
+        mandatesTierQuery,
+        isMonthScoped,
       );
       mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
       mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam, filterNso);
       mandatesTierQuery = applyLobFilter(mandatesTierQuery);
-      const { data: mandatesTierData, error: mandatesTierError } = await mandatesTierQuery;
+      const { data: mandatesTierDataRaw, error: mandatesTierError } =
+        await mandatesTierQuery;
+      const mandatesTierData = filterMandatesForRollups(
+        mandatesTierDataRaw,
+        isMonthScoped,
+        scopedMonthPair?.key ?? null,
+      );
 
       // Calculate total achieved MCV for each account from all mandates to determine MCV Tier dynamically
       const accountTotalMcv: Record<string, number> = {};
@@ -3589,15 +3674,23 @@ export default function Dashboard() {
       //                     + sum(cross-sell targets for all tier accounts)
       const tierMandateToAccountMap: Record<string, string> = {};
 
-      const tierMandatesForTargetsQuery = applyTeamFilter(
+      let tierMandatesForTargetsQuery = applyTeamFilter(
         supabase
           .from("mandates")
-          .select("id, account_id")
-          .eq("lifecycle_status", "Active")
-          .not("account_id", "is", null)
+          .select("id, account_id, lifecycle_status, monthly_data")
+          .not("account_id", "is", null),
       );
-      const { data: tierMandatesForTargets } = await tierMandatesForTargetsQuery;
-      tierMandatesForTargets?.forEach((mandate: any) => {
+      tierMandatesForTargetsQuery = applyRollupLifecycleQueryFilter(
+        tierMandatesForTargetsQuery,
+        isMonthScoped,
+      );
+      const { data: tierMandatesForTargetsRaw } = await tierMandatesForTargetsQuery;
+      const tierMandatesForTargets = filterMandatesForRollups(
+        tierMandatesForTargetsRaw,
+        isMonthScoped,
+        scopedMonthPair?.key ?? null,
+      );
+      tierMandatesForTargets.forEach((mandate: any) => {
         if (mandate.id && mandate.account_id) {
           tierMandateToAccountMap[mandate.id] = mandate.account_id;
         }
