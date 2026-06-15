@@ -97,9 +97,6 @@ const getAchievedMcv = (monthRecord: any): number => {
   return 0;
 };
 
-/** Min achieved MCV for month-filter Active Mandates card (matches admin SQL reporting). */
-const ACTIVE_MANDATES_MONTH_ACHIEVED_MCV_MIN = 10;
-
 const getAchievedMcvForMonthKey = (
   monthlyData: unknown,
   monthYearKey: string,
@@ -117,45 +114,49 @@ type RollupMandateRow = {
   monthly_data?: unknown;
 };
 
-/** Active mandates, or inactive mandates with achieved MCV for the scoped month. */
+function hasAchievedMcvInPeriod(
+  monthlyData: unknown,
+  isInPeriod: (monthDate: Date, monthYearKey: string) => boolean,
+): boolean {
+  if (!monthlyData || typeof monthlyData !== "object" || Array.isArray(monthlyData)) {
+    return false;
+  }
+  for (const [monthYearKey, record] of Object.entries(
+    monthlyData as Record<string, unknown>,
+  )) {
+    if (getAchievedMcv(record) <= 0) continue;
+    const parts = monthYearKey.split("-");
+    if (parts.length < 2) continue;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    if (Number.isNaN(year) || Number.isNaN(month)) continue;
+    const monthDate = new Date(year, month - 1, 1);
+    if (isInPeriod(monthDate, monthYearKey)) return true;
+  }
+  return false;
+}
+
+/** Active mandates, or inactive mandates with achieved MCV in the rollup period. */
 function filterMandatesForRollups<T extends RollupMandateRow>(
   mandates: T[] | null | undefined,
-  isMonthScoped: boolean,
-  scopedMonthKey: string | null,
+  keepInactiveIfHasAchieved: (monthlyData: unknown) => boolean,
 ): T[] {
   const rows = mandates || [];
-  if (!isMonthScoped || !scopedMonthKey) {
-    return rows.filter((m) => m.lifecycle_status === "Active");
-  }
   return rows.filter(
     (m) =>
       m.lifecycle_status === "Active" ||
-      getAchievedMcvForMonthKey(m.monthly_data, scopedMonthKey) > 0,
+      keepInactiveIfHasAchieved(m.monthly_data),
   );
-}
-
-function applyRollupLifecycleQueryFilter(query: any, isMonthScoped: boolean): any {
-  if (!isMonthScoped) {
-    return query.eq("lifecycle_status", "Active");
-  }
-  return query;
 }
 
 function buildInactiveMandateIdsForTargets(
   inactiveRows: Array<{ id: string; monthly_data?: unknown }> | null | undefined,
-  isMonthScoped: boolean,
-  scopedMonthKey: string | null,
+  keepInactiveIfHasAchieved: (monthlyData: unknown) => boolean,
 ): Set<string> {
   const ids = new Set<string>();
   for (const row of inactiveRows || []) {
     if (!row.id) continue;
-    if (
-      isMonthScoped &&
-      scopedMonthKey &&
-      getAchievedMcvForMonthKey(row.monthly_data, scopedMonthKey) > 0
-    ) {
-      continue;
-    }
+    if (keepInactiveIfHasAchieved(row.monthly_data)) continue;
     ids.add(row.id);
   }
   return ids;
@@ -1484,6 +1485,20 @@ export default function Dashboard() {
       const monthInSelectedFY = (monthDate: Date): boolean =>
         monthDate >= fyDateRange.start && monthDate <= fyDateRange.end;
 
+      /** Include inactive mandates in achieved rollups when they have MCV data in scope. */
+      const hasAchievedMcvForRollupInclusion = (
+        monthlyData: unknown,
+      ): boolean => {
+        if (isMonthScoped && scopedMonthPair) {
+          return (
+            getAchievedMcvForMonthKey(monthlyData, scopedMonthPair.key) > 0
+          );
+        }
+        return hasAchievedMcvInPeriod(monthlyData, (monthDate) =>
+          monthInSelectedFY(monthDate),
+        );
+      };
+
       const now = new Date();
       const calendarMonth = now.getMonth() + 1;
       const calendarYear = now.getFullYear();
@@ -1510,16 +1525,15 @@ export default function Dashboard() {
       );
       inactiveMandateIdsRef.current = buildInactiveMandateIdsForTargets(
         inactiveLifecycleRows,
-        isMonthScoped,
-        scopedMonthPair?.key ?? null,
+        hasAchievedMcvForRollupInclusion,
       );
 
       /**
        * Mandates card (x / y):
        * - Full FY: active as-of end of FY (lifecycle log replay).
-       * - Month filter: team-scoped mandates with achieved MCV for that month in
-       *   monthly_data and value > ACTIVE_MANDATES_MONTH_ACHIEVED_MCV_MIN (same as SQL).
-       * Total (y) = mandates with created_at <= period end when month-scoped.
+       * - Month filter: same scoped rows as total (y), but x only counts mandates with
+       *   achieved MCV stored in monthly_data for the selected month.
+       * Total (y) = mandates in scope with created_at <= period end when month-scoped.
        */
       const mandatesCardAsOf = isMonthScoped ? mandateDateRangeEnd : fyDateRange.end;
 
@@ -1569,28 +1583,27 @@ export default function Dashboard() {
         lifecycle_status_log?: unknown;
       }) => isActiveAsOf(m, mandatesCardAsOf);
 
-      const totalCount = rows.filter((m: any) => isActiveMandateRow(m)).length;
+      const isActiveMandateForCard = (m: {
+        lifecycle_status?: string | null;
+        created_at?: string | null;
+        lifecycle_status_log?: unknown;
+        monthly_data?: unknown;
+      }) => {
+        if (isMonthScoped && scopedMonthPair) {
+          return (
+            getAchievedMcvForMonthKey(m.monthly_data, scopedMonthPair.key) > 0
+          );
+        }
+        return isActiveMandateRow(m);
+      };
 
-      let activeMandatesCardCount = totalCount;
-      if (isMonthScoped && scopedMonthPair) {
-        // Same logic as SQL: team filter only, achieved MCV for selected month > threshold.
-        const { data: mandatesForAchievedCount, error: achievedCountError } =
-          await applyTeamFilter(
-            supabase.from("mandates").select("id, monthly_data"),
-          );
-        if (achievedCountError) throw achievedCountError;
-        activeMandatesCardCount = (mandatesForAchievedCount || []).filter((m) => {
-          const achieved = getAchievedMcvForMonthKey(
-            m.monthly_data,
-            scopedMonthPair.key,
-          );
-          return achieved > ACTIVE_MANDATES_MONTH_ACHIEVED_MCV_MIN;
-        }).length;
-      }
+      const activeMandatesCardCount = rows.filter((m: any) =>
+        isActiveMandateForCard(m),
+      ).length;
 
       const activeAccountIds = new Set<string>();
       rows.forEach((m: any) => {
-        if (isActiveMandateRow(m) && m.account_id) {
+        if (isActiveMandateForCard(m) && m.account_id) {
           activeAccountIds.add(m.account_id);
         }
       });
@@ -1601,7 +1614,7 @@ export default function Dashboard() {
         mandatesPerLobCounts[l] = 0;
       });
       rows.forEach((m: any) => {
-        if (!isActiveMandateRow(m)) {
+        if (!isActiveMandateForCard(m)) {
           return;
         }
         const raw = (m.lob && String(m.lob).trim()) || "";
@@ -1624,12 +1637,12 @@ export default function Dashboard() {
             selectedLobs.length === 0 || selectedLobs.includes(row.lob)
         );
       setMandatesPerLobChart(
-        totalCount === 0 ? [] : mandatesPerLobFormatted
+        activeMandatesCardCount === 0 ? [] : mandatesPerLobFormatted
       );
 
-      /** Mandates active as-of card date (same numerator as Active Mandates card). */
+      /** Mandates counted active on the mandates card (same filters as x / overlap). */
       const activeMandateIdsFromCard = rows
-        .filter((m: any) => isActiveMandateRow(m))
+        .filter((m: any) => isActiveMandateForCard(m))
         .map((m: any) => m.id)
         .filter(Boolean) as string[];
 
@@ -1722,7 +1735,7 @@ export default function Dashboard() {
       // Calculate Overlap Factor (active mandates / accounts with at least one active mandate)
       const overlap =
         accountsWithActiveMandatesCount > 0
-          ? (totalCount || 0) / accountsWithActiveMandatesCount
+          ? activeMandatesCardCount / accountsWithActiveMandatesCount
           : null;
 
       // Update headline cards early so a later chart/tier failure cannot leave these at 0.
@@ -2067,7 +2080,7 @@ export default function Dashboard() {
       // Debug: Log the calculated data to verify values
       console.log("LoB Sales Performance - Calculated Values:", formattedLobData);
 
-      setLobSalesPerformance(totalCount === 0 ? [] : formattedLobData);
+      setLobSalesPerformance(activeMandatesCardCount === 0 ? [] : formattedLobData);
 
       const maxMcvByLob: Record<string, number> = {};
       chartLobOptions.forEach((l) => {
@@ -2118,7 +2131,7 @@ export default function Dashboard() {
           (row) =>
             selectedLobs.length === 0 || selectedLobs.includes(row.lob)
         );
-      setMaxMcvPerLobChart(totalCount === 0 ? [] : maxMcvPerLobFormatted);
+      setMaxMcvPerLobChart(activeMandatesCardCount === 0 ? [] : maxMcvPerLobFormatted);
 
       // Fetch KAM Sales Performance data from mandates monthly records
       // Respect the mandate type filter from the top
@@ -2127,10 +2140,6 @@ export default function Dashboard() {
           .from("mandates")
           .select("id, kam_id, monthly_data, type, account_id, lifecycle_status"),
       );
-      kamMandatesQuery = applyRollupLifecycleQueryFilter(
-        kamMandatesQuery,
-        isMonthScoped,
-      );
       kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
       kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam, filterNso);
       kamMandatesQuery = applyLobFilter(kamMandatesQuery);
@@ -2138,8 +2147,7 @@ export default function Dashboard() {
         await kamMandatesQuery;
       const kamMandatesData = filterMandatesForRollups(
         kamMandatesDataRaw,
-        isMonthScoped,
-        scopedMonthPair?.key ?? null,
+        hasAchievedMcvForRollupInclusion,
       );
 
       // Get mandate IDs for fetching targets
@@ -2478,17 +2486,12 @@ export default function Dashboard() {
         let cardMandatesQuery = supabase
           .from("mandates")
           .select("id, lifecycle_status, monthly_data");
-        cardMandatesQuery = applyRollupLifecycleQueryFilter(
-          cardMandatesQuery,
-          isMonthScoped,
-        );
         cardMandatesQuery = applyKamFilter(cardMandatesQuery, filterKam, filterNso);
 
         const { data: cardMandatesRaw } = await cardMandatesQuery;
         const cardMandates = filterMandatesForRollups(
           cardMandatesRaw,
-          isMonthScoped,
-          scopedMonthPair?.key ?? null,
+          hasAchievedMcvForRollupInclusion,
         );
         const cardMandateIds =
           cardMandates.map((m: { id: string }) => m.id).filter(Boolean) || [];
@@ -2560,15 +2563,13 @@ export default function Dashboard() {
           .from("mandates")
           .select("monthly_data, type, new_sales_owner, lifecycle_status"),
       );
-      mandatesQuery = applyRollupLifecycleQueryFilter(mandatesQuery, isMonthScoped);
       mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
       mandatesQuery = applyKamFilter(mandatesQuery, filterKam, filterNso);
       mandatesQuery = applyLobFilter(mandatesQuery);
       const { data: allMandatesForMcvRaw, error: mcvError } = await mandatesQuery;
       const allMandatesForMcv = filterMandatesForRollups(
         allMandatesForMcvRaw,
-        isMonthScoped,
-        scopedMonthPair?.key ?? null,
+        hasAchievedMcvForRollupInclusion,
       );
       
       // Debug logging for NSO filter
@@ -3529,10 +3530,6 @@ export default function Dashboard() {
           .from("mandates")
           .select("id, account_id, monthly_data, type, lifecycle_status"),
       );
-      mandatesTierQuery = applyRollupLifecycleQueryFilter(
-        mandatesTierQuery,
-        isMonthScoped,
-      );
       mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
       mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam, filterNso);
       mandatesTierQuery = applyLobFilter(mandatesTierQuery);
@@ -3540,8 +3537,7 @@ export default function Dashboard() {
         await mandatesTierQuery;
       const mandatesTierData = filterMandatesForRollups(
         mandatesTierDataRaw,
-        isMonthScoped,
-        scopedMonthPair?.key ?? null,
+        hasAchievedMcvForRollupInclusion,
       );
 
       // Calculate total achieved MCV for each account from all mandates to determine MCV Tier dynamically
@@ -3680,15 +3676,10 @@ export default function Dashboard() {
           .select("id, account_id, lifecycle_status, monthly_data")
           .not("account_id", "is", null),
       );
-      tierMandatesForTargetsQuery = applyRollupLifecycleQueryFilter(
-        tierMandatesForTargetsQuery,
-        isMonthScoped,
-      );
       const { data: tierMandatesForTargetsRaw } = await tierMandatesForTargetsQuery;
       const tierMandatesForTargets = filterMandatesForRollups(
         tierMandatesForTargetsRaw,
-        isMonthScoped,
-        scopedMonthPair?.key ?? null,
+        hasAchievedMcvForRollupInclusion,
       );
       tierMandatesForTargets.forEach((mandate: any) => {
         if (mandate.id && mandate.account_id) {
