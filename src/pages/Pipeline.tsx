@@ -122,49 +122,56 @@ const statusOptions = [
   "Dropped",
 ];
 
+// Cross-sell pipeline LoBs (no Existing-only Staffing (Core)).
 const lobOptions = [
   "Diligence & Audit",
   "New Business Development",
-  "New Business Line",
-  "Digital Gigs",
-  "Installation and maintenance",
-  "AI Ops",
+  "AI Operations",
   "Awign Expert",
   "Last Mile Operations",
   "Invigilation & Proctoring",
-  "Staffing",
+  "Installation & Maintenance",
+  "Staffing (Anchal)",
   "Others",
+  "Staffing (Prashant)",
 ];
+
+/** Use cases shared by Staffing (Anchal) / Staffing (Prashant) in the pipeline. */
+const STAFFING_PIPELINE_USE_CASE_MAPPING: Record<string, string[]> = {
+  "Staffing": ["-"],
+  "Retail Branding": [
+    "Merchandiser Driven Programs",
+    "Signage Deployments",
+    "Onetime POS and deployment",
+  ],
+  "Staffing - SaaS": ["-"],
+};
 
 // Data structure for LoB -> Use Case -> Sub Use Case mapping
 const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
   "Diligence & Audit": {
     "Mystery Audit": ["-"],
-    "Non-Mystery Audit": ["Stock Audit", "Store Audit", "Warehouse Audit", "Retail Outlet Audit", "Distributor Audit", "Others"],
+    "Non-Mystery Audit": ["-"],
     "Background Verification": ["-"],
+    "Content Operations": ["-"],
+    "Telecalling": ["-"],
+    "Device Pickup": ["-"],
+    "Market Survey": ["-"],
   },
   "New Business Development": {
     "Promoters Deployment": ["-"],
     "Fixed Resource Deployment": ["-"],
     "New Customer Acquisition": ["-"],
+    "Retail Onboarding": ["-"],
     "Retailer Activation": ["-"],
     "Society Activation": ["-"],
   },
-  "New Business Line": {
-    "-": ["-"],
-  },
-  "Digital Gigs": {
-    "Content Operations": ["-"],
-    "Telecalling": ["-"],
-  },
-  "Installation and maintenance": {
-    "-": ["-"],
-  },
-  "AI Ops": {
-    "-": ["-"],
+  "AI Operations": {
+    "Physical AI": ["-"],
+    "Voice AI": ["-"],
   },
   "Awign Expert": {
-    "-": ["-"],
+    "IT Expert": ["-"],
   },
   "Last Mile Operations": {
     "-": ["-"],
@@ -172,16 +179,84 @@ const lobUseCaseMapping: Record<string, Record<string, string[]>> = {
   "Invigilation & Proctoring": {
     "-": ["-"],
   },
-  "Staffing": {
-    "-": ["-"],
+  "Installation & Maintenance": {
+    "Smart Meter": ["Per Installation Pay", "Fixed Pay"],
+    "EV": ["Per Installation Pay", "Fixed Pay"],
+    "Broadband": ["Per Installation Pay", "Fixed Pay"],
   },
+  "Staffing (Anchal)": STAFFING_PIPELINE_USE_CASE_MAPPING,
   "Others": {
-    "Market Survey": ["-"],
     "Edtech": ["-"],
     "SaaS": ["-"],
     "Others": ["-"],
   },
+  "Staffing (Prashant)": STAFFING_PIPELINE_USE_CASE_MAPPING,
 };
+
+// Canonical enum value lists (new + legacy) for save/import tolerance.
+const PIPELINE_LOB_VALUES = [
+  "Diligence & Audit",
+  "New Business Development",
+  "AI Operations",
+  "Awign Expert",
+  "Last Mile Operations",
+  "Invigilation & Proctoring",
+  "Installation & Maintenance",
+  "Staffing (Anchal)",
+  "Staffing (Prashant)",
+  "Staffing (Core)",
+  "Others",
+  // Legacy
+  "New Business Line",
+  "Digital Gigs",
+  "Staffing",
+];
+
+const PIPELINE_USE_CASE_VALUES = [
+  "Mystery Audit",
+  "Non-Mystery Audit",
+  "Background Verification",
+  "Content Operations",
+  "Telecalling",
+  "Device Pickup",
+  "Market Survey",
+  "Promoters Deployment",
+  "Fixed Resource Deployment",
+  "New Customer Acquisition",
+  "Retail Onboarding",
+  "Retailer Activation",
+  "Society Activation",
+  "Physical AI",
+  "Voice AI",
+  "IT Expert",
+  "Smart Meter",
+  "EV",
+  "Broadband",
+  "Staffing",
+  "Retail Branding",
+  "Staffing - SaaS",
+  "Edtech",
+  "SaaS",
+  "Others",
+  // Legacy
+  "Staffing - Core",
+  "Loyalty Programs",
+];
+
+const PIPELINE_SUB_USE_CASE_VALUES = [
+  "Merchandiser Driven Programs",
+  "Signage Deployments",
+  "Onetime POS and deployment",
+  "Per Installation Pay",
+  "Fixed Pay",
+  "Others",
+  // Legacy
+  "Stock Audit",
+  "Store Audit",
+  "Warehouse Audit",
+  "Retail Outlet Audit",
+  "Distributor Audit",
+];
 
 const prjDurationOptions = ["1","2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 const prjFrequencyOptions = ["One-time", "Recurring"]; // Match enum: 'One-time' not 'One-Time'
@@ -1581,43 +1656,9 @@ export default function Pipeline() {
         spoc_id: sanitizeValue(formData.spocId),
         spoc2_id: sanitizeValue(formData.spoc2Id),
         spoc3_id: sanitizeValue(formData.spoc3Id),
-        lob: ensureEnumValue(formData.lob, [
-          'Diligence & Audit',
-          'New Business Development',
-          'New Business Line',
-          'Digital Gigs',
-          'Installation and maintenance',
-          'AI Ops',
-          'Awign Expert',
-          'Last Mile Operations',
-          'Invigilation & Proctoring',
-          'Staffing',
-          'Others'
-        ]) || formData.lob, // Fallback to original if not in enum (shouldn't happen)
-        use_case: ensureEnumValue(formData.useCase, [
-          'Mystery Audit',
-          'Non-Mystery Audit',
-          'Background Verification',
-          'Promoters Deployment',
-          'Fixed Resource Deployment',
-          'New Customer Acquisition',
-          'Retailer Activation',
-          'Society Activation',
-          'Content Operations',
-          'Telecalling',
-          'Market Survey',
-          'Edtech',
-          'SaaS',
-          'Others'
-        ]) || "Others", // Required field, default to "Others" if "-" or invalid
-        sub_use_case: ensureEnumValue(formData.subUseCase, [
-          'Stock Audit',
-          'Store Audit',
-          'Warehouse Audit',
-          'Retail Outlet Audit',
-          'Distributor Audit',
-          'Others'
-        ]) || "Others", // Required field, default to "Others" if "-" or invalid
+        lob: ensureEnumValue(formData.lob, PIPELINE_LOB_VALUES) || formData.lob, // Fallback to original if not in enum (shouldn't happen)
+        use_case: ensureEnumValue(formData.useCase, PIPELINE_USE_CASE_VALUES) || "Others", // Required field, default to "Others" if "-" or invalid
+        sub_use_case: ensureEnumValue(formData.subUseCase, PIPELINE_SUB_USE_CASE_VALUES) || "Others", // Required field, default to "Others" if "-" or invalid
         monthly_volume: parseFloat(formData.monthlyVolume) || 0,
         max_monthly_volume: parseFloat(formData.maxMonthlyVolume) || 0,
         commercial_per_head: parseFloat(formData.commercialPerHead) || 0,
@@ -1810,43 +1851,9 @@ export default function Pipeline() {
         spoc_id: formData.spocId || null,
         spoc2_id: formData.spoc2Id || null,
         spoc3_id: formData.spoc3Id || null,
-        lob: ensureEnumValue(formData.lob, [
-          'Diligence & Audit',
-          'New Business Development',
-          'New Business Line',
-          'Digital Gigs',
-          'Installation and maintenance',
-          'AI Ops',
-          'Awign Expert',
-          'Last Mile Operations',
-          'Invigilation & Proctoring',
-          'Staffing',
-          'Others'
-        ]) || formData.lob,
-        use_case: ensureEnumValue(formData.useCase, [
-          'Mystery Audit',
-          'Non-Mystery Audit',
-          'Background Verification',
-          'Promoters Deployment',
-          'Fixed Resource Deployment',
-          'New Customer Acquisition',
-          'Retailer Activation',
-          'Society Activation',
-          'Content Operations',
-          'Telecalling',
-          'Market Survey',
-          'Edtech',
-          'SaaS',
-          'Others'
-        ]) || formData.useCase,
-        sub_use_case: ensureEnumValue(formData.subUseCase, [
-          'Stock Audit',
-          'Store Audit',
-          'Warehouse Audit',
-          'Retail Outlet Audit',
-          'Distributor Audit',
-          'Others'
-        ]) || formData.subUseCase,
+        lob: ensureEnumValue(formData.lob, PIPELINE_LOB_VALUES) || formData.lob,
+        use_case: ensureEnumValue(formData.useCase, PIPELINE_USE_CASE_VALUES) || formData.useCase,
+        sub_use_case: ensureEnumValue(formData.subUseCase, PIPELINE_SUB_USE_CASE_VALUES) || formData.subUseCase,
         monthly_volume: parseFloat(formData.monthlyVolume) || 0,
         max_monthly_volume: parseFloat(formData.maxMonthlyVolume) || 0,
         commercial_per_head: parseFloat(formData.commercialPerHead) || 0,

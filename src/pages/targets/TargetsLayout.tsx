@@ -177,6 +177,7 @@ export function TargetsLayout() {
   }
 
   const isMandateTargetsTab = location.pathname.includes("/targets/mandate");
+  const isTopLevelTargetsTab = location.pathname.includes("/targets/top-level-target");
 
   const outletContext: TargetsOutletContext = {
     filterFinancialYear,
@@ -238,7 +239,7 @@ export function TargetsLayout() {
                 </SelectContent>
               </Select>
             ) : null}
-            {!isKamOnly ? (
+            {!isKamOnly && !isTopLevelTargetsTab ? (
               <Select value={filterKam} onValueChange={setFilterKam}>
                 <SelectTrigger
                   className={cn(

@@ -735,13 +735,16 @@ export type Database = {
         | "New Business Development"
         | "New Business Line"
         | "Digital Gigs"
-        | "Installation and maintenance"
-        | "AI Ops"
         | "Awign Expert"
         | "Last Mile Operations"
         | "Invigilation & Proctoring"
         | "Staffing"
         | "Others"
+        | "AI Operations"
+        | "Installation & Maintenance"
+        | "Staffing (Anchal)"
+        | "Staffing (Prashant)"
+        | "Staffing (Core)"
       mandate_health:
         | "Exceeds Expectations"
         | "Meets Expectations"
@@ -773,6 +776,8 @@ export type Database = {
         | "Distributor Audit"
         | "Others"
         | "-"
+        | "Per Installation Pay"
+        | "Fixed Pay"
       target_type: "new_cross_sell" | "existing"
       upsell_action_status: "Not Started" | "Ongoing" | "Done"
       upsell_constraint: "YES" | "NO"
@@ -810,6 +815,15 @@ export type Database = {
         | "SaaS"
         | "Others"
         | "-"
+        | "Device Pickup"
+        | "Retail Onboarding"
+        | "Physical AI"
+        | "Voice AI"
+        | "IT Expert"
+        | "Smart Meter"
+        | "EV"
+        | "Broadband"
+        | "Staffing - SaaS"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -953,13 +967,16 @@ export const Constants = {
         "New Business Development",
         "New Business Line",
         "Digital Gigs",
-        "Installation and maintenance",
-        "AI Ops",
         "Awign Expert",
         "Last Mile Operations",
         "Invigilation & Proctoring",
         "Staffing",
         "Others",
+        "AI Operations",
+        "Installation & Maintenance",
+        "Staffing (Anchal)",
+        "Staffing (Prashant)",
+        "Staffing (Core)",
       ],
       mandate_health: [
         "Exceeds Expectations",
@@ -994,6 +1011,8 @@ export const Constants = {
         "Distributor Audit",
         "Others",
         "-",
+        "Per Installation Pay",
+        "Fixed Pay",
       ],
       target_type: ["new_cross_sell", "existing"],
       upsell_action_status: ["Not Started", "Ongoing", "Done"],
@@ -1034,6 +1053,15 @@ export const Constants = {
         "SaaS",
         "Others",
         "-",
+        "Device Pickup",
+        "Retail Onboarding",
+        "Physical AI",
+        "Voice AI",
+        "IT Expert",
+        "Smart Meter",
+        "EV",
+        "Broadband",
+        "Staffing - SaaS",
       ],
     },
   },

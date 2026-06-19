@@ -30,7 +30,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { downloadCSV, parseCSV } from "@/lib/csv-export";
+import { downloadCSV, parseCSV, convertToCSV } from "@/lib/csv-export";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   parseTeamValue,
@@ -38,7 +38,7 @@ import {
   TEAM_LABELS,
 } from "@/lib/teamLabels";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
-import { Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Download, Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { clearPageDataCache, getPageDataCache, hashPageFilters, setPageDataCache } from "@/lib/pageSession";
 import { useOutletContext } from "react-router-dom";
@@ -337,6 +337,142 @@ export function OverallTargetsTab() {
     }
   };
 
+  const handleExport = async () => {
+    try {
+      const yearMatch = filterFinancialYear.match(/FY(\d{2})/);
+      if (!yearMatch) {
+        toast({
+          title: "No data",
+          description: "No targets found to export.",
+          variant: "default",
+        });
+        return;
+      }
+      const fyStart = 2000 + parseInt(yearMatch[1], 10);
+      const fyEnd = fyStart + 1;
+
+      // Always export every team, regardless of the selected team filter.
+      const { data, error } = await supabase
+        .from("manager_targets")
+        .select("id, month, year, existing_target, new_ac_target, team")
+        .in("team", ["ce", "staffing", "experts"])
+        .gte("year", fyStart)
+        .lte("year", fyEnd);
+      if (error) throw error;
+
+      const allowed = new Set(pairs.map((p) => `${p.year}-${p.month}`));
+      const filtered = (data || []).filter((r: ManagerTargetRow) =>
+        allowed.has(`${r.year}-${r.month}`)
+      );
+
+      const teamMaps: Record<ManagerTargetRow["team"], Map<string, number>> = {
+        ce: new Map(),
+        staffing: new Map(),
+        experts: new Map(),
+      };
+      filtered.forEach((r: ManagerTargetRow) => {
+        const key = `${r.year}-${String(r.month).padStart(2, "0")}`;
+        const map = teamMaps[r.team];
+        if (map) {
+          map.set(key, (map.get(key) || 0) + Number(r.existing_target || 0));
+        }
+      });
+
+      // Respect the team filter: only export the selected team when one is applied.
+      const exportAllTeams = canSelectAllTeams && selectedTeam === "all";
+      const teamTitles: Record<ManagerTargetRow["team"], string> = {
+        ce: "Core Team Targets",
+        staffing: "Staffing Team Targets",
+        experts: "Experts Team Targets",
+      };
+      const allTeamSections: Array<{ team: ManagerTargetRow["team"]; title: string }> = [
+        { team: "ce", title: teamTitles.ce },
+        { team: "staffing", title: teamTitles.staffing },
+        { team: "experts", title: teamTitles.experts },
+      ];
+      const teamSections = exportAllTeams
+        ? allTeamSections
+        : allTeamSections.filter((s) => s.team === (effectiveTeam ?? "ce"));
+
+      const sections: string[] = [];
+
+      teamSections.forEach(({ team, title }) => {
+        const map = teamMaps[team];
+        const rowsData = monthColumns.map((col) => ({
+          month: col.label,
+          existing_target: Math.round(map.get(col.key) || 0),
+        }));
+        const total = monthColumns.reduce(
+          (sum, col) => sum + (map.get(col.key) || 0),
+          0
+        );
+        rowsData.push({ month: "Total", existing_target: Math.round(total) });
+        const csv = convertToCSV(rowsData, [
+          { key: "month", label: "Month" },
+          { key: "existing_target", label: "Existing Target" },
+        ]);
+        sections.push(`${title}\n${csv}`);
+      });
+
+      // Combined table across all teams (only when exporting every team)
+      if (exportAllTeams) {
+      const combinedData = monthColumns.map((col) => {
+        const ce = teamMaps.ce.get(col.key) || 0;
+        const staffing = teamMaps.staffing.get(col.key) || 0;
+        const experts = teamMaps.experts.get(col.key) || 0;
+        return {
+          month: col.label,
+          ce: Math.round(ce),
+          staffing: Math.round(staffing),
+          experts: Math.round(experts),
+          total: Math.round(ce + staffing + experts),
+        };
+      });
+      const combinedTotals = monthColumns.reduce(
+        (acc, col) => {
+          acc.ce += teamMaps.ce.get(col.key) || 0;
+          acc.staffing += teamMaps.staffing.get(col.key) || 0;
+          acc.experts += teamMaps.experts.get(col.key) || 0;
+          return acc;
+        },
+        { ce: 0, staffing: 0, experts: 0 }
+      );
+      combinedData.push({
+        month: "Total",
+        ce: Math.round(combinedTotals.ce),
+        staffing: Math.round(combinedTotals.staffing),
+        experts: Math.round(combinedTotals.experts),
+        total: Math.round(
+          combinedTotals.ce + combinedTotals.staffing + combinedTotals.experts
+        ),
+      });
+      const combinedCsv = convertToCSV(combinedData, [
+        { key: "month", label: "Month" },
+        { key: "ce", label: "Core" },
+        { key: "staffing", label: "Staffing" },
+        { key: "experts", label: "Experts" },
+        { key: "total", label: "All Teams Total" },
+      ]);
+      sections.push(`All Teams Combined Targets\n${combinedCsv}`);
+      }
+
+      const csvContent = sections.join("\n\n");
+      const filePrefix = exportAllTeams
+        ? "overall_targets"
+        : `overall_targets_${effectiveTeam ?? "ce"}`;
+      downloadCSV(
+        csvContent,
+        `${filePrefix}_${formatFYLabel(filterFinancialYear)}_${new Date()
+          .toISOString()
+          .split("T")[0]}.csv`,
+      );
+      toast({ title: "Success!", description: "Overall targets exported to CSV." });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Export failed";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    }
+  };
+
   const downloadTemplate = () => {
     const headers = ["Month", "Year", "Existing Target", "Team"];
     const lines = [headers.join(",")];
@@ -484,6 +620,15 @@ export function OverallTargetsTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={handleExport}
+          disabled={loading}
+        >
+          <Download className="h-4 w-4" />
+          Export
+        </Button>
         {canMutateToolbar ? (
           <>
             <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>

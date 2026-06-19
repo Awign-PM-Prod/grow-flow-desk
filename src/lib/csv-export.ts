@@ -116,6 +116,70 @@ export function formatTimestampForCSV(
 }
 
 /**
+ * Formats a timestamp into Indian Standard Time (IST), e.g. "19 Jun 2026, 01:12 AM".
+ */
+export function formatTimestampISTForCSV(
+  timestamp: string | Date | null | undefined
+): string {
+  if (!timestamp) return "";
+  try {
+    const d = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
+    if (Number.isNaN(d.getTime())) return String(timestamp);
+    return d.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return String(timestamp);
+  }
+}
+
+/**
+ * Formats a mandate's monthly_data JSONB into a single human-readable cell, e.g.
+ *   May 2026 : 120000
+ *   April 2026 : 90000
+ * Newest month first. Handles old array format [plannedMcv, achievedMcv] and new number format.
+ */
+export function formatMonthlyDataForCSV(
+  monthlyData: unknown
+): string {
+  if (!monthlyData || typeof monthlyData !== "object" || Array.isArray(monthlyData)) {
+    return "";
+  }
+
+  const entries = Object.entries(monthlyData as Record<string, unknown>)
+    .map(([monthYear, value]) => {
+      const [yearStr, monthStr] = monthYear.split("-");
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      if (Number.isNaN(year) || Number.isNaN(month)) return null;
+
+      let achievedMcv = 0;
+      if (Array.isArray(value) && value.length >= 2) {
+        achievedMcv = parseFloat(value[1]?.toString() || "0") || 0;
+      } else if (typeof value === "number") {
+        achievedMcv = value;
+      } else if (typeof value === "string") {
+        achievedMcv = parseFloat(value) || 0;
+      }
+
+      const monthName = new Date(year, month - 1, 1).toLocaleString("default", {
+        month: "long",
+      });
+      return { monthYear, label: `${monthName} ${year} : ${achievedMcv}` };
+    })
+    .filter((e): e is { monthYear: string; label: string } => e !== null)
+    .sort((a, b) => b.monthYear.localeCompare(a.monthYear));
+
+  return entries.map((e) => e.label).join("\n");
+}
+
+/**
  * Parses CSV content into an array of objects
  * @param csvContent CSV string content
  * @returns Array of objects with keys from header row

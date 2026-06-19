@@ -30,10 +30,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Loader2, Upload } from "lucide-react";
+import { Plus, Loader2, Upload, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { parseCSV, downloadCSV } from "@/lib/csv-export";
+import { parseCSV, downloadCSV, convertToCSV } from "@/lib/csv-export";
 import { formatNumber } from "@/lib/utils";
 import { CSVPreviewDialog } from "@/components/CSVPreviewDialog";
 import {
@@ -1237,6 +1237,98 @@ export function MonthlyTargetsTab({
     return monthNames[month - 1] || '';
   };
 
+  const handleExportTargets = () => {
+    try {
+      const monthHeaders = monthColumns.map((col) => ({
+        key: col.key,
+        label: col.label,
+      }));
+
+      let headers: { key: string; label: string }[];
+      let csvData: Record<string, any>[];
+
+      if (mode === "existing") {
+        headers = [
+          { key: "mandate", label: "Mandate" },
+          { key: "mandate_type", label: "Mandate Type" },
+          { key: "kam", label: "KAM" },
+          { key: "nso", label: "NSO" },
+          { key: "status", label: "Status" },
+          ...monthHeaders,
+        ];
+        csvData = filteredMandatesForTable.map((mandate) => {
+          const nso =
+            mandate.type === "New Acquisition" && mandate.new_sales_owner
+              ? mandate.nsoInfo
+                ? `${mandate.nsoInfo.first_name} ${mandate.nsoInfo.last_name}`.trim()
+                : mandate.new_sales_owner
+              : "";
+          const row: Record<string, any> = {
+            mandate: `${mandate.project_code} - ${mandate.project_name}`,
+            mandate_type: mandate.type || "",
+            kam: mandate.kamName || "",
+            nso,
+            status: mandate.lifecycle_status ?? "Active",
+          };
+          monthColumns.forEach((col) => {
+            row[col.key] = existingTargetsData[mandate.id]?.[col.key] || 0;
+          });
+          return row;
+        });
+      } else {
+        headers = [
+          { key: "kam", label: "KAM" },
+          { key: "account", label: "Account" },
+          ...monthHeaders,
+        ];
+        csvData = crossSellKamAccountCombos.map((combo) => {
+          const compositeKey = `${combo.kamId}_${combo.accountId}`;
+          const row: Record<string, any> = {
+            kam: combo.kamName,
+            account: combo.accountName,
+          };
+          monthColumns.forEach((col) => {
+            row[col.key] = crossSellTargetsData[compositeKey]?.[col.key] || 0;
+          });
+          return row;
+        });
+      }
+
+      if (csvData.length === 0) {
+        toast({
+          title: "No data",
+          description: "No targets found to export.",
+          variant: "default",
+        });
+        return;
+      }
+
+      const hasActiveFilters =
+        (canSelectAllTeams && selectedTeam !== "all") ||
+        filterKam !== "all" ||
+        (mode === "existing" && filterLifecycleStatus !== "all");
+
+      const csvContent = convertToCSV(csvData, headers);
+      const prefix = mode === "existing" ? "mandate_targets" : "cross_sell_targets";
+      const filename = `${hasActiveFilters ? "filtered_" : ""}${prefix}_${formatFYLabel(
+        filterFinancialYear,
+      )}_${new Date().toISOString().split("T")[0]}.csv`;
+      downloadCSV(csvContent, filename);
+
+      toast({
+        title: "Success!",
+        description: `Exported ${csvData.length} ${hasActiveFilters ? "filtered " : ""}target row(s) to CSV.`,
+      });
+    } catch (error: any) {
+      console.error("Error exporting targets:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to export targets. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Bulk upload functions
   const handleDownloadCrossSellTemplate = async () => {
     // Fetch KAM-Account relationships from mandates
@@ -1901,6 +1993,15 @@ export function MonthlyTargetsTab({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={handleExportTargets}
+          disabled={loadingTargets}
+        >
+          <Download className="h-4 w-4" />
+          Export
+        </Button>
         {canMutatePortal ? (
           <>
           <Dialog
