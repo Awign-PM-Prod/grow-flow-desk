@@ -1,0 +1,27 @@
+# Runs the frontend (nginx) and backend (Supabase gateway) together.
+# Compose substitutes ${VARS} below from the root .env file.
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Must be the URL the BROWSER uses to reach the backend (not the docker
+        # network name), because Vite inlines it at build time.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:4000}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+        VITE_SITE_URL: ${VITE_SITE_URL:-http://localhost:8080}
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
