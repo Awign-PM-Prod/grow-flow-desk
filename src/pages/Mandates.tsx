@@ -24,7 +24,8 @@ import {
   downloadCSV,
   formatTimestampISTForCSV,
   formatDateForCSV,
-  formatMonthlyDataForCSV,
+  buildMonthlyColumns,
+  extractAchievedMcv,
   downloadCSVTemplate,
   parseCSV,
   parseCSVLine,
@@ -4383,45 +4384,90 @@ export default function Mandates() {
         });
       }
 
-      // Prepare data for CSV with all fields
-      const csvData = dataToExport.map((mandate: any) => ({
-        project_code: mandate.project_code || "",
-        project_name: mandate.project_name || "",
-        account_name: mandate.accounts?.name || "",
-        kam_name: mandate.profiles?.full_name || "",
-        lob: mandate.lob || "",
-        type: mandate.type || "",
-        status: (mandate.lifecycle_status ?? "Active") === "Inactive" ? "Inactive" : "Active",
-        new_sales_owner: mandate.new_sales_owner || "",
-        handover_monthly_volume: mandate.handover_monthly_volume || 0,
-        handover_commercial_per_head: mandate.handover_commercial_per_head || 0,
-        handover_mcv: mandate.handover_mcv || 0,
-        prj_duration_months: mandate.prj_duration_months || "",
-        handover_acv: mandate.handover_acv || 0,
-        handover_prj_type: mandate.handover_prj_type || "",
-        revenue_monthly_volume: mandate.revenue_monthly_volume || 0,
-        revenue_commercial_per_head: mandate.revenue_commercial_per_head || 0,
-        revenue_mcv: mandate.revenue_mcv || 0,
-        revenue_acv: mandate.revenue_acv || 0,
-        revenue_prj_type: mandate.revenue_prj_type || "",
-        mandate_health: mandate.mandate_health || "",
-        upsell_constraint: mandate.upsell_constraint === "YES" ? "YES" : (mandate.upsell_constraint === "NO" ? "NO" : ""),
-        upsell_constraint_type: mandate.upsell_constraint_type || "",
-        upsell_constraint_sub: mandate.upsell_constraint_sub || "",
-        upsell_constraint_sub2: mandate.upsell_constraint_sub2 || "",
-        client_budget_trend: mandate.client_budget_trend || "",
-        awign_share_percent: mandate.awign_share_percent || "",
-        retention_type: mandate.retention_type || "",
-        upsell_action_status: mandate.upsell_action_status || "",
-        monthly_data: formatMonthlyDataForCSV(mandate.monthly_data),
-        created_at: formatTimestampISTForCSV(mandate.created_at),
-        updated_at: formatTimestampISTForCSV(mandate.updated_at),
-        created_by: mandate.created_by
-          ? creatorNameById[mandate.created_by] || mandate.created_by
-          : "",
-      }));
+      // One column per month: build the union of months across all exported
+      // mandates (ascending, oldest first) so each month's achieved MCV gets its
+      // own column instead of being packed into a single monthly_data cell.
+      const monthlyColumns = buildMonthlyColumns(
+        dataToExport.map((mandate: any) => mandate.monthly_data)
+      );
 
-      const csvContent = convertToCSV(csvData);
+      // Prepare data for CSV with all fields
+      const csvData = dataToExport.map((mandate: any) => {
+        const row: Record<string, any> = {
+          project_code: mandate.project_code || "",
+          project_name: mandate.project_name || "",
+          account_name: mandate.accounts?.name || "",
+          kam_name: mandate.profiles?.full_name || "",
+          lob: mandate.lob || "",
+          team: mandate.team || "",
+          type: mandate.type || "",
+          status: (mandate.lifecycle_status ?? "Active") === "Inactive" ? "Inactive" : "Active",
+          new_sales_owner: mandate.new_sales_owner || "",
+          handover_monthly_volume: mandate.handover_monthly_volume || 0,
+          handover_commercial_per_head: mandate.handover_commercial_per_head || 0,
+          handover_mcv: mandate.handover_mcv || 0,
+          prj_duration_months: mandate.prj_duration_months || "",
+          handover_acv: mandate.handover_acv || 0,
+          handover_prj_type: mandate.handover_prj_type || "",
+          revenue_monthly_volume: mandate.revenue_monthly_volume || 0,
+          revenue_commercial_per_head: mandate.revenue_commercial_per_head || 0,
+          revenue_mcv: mandate.revenue_mcv || 0,
+          revenue_acv: mandate.revenue_acv || 0,
+          revenue_prj_type: mandate.revenue_prj_type || "",
+          mandate_health: mandate.mandate_health || "",
+          upsell_constraint: mandate.upsell_constraint === "YES" ? "YES" : (mandate.upsell_constraint === "NO" ? "NO" : ""),
+          upsell_constraint_type: mandate.upsell_constraint_type || "",
+          upsell_constraint_sub: mandate.upsell_constraint_sub || "",
+          upsell_constraint_sub2: mandate.upsell_constraint_sub2 || "",
+          client_budget_trend: mandate.client_budget_trend || "",
+          awign_share_percent: mandate.awign_share_percent || "",
+          retention_type: mandate.retention_type || "",
+          upsell_action_status: mandate.upsell_action_status || "",
+        };
+
+        const monthlyData = mandate.monthly_data;
+        const hasMonthlyData =
+          monthlyData &&
+          typeof monthlyData === "object" &&
+          !Array.isArray(monthlyData);
+        for (const column of monthlyColumns) {
+          const value = hasMonthlyData ? monthlyData[column.key] : undefined;
+          // Blank when this mandate has no entry for the month.
+          row[column.key] =
+            value === undefined || value === null
+              ? ""
+              : extractAchievedMcv(value);
+        }
+
+        row.created_at = formatTimestampISTForCSV(mandate.created_at);
+        row.created_by = mandate.created_by
+          ? creatorNameById[mandate.created_by] || mandate.created_by
+          : "";
+
+        return row;
+      });
+
+      // Explicit headers are required so dynamic month columns and the fixed
+      // columns appear in a stable order regardless of per-row key differences.
+      const fixedLeadingKeys = [
+        "project_code", "project_name", "account_name", "kam_name", "lob", "team",
+        "type", "status", "new_sales_owner", "handover_monthly_volume",
+        "handover_commercial_per_head", "handover_mcv", "prj_duration_months",
+        "handover_acv", "handover_prj_type", "revenue_monthly_volume",
+        "revenue_commercial_per_head", "revenue_mcv", "revenue_acv",
+        "revenue_prj_type", "mandate_health", "upsell_constraint",
+        "upsell_constraint_type", "upsell_constraint_sub", "upsell_constraint_sub2",
+        "client_budget_trend", "awign_share_percent", "retention_type",
+        "upsell_action_status",
+      ];
+      const fixedTrailingKeys = ["created_at", "created_by"];
+      const csvHeaders = [
+        ...fixedLeadingKeys.map((key) => ({ key, label: key })),
+        ...monthlyColumns,
+        ...fixedTrailingKeys.map((key) => ({ key, label: key })),
+      ];
+
+      const csvContent = convertToCSV(csvData, csvHeaders);
       const filename = hasActiveFilters 
         ? `filtered_mandates_export_${new Date().toISOString().split("T")[0]}.csv`
         : `mandates_export_${new Date().toISOString().split("T")[0]}.csv`;

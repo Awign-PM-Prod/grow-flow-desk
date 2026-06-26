@@ -140,6 +140,68 @@ export function formatTimestampISTForCSV(
 }
 
 /**
+ * Extracts the achieved MCV number from a single monthly_data entry value.
+ * Handles the old array format [plannedMcv, achievedMcv], the new number format,
+ * and numeric strings.
+ */
+export function extractAchievedMcv(value: unknown): number {
+  if (Array.isArray(value) && value.length >= 2) {
+    return parseFloat(value[1]?.toString() || "0") || 0;
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string") {
+    return parseFloat(value) || 0;
+  }
+  return 0;
+}
+
+/**
+ * Formats a "YYYY-MM" month key into a readable label, e.g. "2026-05" -> "May 2026".
+ * Returns null when the key is not a valid year-month.
+ */
+export function formatMonthKeyLabel(monthYear: string): string | null {
+  const [yearStr, monthStr] = monthYear.split("-");
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  if (Number.isNaN(year) || Number.isNaN(month)) {
+    return null;
+  }
+  const monthName = new Date(year, month - 1, 1).toLocaleString("default", {
+    month: "long",
+  });
+  return `${monthName} ${year}`;
+}
+
+/**
+ * Builds the union of monthly columns across a list of mandates' monthly_data
+ * objects, sorted ascending (oldest month first) to match the in-app detail view.
+ * Each column's `key` is the raw "YYYY-MM" key and `label` is the readable month.
+ */
+export function buildMonthlyColumns(
+  monthlyDataList: unknown[]
+): { key: string; label: string }[] {
+  const monthKeys = new Set<string>();
+  for (const monthlyData of monthlyDataList) {
+    if (
+      monthlyData &&
+      typeof monthlyData === "object" &&
+      !Array.isArray(monthlyData)
+    ) {
+      for (const key of Object.keys(monthlyData as Record<string, unknown>)) {
+        if (formatMonthKeyLabel(key) !== null) {
+          monthKeys.add(key);
+        }
+      }
+    }
+  }
+  return [...monthKeys]
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => ({ key, label: formatMonthKeyLabel(key) ?? key }));
+}
+
+/**
  * Formats a mandate's monthly_data JSONB into a single human-readable cell, e.g.
  *   May 2026 : 120000
  *   April 2026 : 90000
