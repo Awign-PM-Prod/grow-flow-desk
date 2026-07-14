@@ -5,7 +5,15 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
 import { Fragment, useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { getPageDataCache, hashPageFilters, loadPersistedFilters, savePersistedFilters, setPageDataCache } from "@/lib/pageSession";
+import { getPageDataCache, getRawPageDataCache, hashPageFilters, loadPersistedFilters, savePersistedFilters, setPageDataCache, setRawPageDataCache } from "@/lib/pageSession";
+import {
+  DASHBOARD_DERIVED_CACHE_PAGE,
+  DASHBOARD_RAW_CACHE_PAGE,
+  fetchDashboardRawPayload,
+  filterDashboardMandates,
+  mandateMatchesLob,
+  type DashboardRawPayload,
+} from "@/lib/dashboardRawCache";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, BookOpen, Check, ChevronsUpDown, Minus, SlidersHorizontal } from "lucide-react";
 import { PDFGuideDialog } from "@/components/PDFGuideDialog";
@@ -30,7 +38,6 @@ import {
 } from "./targets/financialYearUtils";
 import { isMandateActiveAsOf } from "@/lib/mandateLifecycleLog";
 import {
-  applyExcludeTestKamFilter,
   fetchTestProfileExclusions,
   filterRowsByTestProfiles,
   filterTargetsByTestProfiles,
@@ -722,7 +729,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!selectedTeam) return;
-    const cached = getPageDataCache<DashboardDataCache>("dashboard", dashboardFilterHash);
+    const cached = getPageDataCache<DashboardDataCache>(DASHBOARD_DERIVED_CACHE_PAGE, dashboardFilterHash);
     if (cached) {
       applyDashboardCache(cached);
       setLoading(false);
@@ -752,7 +759,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (loading || !selectedTeam) return;
-    setPageDataCache("dashboard", dashboardFilterHash, {
+    setPageDataCache(DASHBOARD_DERIVED_CACHE_PAGE, dashboardFilterHash, {
       activeMandatesCount,
       allMandatesCount,
       mandatesThisMonth,
@@ -1002,50 +1009,6 @@ export default function Dashboard() {
   /** Target MCV card: mandate upsell targets only when a KAM/NSO filter is explicitly active. */
   const isKamOrNsoTargetMcvFilterActive = () =>
     isKamFilterActive(filterKam) || isNsoFilterActive(filterNso);
-
-  // Helper function to apply status filter to a Supabase query
-  // Note: When a specific NSO is selected, skip status filter since NSOs only exist for "New Acquisition" mandates
-  const applyStatusFilter = (query: any, statusFilter: string, nsoFilterActive?: boolean): any => {
-    if (nsoFilterActive) {
-      return query;
-    }
-    
-    if (statusFilter === "all" || statusFilter === "All mandate types") {
-      return query; // No filter applied - show all mandate types
-    } else if (statusFilter === "Existing") {
-      return query.eq("type", "Existing");
-    } else if (statusFilter === "All Cross Sell") {
-      return query.eq("type", "New Cross Sell");
-    } else if (statusFilter === "All Cross Sell + Existing") {
-      return query.in("type", ["New Cross Sell", "Existing"]);
-    } else if (statusFilter === "New Acquisitions") {
-      return query.eq("type", "New Acquisition");
-    }
-    return query; // Default: no filter
-  };
-
-  // Helper function to apply KAM/NSO filter to a Supabase query
-  const applyKamFilter = (query: any, kamFilter: string, nsoFilter: string): any => {
-    if (isKAM && user?.id) {
-      return query.eq("kam_id", user.id);
-    }
-
-    let filtered = query;
-    if (isKamFilterActive(kamFilter)) {
-      filtered = filtered.eq("kam_id", kamFilter);
-    }
-    if (isNsoFilterActive(nsoFilter)) {
-      filtered = filtered
-        .eq("type", "New Acquisition")
-        .eq("new_sales_owner", nsoFilter);
-    }
-    return filtered;
-  };
-
-  const applyLobFilter = (query: any, column: string = "lob"): any => {
-    if (selectedLobs.length === 0) return query;
-    return query.in(column, expandDashboardLobFilterValues(selectedLobs));
-  };
 
   // Helper function to filter targets by KAM/NSO client-side
   const filterTargetsByKamNso = (targets: any[]): any[] => {
@@ -1450,27 +1413,11 @@ export default function Dashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      setLoading(true);
-
       if (!selectedTeam) {
         // Wait until auth profile team is available.
         return;
       }
-      const applyTeamFilter = (query: any): any => {
-        if (!selectedTeam || selectedTeam === "all") return query;
-        return query.eq("team", selectedTeam);
-      };
 
-      const testExclusions = await fetchTestProfileExclusions(supabase);
-      testExclusionsRef.current = testExclusions;
-      const withExcludedTestKams = (query: any, column = "kam_id") =>
-        applyExcludeTestKamFilter(query, testExclusions.kamIds, column);
-      const withoutTestProfileRows = <
-        T extends { kam_id?: string | null; new_sales_owner?: string | null },
-      >(
-        rows: T[] | null | undefined,
-      ) => filterRowsByTestProfiles(rows, testExclusions);
-      
       // Get financial year date range from filter
       const fyDateRange = getFinancialYearDateRange(filterFinancialYear);
       const fyStartYear = fyDateRange.start.getFullYear();
@@ -1545,15 +1492,74 @@ export default function Dashboard() {
       const prevMonthEnd = new Date(prevCalendarYear, prevCalendarMonth, 0, 23, 59, 59, 999);
       const prevMonthYearStr = `${prevCalendarYear}-${String(prevCalendarMonth).padStart(2, "0")}`;
 
-      const { data: inactiveLifecycleRows } = await applyLobFilter(
-        withExcludedTestKams(
-          applyTeamFilter(
-            supabase
-              .from("mandates")
-              .select("id, monthly_data")
-              .eq("lifecycle_status", "Inactive"),
-          ),
-        ),
+      const mandatesCardAsOf = isMonthScoped ? mandateDateRangeEnd : fyDateRange.end;
+      const upsellDates = getUpsellDateContext(
+        filterFinancialYear,
+        filterDashboardMonth,
+        fyDateRange,
+        fyMonthsList,
+      );
+
+      // ── Team+FY raw cache: soft filters recompute without network ──
+      const rawKey = hashPageFilters({
+        selectedTeam,
+        filterFinancialYear,
+        kamScope: isKAM && user?.id ? user.id : null,
+      });
+      let rawPayload = getRawPageDataCache<DashboardRawPayload>(
+        DASHBOARD_RAW_CACHE_PAGE,
+        rawKey,
+      );
+      const softRecompute = !!rawPayload;
+      if (!softRecompute) {
+        setLoading(true);
+      }
+
+      if (!rawPayload) {
+        const testExclusionsFresh = await fetchTestProfileExclusions(supabase);
+        const { data: fetchedRaw, error: rawError } = await fetchDashboardRawPayload({
+          supabase,
+          selectedTeam,
+          fyStartYear,
+          fyEndYear,
+          financialYearString,
+          isKAM,
+          userId: user?.id,
+          testExclusions: testExclusionsFresh,
+        });
+        if (rawError) throw rawError;
+        if (!fetchedRaw) throw new Error("Failed to load dashboard raw data");
+        rawPayload = fetchedRaw;
+        setRawPageDataCache(DASHBOARD_RAW_CACHE_PAGE, rawKey, rawPayload);
+      }
+
+      const testExclusions = rawPayload.testExclusions;
+      testExclusionsRef.current = testExclusions;
+      const withoutTestProfileRows = <
+        T extends { kam_id?: string | null; new_sales_owner?: string | null },
+      >(
+        rows: T[] | null | undefined,
+      ) => filterRowsByTestProfiles(rows, testExclusions);
+
+      const nsoFilterActive = isNsoFilterActive(filterNso);
+      const personFilterOpts = {
+        isKAM,
+        userId: user?.id,
+        filterKam,
+        filterNso,
+        isKamFilterActive,
+        isNsoFilterActive,
+      };
+      const mandateFilterBase = {
+        statusFilter: filterUpsellStatus,
+        nsoFilterActive,
+        selectedLobs,
+        ...personFilterOpts,
+      };
+
+      // Inactive set: LoB-filtered (same as former server applyLobFilter on inactive query)
+      const inactiveLifecycleRows = rawPayload.inactiveLifecycleRows.filter((row) =>
+        mandateMatchesLob(row.lob, selectedLobs),
       );
       inactiveMandateIdsRef.current = buildInactiveMandateIdsForTargets(
         inactiveLifecycleRows,
@@ -1567,37 +1573,15 @@ export default function Dashboard() {
        *   achieved MCV stored in monthly_data for the selected month.
        * Total (y) = mandates in scope with created_at <= period end when month-scoped.
        */
-      const mandatesCardAsOf = isMonthScoped ? mandateDateRangeEnd : fyDateRange.end;
+      const mandatesForCard = filterDashboardMandates(rawPayload.mandates, {
+        ...mandateFilterBase,
+        applyStatus: true,
+        applyKamNso: true,
+        applyLob: true,
+        createdAtLte: isMonthScoped ? mandatesCardAsOf : null,
+      });
 
-      let mandatesCardQuery = applyTeamFilter(
-        supabase
-          .from("mandates")
-          .select(
-            "id, lob, account_id, created_at, lifecycle_status, lifecycle_status_log, monthly_data",
-          )
-      );
-      // Month filter: point-in-time total only includes mandates created on/before period end.
-      if (isMonthScoped) {
-        mandatesCardQuery = mandatesCardQuery.lte(
-          "created_at",
-          mandatesCardAsOf.toISOString()
-        );
-      }
-      mandatesCardQuery = applyStatusFilter(
-        mandatesCardQuery,
-        filterUpsellStatus,
-        isNsoFilterActive(filterNso)
-      );
-      mandatesCardQuery = applyKamFilter(mandatesCardQuery, filterKam, filterNso);
-      mandatesCardQuery = applyLobFilter(mandatesCardQuery);
-      mandatesCardQuery = withExcludedTestKams(mandatesCardQuery);
-
-      const { data: mandatesForCard, error: mandatesCardError } =
-        await mandatesCardQuery;
-
-      if (mandatesCardError) throw mandatesCardError;
-
-      const rows = withoutTestProfileRows(mandatesForCard || []);
+      const rows = withoutTestProfileRows(mandatesForCard);
       const allMandatesTotalCount = rows.length;
       const isActiveAsOf = (
         m: {
@@ -1608,7 +1592,7 @@ export default function Dashboard() {
         asOf: Date,
       ) =>
         m.lifecycle_status === "Active" ||
-        isMandateActiveAsOf(m.created_at, m.lifecycle_status_log, asOf);
+        isMandateActiveAsOf(m.created_at, m.lifecycle_status_log as any, asOf);
 
       const isActiveMandateRow = (m: {
         lifecycle_status?: string | null;
@@ -1624,7 +1608,7 @@ export default function Dashboard() {
       }) => {
         if (isMonthScoped && scopedMonthPair) {
           return (
-            getAchievedMcvForMonthKey(m.monthly_data, scopedMonthPair.key) > 0
+            getAchievedMcvForMonthKey(m.monthly_data as any, scopedMonthPair.key) > 0
           );
         }
         return isActiveMandateRow(m);
@@ -1674,81 +1658,41 @@ export default function Dashboard() {
         .map((m: any) => m.id)
         .filter(Boolean) as string[];
 
-      // Fetch mandates created this month
-      let monthCountQuery = applyTeamFilter(
-        supabase
-        .from("mandates")
-        .select("*", { count: "exact", head: true })
-        .gte("created_at", startOfMonth.toISOString())
-        .lte("created_at", endOfMonth.toISOString())
-      );
-      
-      // Apply KAM/NSO filter
-      monthCountQuery = applyKamFilter(monthCountQuery, filterKam, filterNso);
-      monthCountQuery = applyLobFilter(monthCountQuery);
-      monthCountQuery = withExcludedTestKams(monthCountQuery);
-      
-      const { count: monthCount, error: monthError } = await monthCountQuery;
+      // Month count: KAM/NSO/LoB only (no status) — same as former monthCountQuery
+      const monthCount = filterDashboardMandates(rawPayload.mandates, {
+        ...mandateFilterBase,
+        applyStatus: false,
+        applyKamNso: true,
+        applyLob: true,
+        createdAtGte: startOfMonth,
+        createdAtLte: endOfMonth,
+      }).length;
 
-      if (monthError) throw monthError;
-
-      // Unique accounts from mandates in scope (status/KAM filters), not limited by financial year
-      let accountsQuery = applyTeamFilter(
-        supabase
-        .from("mandates")
-        .select("account_id")
-      );
-      
-      // Apply status filter
-      accountsQuery = applyStatusFilter(accountsQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
-      
-      // Apply KAM/NSO filter
-      accountsQuery = applyKamFilter(accountsQuery, filterKam, filterNso);
-      accountsQuery = applyLobFilter(accountsQuery);
-      accountsQuery = withExcludedTestKams(accountsQuery);
-      
-      accountsQuery = accountsQuery.not("account_id", "is", null);
-      
-      const { data: mandatesForAccounts, error: accountsError } = await accountsQuery;
-
-      if (accountsError) throw accountsError;
-
-      // Get unique account IDs
+      const mandatesForAccounts = filterDashboardMandates(rawPayload.mandates, {
+        ...mandateFilterBase,
+        applyStatus: true,
+        applyKamNso: true,
+        applyLob: true,
+        requireAccountId: true,
+      });
       const uniqueAccountIds = new Set<string>();
-      if (mandatesForAccounts) {
-        mandatesForAccounts.forEach((mandate: any) => {
-          if (mandate.account_id) {
-            uniqueAccountIds.add(mandate.account_id);
-          }
-        });
-      }
-      
+      mandatesForAccounts.forEach((mandate: any) => {
+        if (mandate.account_id) uniqueAccountIds.add(mandate.account_id);
+      });
       const accountsCount = uniqueAccountIds.size;
 
-      // Fetch mandates with awign_share_percent to calculate average
-      let mandatesDataQuery = applyTeamFilter(
-        supabase
-        .from("mandates")
-        .select("awign_share_percent")
-        .not("awign_share_percent", "is", null)
-      );
-      
-      // Apply KAM/NSO filter
-      mandatesDataQuery = applyKamFilter(mandatesDataQuery, filterKam, filterNso);
-      mandatesDataQuery = applyLobFilter(mandatesDataQuery);
-      mandatesDataQuery = withExcludedTestKams(mandatesDataQuery);
-      
-      const { data: mandatesData, error: mandatesDataError } = await mandatesDataQuery;
+      // Awign: KAM/NSO/LoB only (no status)
+      const mandatesData = filterDashboardMandates(rawPayload.mandates, {
+        ...mandateFilterBase,
+        applyStatus: false,
+        applyKamNso: true,
+        applyLob: true,
+        requireAwignShare: true,
+      });
 
-      if (mandatesDataError) throw mandatesDataError;
-
-      // Calculate average Awign share
-      // "Below 70%" = 35% (midpoint of 0-69%)
-      // "70% & Above" = 85% (midpoint of 70-100%)
       let totalShare = 0;
       let count = 0;
-      
-      if (mandatesData && mandatesData.length > 0) {
+      if (mandatesData.length > 0) {
         mandatesData.forEach((mandate) => {
           if (mandate.awign_share_percent) {
             if (mandate.awign_share_percent === "Below 70%") {
@@ -1760,16 +1704,13 @@ export default function Dashboard() {
           }
         });
       }
-
       const average = count > 0 ? totalShare / count : null;
 
-      // Calculate Overlap Factor (active mandates / accounts with at least one active mandate)
       const overlap =
         accountsWithActiveMandatesCount > 0
           ? activeMandatesCardCount / accountsWithActiveMandatesCount
           : null;
 
-      // Update headline cards early so a later chart/tier failure cannot leave these at 0.
       setActiveMandatesCount(activeMandatesCardCount);
       setAllMandatesCount(allMandatesTotalCount || 0);
       setMandatesThisMonth(monthCount || 0);
@@ -1778,203 +1719,152 @@ export default function Dashboard() {
       setAvgAwignShare(average);
       setOverlapFactor(overlap);
 
-      // Fetch all accounts with their MCV Tier once for filtering
-      // This map will be used to filter mandates by MCV Tier
-      const { data: allAccounts, error: allAccountsError } = await supabase
-        .from("accounts")
-        .select("id, mcv_tier");
-
-      // Create a map of account_id to mcv_tier for efficient filtering
-      // Initialize as empty object to prevent undefined errors
+      const allAccounts = rawPayload.accounts;
       const accountMcvTierMap: Record<string, string | null> = {};
-      
-      if (allAccountsError) {
-        console.error("Error fetching accounts for MCV Tier filter:", allAccountsError);
-      } else if (allAccounts) {
-        allAccounts.forEach((account) => {
-          if (account.id) {
-            // Store the mcv_tier value (can be "Tier 1", "Tier 2", or null)
-            // Store as-is, including null values
-            accountMcvTierMap[account.id] = account.mcv_tier || null;
-          }
-        });
-      }
+      allAccounts.forEach((account) => {
+        if (account.id) {
+          accountMcvTierMap[account.id] = account.mcv_tier || null;
+        }
+      });
 
+      const groupBMandates = filterDashboardMandates(rawPayload.mandates, {
+        ...mandateFilterBase,
+        applyStatus: true,
+        applyKamNso: true,
+        applyLob: true,
+        retentionType: "B",
+        createdAtLte: upsellDates.maxCreatedAt,
+      });
+      setRawGroupBMandates(withoutTestProfileRows(groupBMandates));
 
-      const upsellDates = getUpsellDateContext(
-        filterFinancialYear,
-        filterDashboardMonth,
-        fyDateRange,
-        fyMonthsList,
-      );
+      const groupCMandates = filterDashboardMandates(rawPayload.mandates, {
+        ...mandateFilterBase,
+        applyStatus: true,
+        applyKamNso: true,
+        applyLob: true,
+        retentionType: "C",
+        createdAtLte: upsellDates.maxCreatedAt,
+      });
+      setRawGroupCMandates(withoutTestProfileRows(groupCMandates));
 
-      // Fetch mandates with retention_type = "B" for Group B upsell data (active-as-of filtered client-side)
-      let groupBMandatesQuery = applyTeamFilter(
-        supabase
-          .from("mandates")
-          .select(
-            "upsell_action_status, revenue_mcv, account_id, created_at, lifecycle_status, lifecycle_status_log",
-          )
-          .eq("retention_type", "B")
-      );
-
-      groupBMandatesQuery = applyStatusFilter(groupBMandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
-      groupBMandatesQuery = applyKamFilter(groupBMandatesQuery, filterKam, filterNso);
-      groupBMandatesQuery = applyLobFilter(groupBMandatesQuery);
-      groupBMandatesQuery = withExcludedTestKams(groupBMandatesQuery);
-      groupBMandatesQuery = groupBMandatesQuery.lte(
-        "created_at",
-        upsellDates.maxCreatedAt.toISOString(),
-      );
-      
-      const { data: groupBMandates, error: groupBError } = await groupBMandatesQuery;
-
-      if (groupBError) throw groupBError;
-
-      // Store raw data for client-side filtering
-      setRawGroupBMandates(withoutTestProfileRows(groupBMandates || []));
-
-      // Fetch mandates with retention_type = "C" for Group C upsell data (active-as-of filtered client-side)
-      let groupCMandatesQuery = applyTeamFilter(
-        supabase
-          .from("mandates")
-          .select(
-            "upsell_action_status, revenue_mcv, account_id, created_at, lifecycle_status, lifecycle_status_log",
-          )
-          .eq("retention_type", "C")
-      );
-
-      groupCMandatesQuery = applyStatusFilter(groupCMandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
-      groupCMandatesQuery = applyKamFilter(groupCMandatesQuery, filterKam, filterNso);
-      groupCMandatesQuery = applyLobFilter(groupCMandatesQuery);
-      groupCMandatesQuery = withExcludedTestKams(groupCMandatesQuery);
-      groupCMandatesQuery = groupCMandatesQuery.lte(
-        "created_at",
-        upsellDates.maxCreatedAt.toISOString(),
-      );
-      
-      const { data: groupCMandates, error: groupCError } = await groupCMandatesQuery;
-
-      if (groupCError) throw groupCError;
-
-      // Store raw data for client-side filtering
-      setRawGroupCMandates(withoutTestProfileRows(groupCMandates || []));
-
-      // Fetch mandates for upsell performance (active-as-of prev/curr month-end, client-side)
-      let allMandatesQuery = applyTeamFilter(
-        supabase
-          .from("mandates")
-          .select(
-            "retention_type, revenue_mcv, account_id, created_at, lifecycle_status, lifecycle_status_log, type, kam_id",
-          )
-      );
-
-      allMandatesQuery = applyStatusFilter(allMandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
-      allMandatesQuery = applyKamFilter(allMandatesQuery, filterKam, filterNso);
-      allMandatesQuery = applyLobFilter(allMandatesQuery);
-      allMandatesQuery = withExcludedTestKams(allMandatesQuery);
-      allMandatesQuery = allMandatesQuery.lte(
-        "created_at",
-        upsellDates.maxCreatedAt.toISOString(),
-      );
-      
-      const { data: allMandates, error: allMandatesError } = await allMandatesQuery;
-
-      if (allMandatesError) throw allMandatesError;
-
-      // Store raw data for client-side filtering
-      setRawAllMandates(withoutTestProfileRows(allMandates || []));
+      const allMandates = filterDashboardMandates(rawPayload.mandates, {
+        ...mandateFilterBase,
+        applyStatus: true,
+        applyKamNso: true,
+        applyLob: true,
+        createdAtLte: upsellDates.maxCreatedAt,
+      });
+      setRawAllMandates(withoutTestProfileRows(allMandates));
       setAccountMcvTierMapState(accountMcvTierMap || {});
       const scopedAccountIds = Array.from(
         new Set((allMandates || []).map((m: any) => m.account_id).filter(Boolean))
       );
 
-      // Fetch LoB Sales / Max MCV only for mandates counted as active on the mandates card (as-of filters).
-      let lobMandatesData: any[] = [];
-      let lobMandatesError: any = null;
-      if (activeMandateIdsFromCard.length > 0) {
-        const ID_CHUNK = 120;
-        const merged: any[] = [];
-        for (let i = 0; i < activeMandateIdsFromCard.length; i += ID_CHUNK) {
-          const idChunk = activeMandateIdsFromCard.slice(i, i + ID_CHUNK);
-          let lobChunkQuery = applyTeamFilter(
-            supabase
-              .from("mandates")
-              .select("id, lob, monthly_data, type, kam_id, account_id")
-              .in("id", idChunk)
-          );
-          const { data: chunkData, error: chunkError } = await lobChunkQuery;
-          if (chunkError) {
-            lobMandatesError = chunkError;
-            break;
-          }
-          merged.push(...(chunkData || []));
-        }
-        lobMandatesData = merged;
-      }
+      const prefetchedKamMandatesRaw = filterDashboardMandates(rawPayload.mandates, {
+        ...mandateFilterBase,
+        applyStatus: true,
+        applyKamNso: true,
+        applyLob: true,
+      });
+      const prefetchedKamMandatesError = null;
+      const prefetchedAllKamsData = rawPayload.allKams;
+      const prefetchedManagerTargetsFyRows = rawPayload.managerTargets;
+      const prefetchedTierMandatesForTargetsRaw = rawPayload.mandates.filter(
+        (m) => !!m.account_id,
+      );
+      const prefetchedAccountsForTiers = allAccounts;
+      const rawMonthlyTargets = rawPayload.monthlyTargets;
+      const rawDroppedDeals = rawPayload.droppedDeals;
+
+      // LoB Sales / Max MCV: reuse broad mandates for active card IDs (no re-fetch)
+      const activeCardIdSet = new Set(activeMandateIdsFromCard);
+      const lobMandatesData: any[] = rawPayload.mandates.filter((m) =>
+        activeCardIdSet.has(m.id),
+      );
+      const lobMandatesError: any = null;
 
       if (lobMandatesError) throw lobMandatesError;
 
-      // Get mandate IDs for fetching targets
+      // Get mandate IDs for filtering targets (same scope as former LoB targets query)
       const mandateIds = lobMandatesData?.map((m: any) => m.id).filter(Boolean) || [];
+      const mandateIdSet = new Set(mandateIds);
 
-      // Fetch targets from monthly_targets table for these mandates
-      // Target type depends on the filter:
-      // - "Existing" → only existing targets
-      // - "All Cross Sell" → only new_cross_sell targets
-      // - "All Cross Sell + Existing" → both types
-      // - "All mandate types" → both types
-      // - "New Acquisitions" → no targets typically, but fetch anyway
       const fyMonthNumbers = isMonthScoped
         ? [scopedMonthPair!.month]
         : [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
       const fyYears = isMonthScoped
         ? [scopedMonthPair!.year]
         : [fyDateRange.start.getFullYear(), fyDateRange.end.getFullYear()];
-      // financialYearString is already declared earlier in the function, reuse it
+      const fyMonthSet = new Set(fyMonthNumbers);
+      const fyYearSet = new Set(fyYears);
+      const expandedLobs =
+        selectedLobs.length > 0
+          ? new Set(expandDashboardLobFilterValues(selectedLobs))
+          : null;
 
-      let targetsQuery = supabase
-        .from("monthly_targets")
-        .select("target, month, year, mandate_id, account_id, kam_id, target_type, mandates(lob, kam_id, type, account_id)")
-        .in("month", fyMonthNumbers)
-        .in("year", fyYears);
-      
-      if (financialYearString) {
-        targetsQuery = targetsQuery.eq("financial_year", financialYearString);
-      }
-      if (selectedLobs.length > 0) {
-        targetsQuery = targetsQuery.in(
-          "mandates.lob",
-          expandDashboardLobFilterValues(selectedLobs),
-        );
-      }
-      
-      // Apply target type filter based on mandate type filter
+      const filterRawMonthlyTargets = (
+        opts: {
+          targetTypes?: string[] | null;
+          requireMandateIds?: boolean;
+          applyLobOnMandate?: boolean;
+          requireMandateTeam?: boolean;
+          months?: Set<number> | null;
+          years?: Set<number> | null;
+          kamIds?: Set<string> | null;
+        } = {},
+      ) => {
+        const targetTypes = opts.targetTypes;
+        const months = opts.months === undefined ? fyMonthSet : opts.months;
+        const years = opts.years === undefined ? fyYearSet : opts.years;
+        return rawMonthlyTargets.filter((target: any) => {
+          if (months && !months.has(target.month)) return false;
+          if (years && !years.has(target.year)) return false;
+          if (targetTypes && !targetTypes.includes(target.target_type)) return false;
+          const mandate = Array.isArray(target.mandates)
+            ? target.mandates[0]
+            : target.mandates;
+          if (opts.applyLobOnMandate !== false && expandedLobs) {
+            if (!mandate?.lob || !expandedLobs.has(mandate.lob)) return false;
+          }
+          if (opts.requireMandateTeam && selectedTeam !== "all") {
+            if (!mandate?.team || mandate.team !== selectedTeam) return false;
+          }
+          if (opts.requireMandateIds) {
+            if (!target.mandate_id || !mandateIdSet.has(target.mandate_id)) {
+              return false;
+            }
+          }
+          if (opts.kamIds) {
+            if (!target.kam_id || !opts.kamIds.has(target.kam_id)) return false;
+          }
+          return true;
+        });
+      };
+
+      // LoB targets: mirror former server filters on cached FY monthly_targets
+      let targetsData: any[] = [];
+      const lobTargetsError: any = null;
       if (filterUpsellStatus === "Existing") {
-        targetsQuery = targetsQuery.eq("target_type", "existing");
-        if (mandateIds.length > 0) {
-          targetsQuery = targetsQuery.in("mandate_id", mandateIds);
-        } else {
-          targetsQuery = targetsQuery.eq("mandate_id", "00000000-0000-0000-0000-000000000000");
-        }
+        targetsData =
+          mandateIds.length > 0
+            ? filterRawMonthlyTargets({
+                targetTypes: ["existing"],
+                requireMandateIds: true,
+              })
+            : [];
       } else if (filterUpsellStatus === "All Cross Sell") {
-        targetsQuery = targetsQuery.eq("target_type", "new_cross_sell");
-        // For new_cross_sell, we need to match by KAM and account, not mandate_id
-        // We'll filter client-side based on the mandates we have
+        targetsData = filterRawMonthlyTargets({
+          targetTypes: ["new_cross_sell"],
+        });
       } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-        targetsQuery = targetsQuery.in("target_type", ["existing", "new_cross_sell"]);
-        // For existing, filter by mandate_id; for new_cross_sell, filter client-side
+        targetsData = filterRawMonthlyTargets({
+          targetTypes: ["existing", "new_cross_sell"],
+        });
       } else {
-        // "All mandate types" or other - include both target types
-        targetsQuery = targetsQuery.in("target_type", ["existing", "new_cross_sell"]);
+        targetsData = filterRawMonthlyTargets({
+          targetTypes: ["existing", "new_cross_sell"],
+        });
       }
-      targetsQuery = withExcludedTestKams(targetsQuery);
-
-      const { data: targetsDataRaw, error: lobTargetsError } = await targetsQuery;
-      const targetsData = filterTargetsByTestProfiles(
-        targetsDataRaw,
-        testExclusions,
-      );
 
       // Initialize all LoBs from the mandate form with 0 values
       // Always show all 8 LoBs from the mandate form, regardless of database records
@@ -2177,69 +2067,54 @@ export default function Dashboard() {
         );
       setMaxMcvPerLobChart(activeMandatesCardCount === 0 ? [] : maxMcvPerLobFormatted);
 
-      // Fetch KAM Sales Performance data from mandates monthly records
-      // Respect the mandate type filter from the top
-      let kamMandatesQuery = applyTeamFilter(
-        supabase
-          .from("mandates")
-          .select("id, kam_id, monthly_data, type, account_id, lifecycle_status"),
-      );
-      kamMandatesQuery = applyStatusFilter(kamMandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
-      kamMandatesQuery = applyKamFilter(kamMandatesQuery, filterKam, filterNso);
-      kamMandatesQuery = applyLobFilter(kamMandatesQuery);
-      kamMandatesQuery = withExcludedTestKams(kamMandatesQuery);
-      const { data: kamMandatesDataRaw, error: kamMandatesError } =
-        await kamMandatesQuery;
+      // KAM Sales Performance — reuse wave-1 mandates fetch (same filters/select).
+      const kamMandatesError = prefetchedKamMandatesError;
       const kamMandatesData = filterMandatesForRollups(
-        withoutTestProfileRows(kamMandatesDataRaw),
+        withoutTestProfileRows(prefetchedKamMandatesRaw),
         hasAchievedMcvForRollupInclusion,
       );
 
       // Get mandate IDs for fetching targets
       const kamMandateIds = kamMandatesData?.map((m: any) => m.id).filter(Boolean) || [];
 
-      // Fetch targets from monthly_targets table for these mandates
-      // Target type depends on the filter (same logic as LoB section)
-      let kamTargetsQuery = supabase
-        .from("monthly_targets")
-        .select(
-          "target, month, year, mandate_id, account_id, kam_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)"
-        )
-        .in("month", fyMonthNumbers)
-        .in("year", fyYears);
-      
-      if (financialYearString) {
-        kamTargetsQuery = kamTargetsQuery.eq("financial_year", financialYearString);
-      }
-      kamTargetsQuery = withExcludedTestKams(kamTargetsQuery);
-      // Apply target type filter based on mandate type filter
+      // KAM targets from cached FY monthly_targets (same filters as former query)
+      const kamMandateIdSet = new Set(kamMandateIds);
+      let kamTargetsData: any[] = [];
+      const kamTargetsError: any = null;
       if (filterUpsellStatus === "Existing") {
-        kamTargetsQuery = kamTargetsQuery.eq("target_type", "existing");
-        // Filter by mandate_id to only get targets for mandates we care about
-        if (kamMandateIds.length > 0) {
-          kamTargetsQuery = kamTargetsQuery.in("mandate_id", kamMandateIds);
-        } else {
-          // If no mandates match, return empty result
-          kamTargetsQuery = kamTargetsQuery.eq("mandate_id", "00000000-0000-0000-0000-000000000000");
-        }
+        kamTargetsData =
+          kamMandateIds.length > 0
+            ? filterRawMonthlyTargets({
+                targetTypes: ["existing"],
+                applyLobOnMandate: false,
+              }).filter(
+                (t: any) => t.mandate_id && kamMandateIdSet.has(t.mandate_id),
+              )
+            : [];
       } else if (filterUpsellStatus === "All Cross Sell") {
-        kamTargetsQuery = kamTargetsQuery.eq("target_type", "new_cross_sell");
-        // For new_cross_sell, filter by kam_id from the mandates we have
-        const kamIdsFromMandates = [...new Set(kamMandatesData?.map((m: any) => m.kam_id).filter(Boolean) || [])];
-        if (kamIdsFromMandates.length > 0) {
-          kamTargetsQuery = kamTargetsQuery.in("kam_id", kamIdsFromMandates);
-        } else {
-          kamTargetsQuery = kamTargetsQuery.eq("kam_id", "00000000-0000-0000-0000-000000000000");
-        }
+        const kamIdsFromMandates = new Set(
+          (kamMandatesData?.map((m: any) => m.kam_id).filter(Boolean) || []) as string[],
+        );
+        kamTargetsData =
+          kamIdsFromMandates.size > 0
+            ? filterRawMonthlyTargets({
+                targetTypes: ["new_cross_sell"],
+                applyLobOnMandate: false,
+                kamIds: kamIdsFromMandates,
+              })
+            : [];
       } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-        kamTargetsQuery = kamTargetsQuery.in("target_type", ["existing", "new_cross_sell"]);
+        kamTargetsData = filterRawMonthlyTargets({
+          targetTypes: ["existing", "new_cross_sell"],
+          applyLobOnMandate: false,
+        });
       } else {
-        // "All mandate types" or other - include both target types
-        kamTargetsQuery = kamTargetsQuery.in("target_type", ["existing", "new_cross_sell"]);
+        kamTargetsData = filterRawMonthlyTargets({
+          targetTypes: ["existing", "new_cross_sell"],
+          applyLobOnMandate: false,
+        });
       }
 
-      const { data: kamTargetsData, error: kamTargetsError } = await kamTargetsQuery;
-      
       console.log("KAM Targets Query Details:", {
         filter: filterUpsellStatus,
         mandateIdsCount: kamMandateIds.length,
@@ -2258,18 +2133,8 @@ export default function Dashboard() {
       console.log("KAM Targets Query - Filter:", filterUpsellStatus, "Mandate IDs:", kamMandateIds.length);
       console.log("KAM Targets Data:", kamTargetsData?.length || 0, "Error:", kamTargetsError);
 
-      // Fetch all KAMs to get their names (only profiles with role = 'kam')
-      let allKamsQuery: any = supabase
-        .from("profiles")
-        .select("id, full_name")
-        .eq("role", "kam")
-        .eq("test_account", false)
-        .not("full_name", "is", null)
-        .order("full_name", { ascending: true });
-      if (selectedTeam !== "all") {
-        allKamsQuery = allKamsQuery.eq("team", selectedTeam);
-      }
-      const { data: allKamsData, error: allKamsError } = await allKamsQuery;
+      // KAM names — reuse wave-1 profiles fetch
+      const allKamsData = prefetchedAllKamsData;
 
       // Create KAM map
       const kamMap: Record<string, string> = {};
@@ -2452,7 +2317,8 @@ export default function Dashboard() {
 
       let totalAnnualTarget = 0;
       let totalQuarterTarget = 0;
-      let managerTargetsFyRows: ManagerTargetRow[] | null = null;
+      let managerTargetsFyRows: ManagerTargetRow[] | null =
+        prefetchedManagerTargetsFyRows;
 
       if (hasPersonFilter()) {
         // KAM/NSO filter: sum mandate-level monthly_targets for the selected person(s)
@@ -2489,15 +2355,7 @@ export default function Dashboard() {
           }
         );
       } else {
-        // Org-level targets: one row per calendar month per team in manager_targets
-        const { data } = await supabase
-          .from("manager_targets")
-          .select("month, year, existing_target, new_ac_target, team")
-          .in("team", selectedTeam === "all" ? ["ce", "staffing", "experts"] : [selectedTeam])
-          .in("year", [fyStartYear, fyEndYear]);
-
-        managerTargetsFyRows = data ?? null;
-
+        // Org-level targets: reuse wave-1 manager_targets fetch
         if (managerTargetsFyRows) {
           for (const row of managerTargetsFyRows) {
             const k = managerMonthKey(row.month, row.year);
@@ -2529,37 +2387,28 @@ export default function Dashboard() {
       let targetMcvCardPlanned = 0;
 
       if (isKamOrNsoTargetMcvFilterActive()) {
-        let cardMandatesQuery = supabase
-          .from("mandates")
-          .select("id, lifecycle_status, monthly_data");
-        cardMandatesQuery = applyKamFilter(cardMandatesQuery, filterKam, filterNso);
-        cardMandatesQuery = withExcludedTestKams(cardMandatesQuery);
-
-        const { data: cardMandatesRaw } = await cardMandatesQuery;
         const cardMandates = filterMandatesForRollups(
-          withoutTestProfileRows(cardMandatesRaw),
+          withoutTestProfileRows(
+            filterDashboardMandates(rawPayload.mandates, {
+              ...mandateFilterBase,
+              applyStatus: false,
+              applyKamNso: true,
+              applyLob: false,
+            }),
+          ),
           hasAchievedMcvForRollupInclusion,
         );
         const cardMandateIds =
           cardMandates.map((m: { id: string }) => m.id).filter(Boolean) || [];
+        const cardMandateIdSet = new Set(cardMandateIds);
 
         if (cardMandateIds.length > 0) {
-          let cardTargetsQuery = supabase
-            .from("monthly_targets")
-            .select(
-              "target, month, year, mandate_id, kam_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)",
-            )
-            .eq("target_type", "existing")
-            .in("mandate_id", cardMandateIds)
-            .in("month", fyMonthNumbers)
-            .in("year", fyYears);
-
-          if (financialYearString) {
-            cardTargetsQuery = cardTargetsQuery.eq("financial_year", financialYearString);
-          }
-          cardTargetsQuery = withExcludedTestKams(cardTargetsQuery);
-
-          const { data: cardUpsellTargets } = await cardTargetsQuery;
+          const cardUpsellTargets = filterRawMonthlyTargets({
+            targetTypes: ["existing"],
+            applyLobOnMandate: false,
+          }).filter(
+            (t: any) => t.mandate_id && cardMandateIdSet.has(t.mandate_id),
+          );
           const inactive = inactiveMandateIdsRef.current;
           const upsellTargets = filterTargetsByKamNso(cardUpsellTargets || []);
           const targetMcvPeriodFilter = isMonthScoped
@@ -2573,15 +2422,7 @@ export default function Dashboard() {
           );
         }
       } else {
-        if (!managerTargetsFyRows) {
-          const { data } = await supabase
-            .from("manager_targets")
-            .select("month, year, existing_target, new_ac_target, team")
-            .in("team", selectedTeam === "all" ? ["ce", "staffing", "experts"] : [selectedTeam])
-            .in("year", [fyStartYear, fyEndYear]);
-          managerTargetsFyRows = data ?? null;
-        }
-
+        // managerTargetsFyRows already loaded in wave 1
         if (isMonthScoped) {
           targetMcvCardPlanned = sumManagerTargetsForMonth(
             managerTargetsFyRows,
@@ -2604,33 +2445,12 @@ export default function Dashboard() {
         }
       }
 
-      // Fetch all mandates with monthly_data to calculate FFM Achieved for current month within selected FY
-      // Apply status filter based on filterUpsellStatus
-      let mandatesQuery = applyTeamFilter(
-        supabase
-          .from("mandates")
-          .select("monthly_data, type, new_sales_owner, lifecycle_status"),
-      );
-      mandatesQuery = applyStatusFilter(mandatesQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
-      mandatesQuery = applyKamFilter(mandatesQuery, filterKam, filterNso);
-      mandatesQuery = applyLobFilter(mandatesQuery);
-      mandatesQuery = withExcludedTestKams(mandatesQuery);
-      const { data: allMandatesForMcvRaw, error: mcvError } = await mandatesQuery;
+      // FFM / MCV rollups — reuse wave-1 kam mandates fetch (same filters; includes new_sales_owner).
+      const mcvError = prefetchedKamMandatesError;
       const allMandatesForMcv = filterMandatesForRollups(
-        withoutTestProfileRows(allMandatesForMcvRaw),
+        withoutTestProfileRows(prefetchedKamMandatesRaw),
         hasAchievedMcvForRollupInclusion,
       );
-      
-      // Debug logging for NSO filter
-      if (isNsoFilterActive(filterNso)) {
-        console.log(`NSO Filter - Mandates Query: filterNso=${filterNso}, mandates found: ${allMandatesForMcv?.length || 0}`);
-        if (allMandatesForMcv && allMandatesForMcv.length > 0) {
-          console.log(`NSO Filter - Sample mandates:`, allMandatesForMcv.slice(0, 3).map(m => ({ 
-            type: m.type, 
-            new_sales_owner: m.new_sales_owner 
-          })));
-        }
-      }
 
       // If filtering by NSO or all NSOs, process New Acquisition mandates
       if (isNsoFilterActive(filterNso)) {
@@ -3110,30 +2930,17 @@ export default function Dashboard() {
       const nextQuarterMonths = nextQuarterMonthYearPairs.map((p) => p.month);
       const nextQuarterYear = nextQuarterMonthYearPairs[0].year;
 
-      // Fetch targets for next quarter months within selected FY
-      let nextQuarterQuery = supabase
-        .from("monthly_targets")
-        .select("target, kam_id, mandate_id, nso_mail_id, target_type, mandates(kam_id, type, new_sales_owner)")
-        .in("month", nextQuarterMonths)
-        .eq("year", nextQuarterYear);
-      
-      // Filter by financial_year if available
-      if (financialYearString) {
-        nextQuarterQuery = nextQuarterQuery.eq("financial_year", financialYearString);
-      }
-      if (selectedTeam !== "all") {
-        nextQuarterQuery = nextQuarterQuery.eq("mandates.team", selectedTeam);
-      }
-      if (selectedLobs.length > 0) {
-        nextQuarterQuery = nextQuarterQuery.in(
-          "mandates.lob",
-          expandDashboardLobFilterValues(selectedLobs),
-        );
-      }
-      nextQuarterQuery = withExcludedTestKams(nextQuarterQuery);
-      
-      // Don't apply target_type filter - we'll filter by mandate type client-side
-      const { data: allNextQuarterTargets, error: nextQuarterTargetsError } = await nextQuarterQuery;
+      // Next quarter targets from cached FY monthly_targets
+      const nextQuarterMonthSet = new Set(nextQuarterMonths);
+      const nextQuarterYearSet = new Set([nextQuarterYear]);
+      const allNextQuarterTargets = filterRawMonthlyTargets({
+        targetTypes: null,
+        applyLobOnMandate: true,
+        requireMandateTeam: true,
+        months: nextQuarterMonthSet,
+        years: nextQuarterYearSet,
+      });
+      const nextQuarterTargetsError: any = null;
 
       // Apply KAM/NSO filter client-side to handle both direct kam_id and via mandate
       let nextQuarterTargets = filterTargetsByKamNso(allNextQuarterTargets || []);
@@ -3470,23 +3277,17 @@ export default function Dashboard() {
       setCurrentMonthAchieved(totalCurrentMonthAchieved);
       setCurrentMonthTarget(totalCurrentMonthTarget);
 
-      // Fetch Dropped Sales and Reasons data
-      let droppedDealsQuery: any = withExcludedTestKams(
-        supabase
-          .from("pipeline_deals")
-          .select("dropped_reason, account_id")
-          .eq("status", "Dropped")
-          .not("dropped_reason", "is", null),
-      );
-      if (scopedAccountIds.length > 0) {
-        droppedDealsQuery = droppedDealsQuery.in("account_id", scopedAccountIds);
-      } else if (selectedTeam !== "all") {
-        droppedDealsQuery = droppedDealsQuery.eq(
-          "account_id",
-          "00000000-0000-0000-0000-000000000000"
-        );
-      }
-      const { data: droppedDeals, error: droppedDealsError } = await droppedDealsQuery;
+      // Dropped sales from cached team deals, scoped to filtered accounts
+      const scopedAccountIdSet = new Set(scopedAccountIds);
+      const droppedDeals =
+        scopedAccountIds.length > 0
+          ? rawDroppedDeals.filter(
+              (d) => d.account_id && scopedAccountIdSet.has(d.account_id),
+            )
+          : selectedTeam !== "all"
+            ? []
+            : rawDroppedDeals;
+      const droppedDealsError: any = null;
 
       // Count deals by dropped reason
       const reasonCounts: Record<string, number> = {
@@ -3573,26 +3374,11 @@ export default function Dashboard() {
               label: c.label,
             }));
 
-      // Fetch all accounts (we need all accounts that have mandates to determine MCV Tier)
-      const { data: accountsData, error: accountsTierError } = await supabase
-        .from("accounts")
-        .select("id, company_size_tier");
-
-      // Fetch mandates with account_id and monthly_data
-      // Apply status filter to only consider mandates with the selected status
-      let mandatesTierQuery = applyTeamFilter(
-        supabase
-          .from("mandates")
-          .select("id, account_id, monthly_data, type, lifecycle_status"),
-      );
-      mandatesTierQuery = applyStatusFilter(mandatesTierQuery, filterUpsellStatus, isNsoFilterActive(filterNso));
-      mandatesTierQuery = applyKamFilter(mandatesTierQuery, filterKam, filterNso);
-      mandatesTierQuery = applyLobFilter(mandatesTierQuery);
-      mandatesTierQuery = withExcludedTestKams(mandatesTierQuery);
-      const { data: mandatesTierDataRaw, error: mandatesTierError } =
-        await mandatesTierQuery;
+      // Reuse wave-1 accounts + filtered mandates (same filters/selects as before).
+      const accountsData = prefetchedAccountsForTiers;
+      const mandatesTierError = prefetchedKamMandatesError;
       const mandatesTierData = filterMandatesForRollups(
-        withoutTestProfileRows(mandatesTierDataRaw),
+        withoutTestProfileRows(prefetchedKamMandatesRaw),
         hasAchievedMcvForRollupInclusion,
       );
 
@@ -3726,17 +3512,8 @@ export default function Dashboard() {
       //                     + sum(cross-sell targets for all tier accounts)
       const tierMandateToAccountMap: Record<string, string> = {};
 
-      let tierMandatesForTargetsQuery = withExcludedTestKams(
-        applyTeamFilter(
-          supabase
-            .from("mandates")
-            .select("id, account_id, lifecycle_status, monthly_data")
-            .not("account_id", "is", null),
-        ),
-      );
-      const { data: tierMandatesForTargetsRaw } = await tierMandatesForTargetsQuery;
       const tierMandatesForTargets = filterMandatesForRollups(
-        withoutTestProfileRows(tierMandatesForTargetsRaw),
+        withoutTestProfileRows(prefetchedTierMandatesForTargetsRaw),
         hasAchievedMcvForRollupInclusion,
       );
       tierMandatesForTargets.forEach((mandate: any) => {
@@ -3745,23 +3522,19 @@ export default function Dashboard() {
         }
       });
 
-      let tierTargetsQuery = supabase
-        .from("monthly_targets")
-        .select("account_id, mandate_id, month, year, target, target_type")
-        .in("target_type", ["existing", "new_cross_sell"]);
-
-      if (tierFinancialYearString) {
-        tierTargetsQuery = tierTargetsQuery.eq("financial_year", tierFinancialYearString);
-      }
-      if (isMonthScoped && scopedMonthPair) {
-        tierTargetsQuery = tierTargetsQuery
-          .eq("month", scopedMonthPair.month)
-          .eq("year", scopedMonthPair.year);
-      }
-      tierTargetsQuery = withExcludedTestKams(tierTargetsQuery);
-
-      const { data: tierTargetsDataRaw, error: tierTargetsError } =
-        await tierTargetsQuery;
+      const tierTargetsDataRaw = filterRawMonthlyTargets({
+        targetTypes: ["existing", "new_cross_sell"],
+        applyLobOnMandate: false,
+        months:
+          isMonthScoped && scopedMonthPair
+            ? new Set([scopedMonthPair.month])
+            : null,
+        years:
+          isMonthScoped && scopedMonthPair
+            ? new Set([scopedMonthPair.year])
+            : null,
+      });
+      const tierTargetsError: any = null;
       const tierTargetsData = filterTargetsByTestProfiles(
         tierTargetsDataRaw,
         testExclusions,
