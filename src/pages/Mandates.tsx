@@ -78,8 +78,6 @@ import type { Team } from "@/hooks/useAuth";
 import {
   ALL_LOB_OPTIONS,
   getAllowedLobOptions,
-  getAllowedMandateTypesForLob,
-  filterLobOptionsForMandateType,
   getFixedLobForTeam,
   isValidTeam,
   normalizeLobForTeam,
@@ -88,8 +86,6 @@ import {
   shouldShowHandoverInfo,
   shouldShowStaffingMandateFields,
   STAFFING_LOBS,
-  STAFFING_CORE_LOB,
-  STAFFING_NEW_BUSINESS_LOBS,
 } from "@/lib/teamLob";
 import { LobFormField } from "@/components/LobFormField";
 import type { Json } from "@/integrations/supabase/types";
@@ -1794,23 +1790,6 @@ export default function Mandates() {
     [allLobOptions, team, canSelectAllTeams],
   );
 
-  // LoB ↔ mandate-type interplay (staffing rules) for the create / edit forms.
-  const createTypeFilteredLobOptions = useMemo(
-    () => filterLobOptionsForMandateType(createAllowedLobOptions, formData.type),
-    [createAllowedLobOptions, formData.type],
-  );
-  const createAllowedTypeOptions = useMemo(
-    () => getAllowedMandateTypesForLob(formData.lob, MANDATE_TYPE_VALUES),
-    [formData.lob],
-  );
-  const editTypeFilteredLobOptions = useMemo(
-    () => filterLobOptionsForMandateType(editAllowedLobOptions, editMandateData?.type),
-    [editAllowedLobOptions, editMandateData?.type],
-  );
-  const editAllowedTypeOptions = useMemo(
-    () => getAllowedMandateTypesForLob(editMandateData?.lob, MANDATE_TYPE_VALUES),
-    [editMandateData?.lob],
-  );
 
   // Super admin: once a LoB is picked, scope the KAM list to that LoB's team.
   const createKamOptions = useMemo(() => {
@@ -2813,31 +2792,6 @@ export default function Mandates() {
         }
       }
 
-      // Staffing LoB ↔ mandate-type interplay.
-      if (field === "lob") {
-        if (value === STAFFING_CORE_LOB) {
-          // Staffing (Core) is Existing-only.
-          updated.type = "Existing";
-        } else if (
-          STAFFING_NEW_BUSINESS_LOBS.includes(value as never) &&
-          prev.type === "Existing"
-        ) {
-          // Anchal / Prashant cannot be Existing.
-          updated.type = "";
-        }
-      }
-
-      if (field === "type") {
-        if (value === "Existing" && STAFFING_NEW_BUSINESS_LOBS.includes(prev.lob as never)) {
-          updated.lob = "";
-        } else if (
-          (value === "New Acquisition" || value === "New Cross Sell") &&
-          prev.lob === STAFFING_CORE_LOB
-        ) {
-          updated.lob = "";
-        }
-      }
-
       return updated;
     });
   };
@@ -3494,24 +3448,6 @@ export default function Mandates() {
             "Type",
             MANDATE_TYPE_VALUES,
           );
-        }
-
-        // Enforce staffing LoB ↔ mandate-type rules:
-        //   Staffing (Core) → Existing only; Staffing (Anchal)/(Prashant) → non-Existing only.
-        if (lobRaw && mandateTypeRaw) {
-          const lobForRule = ensureMandateEnumValue(lobRaw, MANDATE_LOB_VALUES);
-          const typeForRule = ensureMandateEnumValue(mandateTypeRaw, MANDATE_TYPE_VALUES);
-          if (lobForRule && typeForRule) {
-            const allowedTypesForLob = getAllowedMandateTypesForLob(
-              lobForRule,
-              MANDATE_TYPE_VALUES,
-            );
-            if (!allowedTypesForLob.includes(typeForRule)) {
-              errors.push(
-                `Type "${typeForRule}" is not allowed for LoB "${lobForRule}"`,
-              );
-            }
-          }
         }
 
         const mandateHealthRaw = csvKey(row, "mandate_health");
@@ -5272,7 +5208,7 @@ export default function Mandates() {
                     }
                     value={formData.lob}
                     onChange={(value) => handleInputChange("lob", value)}
-                    allowedLobOptions={createTypeFilteredLobOptions}
+                    allowedLobOptions={createAllowedLobOptions}
                     team={createEffectiveTeam ?? team}
                     isGlobalAdmin={createLobFormUsesGlobalPicker}
                   />
@@ -5496,7 +5432,7 @@ export default function Mandates() {
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
-                        {createAllowedTypeOptions.map((typeOption) => (
+                        {MANDATE_TYPE_VALUES.map((typeOption) => (
                           <SelectItem key={typeOption} value={typeOption}>
                             {typeOption}
                           </SelectItem>
@@ -6624,18 +6560,9 @@ export default function Mandates() {
                           }
                           value={editMandateData.lob}
                           onChange={(value) => {
-                            const updated: any = { ...editMandateData, lob: value };
-                            if (value === STAFFING_CORE_LOB) {
-                              updated.type = "Existing";
-                            } else if (
-                              STAFFING_NEW_BUSINESS_LOBS.includes(value as never) &&
-                              editMandateData.type === "Existing"
-                            ) {
-                              updated.type = "";
-                            }
-                            setEditMandateData(updated);
+                            setEditMandateData({ ...editMandateData, lob: value });
                           }}
-                          allowedLobOptions={editTypeFilteredLobOptions}
+                          allowedLobOptions={editAllowedLobOptions}
                           team={editEffectiveTeam ?? team}
                           isGlobalAdmin={editLobFormUsesGlobalPicker}
                         />
@@ -6744,17 +6671,6 @@ export default function Mandates() {
                             if (value === "New Cross Sell") {
                               updated.newSalesOwner = "";
                             }
-                            if (
-                              value === "Existing" &&
-                              STAFFING_NEW_BUSINESS_LOBS.includes(editMandateData.lob as never)
-                            ) {
-                              updated.lob = "";
-                            } else if (
-                              (value === "New Acquisition" || value === "New Cross Sell") &&
-                              editMandateData.lob === STAFFING_CORE_LOB
-                            ) {
-                              updated.lob = "";
-                            }
                             setEditMandateData(updated);
                           }}
                         >
@@ -6762,7 +6678,7 @@ export default function Mandates() {
                             <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                           <SelectContent>
-                            {editAllowedTypeOptions.map((typeOption) => (
+                            {MANDATE_TYPE_VALUES.map((typeOption) => (
                               <SelectItem key={typeOption} value={typeOption}>
                                 {typeOption}
                               </SelectItem>
