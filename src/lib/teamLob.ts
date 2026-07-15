@@ -14,14 +14,6 @@ export const STAFFING_LOBS = [
   STAFFING_PRASHANT_LOB,
   STAFFING_CORE_LOB,
 ] as const;
-/** Staffing LoBs used by new-business mandate types (New Acquisition / New Cross Sell). */
-export const STAFFING_NEW_BUSINESS_LOBS = [
-  STAFFING_ANCHAL_LOB,
-  STAFFING_PRASHANT_LOB,
-] as const;
-/** Staffing LoB reserved for Existing-type mandates. */
-export const STAFFING_EXISTING_LOB = STAFFING_CORE_LOB;
-
 /** Legacy staffing LoB labels kept only for recognising pre-migration rows. */
 const LEGACY_STAFFING_LOBS = ["staffing", "new business line"];
 
@@ -95,43 +87,6 @@ export function getAllowedLobOptions(
   }
 
   return [...allLobs];
-}
-
-/**
- * Mandate-type ↔ staffing-LoB rules:
- *  - Staffing (Core) is Existing-only.
- *  - Staffing (Anchal) / Staffing (Prashant) are New Acquisition / New Cross Sell only.
- *  - All other LoBs allow any type.
- */
-export function getAllowedMandateTypesForLob(
-  lob: string | null | undefined,
-  allTypes: readonly string[],
-): string[] {
-  const n = normalizeLobForTeam(lob);
-  if (n === "staffing (core)") {
-    return allTypes.filter((t) => t === "Existing");
-  }
-  if (n === "staffing (anchal)" || n === "staffing (prashant)") {
-    return allTypes.filter((t) => t !== "Existing");
-  }
-  return [...allTypes];
-}
-
-/** Filter LoB options for the currently selected mandate type (mirror of the rule above). */
-export function filterLobOptionsForMandateType(
-  lobs: readonly string[],
-  type: string | null | undefined,
-): string[] {
-  if (type === "Existing") {
-    return lobs.filter((l) => {
-      const n = normalizeLobForTeam(l);
-      return n !== "staffing (anchal)" && n !== "staffing (prashant)";
-    });
-  }
-  if (type === "New Acquisition" || type === "New Cross Sell") {
-    return lobs.filter((l) => normalizeLobForTeam(l) !== "staffing (core)");
-  }
-  return [...lobs];
 }
 
 export function isValidTeam(value: string | null | undefined): value is Team {
