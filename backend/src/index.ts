@@ -4,9 +4,10 @@ import { supabaseProxy } from "./lib/supabaseProxy.js";
 
 const app = createApp();
 
-const server = app.listen(env.port, () => {
+// Bind 0.0.0.0 so Docker port publishing (host 2222 → container 4000) works.
+const server = app.listen(env.port, "0.0.0.0", () => {
   console.log(
-    `[backend] gateway listening on http://localhost:${env.port} -> ${env.supabaseUrl}`,
+    `[backend] gateway listening on http://0.0.0.0:${env.port} -> ${env.supabaseUrl}`,
   );
   console.log(`[backend] allowed CORS origins: ${env.corsOrigins.join(", ")}`);
 });

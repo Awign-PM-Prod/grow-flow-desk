@@ -1,5 +1,9 @@
-# Runs the frontend (nginx) and backend (Supabase gateway) together.
-# Compose substitutes ${VARS} below from the root .env file.
+# Grow Flow Desk — production stack
+# Frontend (nginx SPA): host port 1111 → container 80
+# Backend (Supabase gateway): host port 2222 → container 4000
+#
+# Compose reads root `.env` for ${VARS} (Vite build args).
+# Backend secrets come from `backend/.env` via env_file.
 services:
   backend:
     build:
@@ -7,21 +11,28 @@ services:
     env_file:
       - ./backend/.env
     ports:
-      - "4000:4000"
+      - "2222:4000"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   frontend:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        # Must be the URL the BROWSER uses to reach the backend (not the docker
-        # network name), because Vite inlines it at build time.
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:4000}
+        # Must be the URL the BROWSER uses to reach the backend (public host:port),
+        # not the Docker service name — Vite inlines this at build time.
+        VITE_API_URL: ${VITE_API_URL:-http://13.204.206.236:2222}
         VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
-        VITE_SITE_URL: ${VITE_SITE_URL:-http://localhost:8080}
+        VITE_SITE_URL: ${VITE_SITE_URL:-http://13.204.206.236:1111}
     ports:
-      - "8080:80"
+      - "1111:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped

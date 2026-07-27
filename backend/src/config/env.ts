@@ -32,7 +32,7 @@ function parseOrigins(raw: string): string[] {
 export const env = {
   nodeEnv: optional("NODE_ENV", "development"),
   port: Number.parseInt(optional("PORT", "4000"), 10),
-  corsOrigins: parseOrigins(optional("CORS_ORIGIN", "http://localhost:8080")),
+  corsOrigins: parseOrigins(optional("CORS_ORIGIN", "http://localhost:1111")),
   supabaseUrl: required("SUPABASE_URL").replace(/\/+$/, ""),
   supabaseAnonKey: required("SUPABASE_ANON_KEY"),
   /**
