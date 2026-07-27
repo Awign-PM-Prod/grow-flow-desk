@@ -2,6 +2,10 @@
 # Frontend (nginx SPA): host port 1111 → container 80
 # Backend (Supabase gateway): host port 2222 → container 4000
 #
+# HTTPS site (awigncrm.awignhub.in) must use same-origin API URLs. Nginx in the
+# frontend container proxies /auth /rest /functions /storage /realtime /api to
+# the backend service so the browser never makes http://…:2222 calls (Mixed Content).
+#
 # Compose reads root `.env` for ${VARS} (Vite build args).
 # Backend secrets come from `backend/.env` via env_file.
 services:
@@ -25,11 +29,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        # Must be the URL the BROWSER uses to reach the backend (public host:port),
-        # not the Docker service name — Vite inlines this at build time.
-        VITE_API_URL: ${VITE_API_URL:-http://awigncrm.awignhub.in:2222}
+        # Same HTTPS origin as the SPA — nginx proxies API paths to backend.
+        VITE_API_URL: ${VITE_API_URL:-https://awigncrm.awignhub.in}
         VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
-        VITE_SITE_URL: ${VITE_SITE_URL:-http://awigncrm.awignhub.in}
+        VITE_SITE_URL: ${VITE_SITE_URL:-https://awigncrm.awignhub.in}
     ports:
       - "1111:80"
     depends_on:
