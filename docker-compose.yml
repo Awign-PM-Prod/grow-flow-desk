@@ -27,9 +27,9 @@ services:
       args:
         # Must be the URL the BROWSER uses to reach the backend (public host:port),
         # not the Docker service name — Vite inlines this at build time.
-        VITE_API_URL: ${VITE_API_URL:-http://13.204.206.236:2222}
+        VITE_API_URL: ${VITE_API_URL:-http://awigncrm.awignhub.in:2222}
         VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
-        VITE_SITE_URL: ${VITE_SITE_URL:-http://13.204.206.236:1111}
+        VITE_SITE_URL: ${VITE_SITE_URL:-http://awigncrm.awignhub.in}
     ports:
       - "1111:80"
     depends_on:
