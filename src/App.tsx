@@ -33,7 +33,14 @@ const queryClient = new QueryClient({
   },
 });
 
-const App = () => (
+const App = () => {
+  // Redirect traffic from the old Lovable domain to the new production domain.
+  if (typeof window !== "undefined" && window.location.hostname === "crmportal.lovable.app") {
+    window.location.replace("https://awigncrm.awignhub.in" + window.location.pathname + window.location.search + window.location.hash);
+    return null;
+  }
+
+  return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
@@ -183,6 +190,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;
