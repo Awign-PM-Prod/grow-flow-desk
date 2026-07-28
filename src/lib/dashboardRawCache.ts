@@ -330,25 +330,35 @@ export async function fetchDashboardRawPayload(
   const accountIds = [
     ...new Set(mandates.map((m) => m.account_id).filter(Boolean) as string[]),
   ];
+  const accountIdSet = new Set(accountIds);
 
+  // Dropped deals: keep URLs short (nginx/proxies 502 on huge `in.(…)` lists).
+  // Do NOT put account_id + test-KAM exclusions in one giant GET — filter client-side.
   let droppedDeals: DashboardRawPayload["droppedDeals"] = [];
-  if (accountIds.length > 0) {
-    const droppedChunks: DashboardRawPayload["droppedDeals"] = [];
-    const ID_CHUNK = 120;
-    for (let i = 0; i < accountIds.length; i += ID_CHUNK) {
-      const idChunk = accountIds.slice(i, i + ID_CHUNK);
-      const { data, error } = await withExcluded(
-        supabase
-          .from("pipeline_deals")
-          .select("dropped_reason, account_id")
-          .eq("status", "Dropped")
-          .not("dropped_reason", "is", null)
-          .in("account_id", idChunk),
-      );
-      if (error) return { data: null, error };
-      droppedChunks.push(...(data ?? []));
+  try {
+    const { data: droppedRaw, error: droppedError } = await fetchAllRows<{
+      dropped_reason: string | null;
+      account_id: string | null;
+      kam_id?: string | null;
+    }>((from, to) =>
+      supabase
+        .from("pipeline_deals")
+        .select("dropped_reason, account_id, kam_id")
+        .eq("status", "Dropped")
+        .not("dropped_reason", "is", null)
+        .range(from, to),
+    );
+    if (droppedError) {
+      console.error("Dropped deals fetch failed (non-fatal):", droppedError);
+    } else {
+      droppedDeals = (droppedRaw ?? []).filter((deal) => {
+        if (!deal.account_id || !accountIdSet.has(deal.account_id)) return false;
+        if (deal.kam_id && testExclusions.kamIds.has(deal.kam_id)) return false;
+        return true;
+      });
     }
-    droppedDeals = droppedChunks;
+  } catch (err) {
+    console.error("Dropped deals fetch failed (non-fatal):", err);
   }
 
   return {
