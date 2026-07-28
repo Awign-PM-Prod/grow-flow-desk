@@ -8,10 +8,9 @@ import type { Database } from "./types";
 /**
  * Resolve the gateway URL the browser should call.
  *
- * When the SPA is served over HTTPS and the API host is the same as the page
- * (nginx proxies /auth/v1, /rest/v1, … to the backend), always use
- * window.location.origin. That prevents Mixed Content if VITE_API_URL was
- * accidentally baked as http:// during docker build.
+ * - Local dev: Vite is on :8080, gateway on :4000 → use VITE_API_URL as-is.
+ * - Production HTTPS behind nginx (API proxied on same origin): use page origin
+ *   so Mixed Content cannot occur if VITE_API_URL was baked as http://.
  */
 function resolveApiUrl(): string {
   const configured = import.meta.env.VITE_API_URL?.trim() || "";
@@ -19,11 +18,21 @@ function resolveApiUrl(): string {
   if (typeof window !== "undefined") {
     const { protocol, hostname, origin } = window.location;
 
+    // Production domain with nginx API proxy: always same-origin.
+    if (
+      protocol === "https:" &&
+      (hostname === "awigncrm.awignhub.in" || hostname.endsWith(".awignhub.in"))
+    ) {
+      return origin;
+    }
+
     if (configured) {
       try {
         const configuredUrl = new URL(configured);
-        if (configuredUrl.hostname === hostname) {
-          // Same host as the page → match the page protocol/origin exactly.
+        const configuredOrigin = configuredUrl.origin;
+        // Only collapse to page origin when host AND port match (true same-origin).
+        // localhost:8080 vs localhost:4000 must stay distinct for local Vite + gateway.
+        if (configuredOrigin === origin) {
           return origin;
         }
         // Page is HTTPS but config is HTTP on another host → upgrade scheme.
@@ -31,17 +40,10 @@ function resolveApiUrl(): string {
           configuredUrl.protocol = "https:";
           return configuredUrl.toString().replace(/\/$/, "");
         }
+        return configured.replace(/\/$/, "");
       } catch {
         // fall through
       }
-    }
-
-    // Production domain with nginx API proxy: same-origin by default.
-    if (
-      protocol === "https:" &&
-      (hostname === "awigncrm.awignhub.in" || hostname.endsWith(".awignhub.in"))
-    ) {
-      return origin;
     }
   }
 

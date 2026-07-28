@@ -180,6 +180,10 @@ export function expandDashboardLobFilterValues(selectedLobs: string[]): string[]
       out.add("Staffing");
       out.add("New Business Line");
     }
+    if (isExpertsLob(lob)) {
+      out.add(EXPERTS_LOB);
+      out.add("Awign Experts");
+    }
   }
   return [...out];
 }

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from "recharts";
 import { Fragment, useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { getPageDataCache, getRawPageDataCache, hashPageFilters, loadPersistedFilters, savePersistedFilters, setPageDataCache, setRawPageDataCache } from "@/lib/pageSession";
+import { getPageDataCache, getRawPageDataCache, hashPageFilters, loadPersistedFilters, savePersistedFilters, setPageDataCache, setRawPageDataCache, clearPageDataCache, clearRawPageDataCache, clearPersistedFilters } from "@/lib/pageSession";
 import {
   DASHBOARD_DERIVED_CACHE_PAGE,
   DASHBOARD_RAW_CACHE_PAGE,
@@ -401,6 +401,8 @@ type DashboardPersistedFilters = {
   filterKam: string;
   filterNso: string;
   selectedTeam: "all" | "ce" | "staffing" | "experts" | null;
+  /** Owning user — ignore persisted filters if a different user signs in. */
+  userId?: string | null;
 };
 
 type DashboardDataCache = {
@@ -456,9 +458,26 @@ export default function Dashboard() {
   const { user, hasRole, isNSO, isTeamAdmin, canSelectAllTeams, team: userTeam } = useAuth();
   const isKAM = hasRole("kam");
   const savedDashboardFilters = loadPersistedFilters<DashboardPersistedFilters>("dashboard-filters");
-  const initialDashboardFilters = savedDashboardFilters
-    ? { ...defaultDashboardFilters(), ...savedDashboardFilters }
-    : defaultDashboardFilters();
+  const savedFiltersBelongToUser =
+    !!savedDashboardFilters &&
+    !!user?.id &&
+    savedDashboardFilters.userId === user.id;
+  const initialDashboardFilters = (() => {
+    const base = savedFiltersBelongToUser
+      ? { ...defaultDashboardFilters(), ...savedDashboardFilters }
+      : defaultDashboardFilters();
+    // Locked-team users must never inherit another team from sessionStorage.
+    if (!canSelectAllTeams && userTeam) {
+      base.selectedTeam = userTeam;
+    }
+    if (isKAM && user?.id) {
+      base.filterKam = user.id;
+    }
+    if (isNSO) {
+      base.filterNso = "all";
+    }
+    return base;
+  })();
 
   const [selectedTeam, setSelectedTeam] = useState<"all" | "ce" | "staffing" | "experts" | null>(
     initialDashboardFilters.selectedTeam,
@@ -591,6 +610,7 @@ export default function Dashboard() {
       filterKam,
       filterNso,
       selectedTeam,
+      userId: user?.id ?? null,
     });
   }, [
     filterDashboardMonth,
@@ -600,6 +620,7 @@ export default function Dashboard() {
     filterKam,
     filterNso,
     selectedTeam,
+    user?.id,
   ]);
   const [kams, setKams] = useState<Array<{ id: string; full_name: string }>>([]);
   const [nsos, setNsos] = useState<Array<{ mail_id: string; first_name: string; last_name: string }>>([]);
@@ -615,19 +636,45 @@ export default function Dashboard() {
   });
 
   // Default dashboard team scope to the user's own team; global superadmins can switch.
+  // Non-admins must ALWAYS use their profile team — never keep a stale persisted team
+  // from a previous session (that under/over-counts mandates).
   useEffect(() => {
     if (canSelectAllTeams) {
       setSelectedTeam((prev) => prev ?? "all");
       return;
     }
     if (!userTeam) return;
-    // Team admins are always scoped to their assigned team (same as mandates page RLS).
-    if (isTeamAdmin) {
-      setSelectedTeam(userTeam);
-      return;
+    setSelectedTeam(userTeam);
+  }, [canSelectAllTeams, userTeam]);
+
+  // When the signed-in user changes, drop in-memory caches and reset filters that
+  // must not leak across accounts.
+  const dashboardUserIdRef = useRef<string | null>(user?.id ?? null);
+  useEffect(() => {
+    const nextId = user?.id ?? null;
+    const prevId = dashboardUserIdRef.current;
+    if (prevId && nextId && prevId !== nextId) {
+      clearPersistedFilters("dashboard-filters");
+      clearPageDataCache(DASHBOARD_DERIVED_CACHE_PAGE);
+      clearRawPageDataCache(DASHBOARD_RAW_CACHE_PAGE);
+      setFilterDashboardMonth("all");
+      setFilterFinancialYear(getCurrentFinancialYear());
+      setFilterUpsellStatus("All mandate types");
+      setFilterKam(isKAM && nextId ? nextId : "all");
+      setFilterNso("all");
+      setSelectedLobs(
+        canSelectAllTeams || isTeamAdmin
+          ? []
+          : getDefaultDashboardLobs(userTeam, canSelectAllTeams),
+      );
+      if (!canSelectAllTeams && userTeam) {
+        setSelectedTeam(userTeam);
+      } else if (canSelectAllTeams) {
+        setSelectedTeam("all");
+      }
     }
-    setSelectedTeam((prev) => prev ?? userTeam);
-  }, [canSelectAllTeams, userTeam, isTeamAdmin]);
+    dashboardUserIdRef.current = nextId;
+  }, [user?.id, isKAM, canSelectAllTeams, isTeamAdmin, userTeam]);
 
   // Scope LoB filter to team (CE excludes Experts only; staffing/experts auto-select).
   // Team admins: no default LoB filter so all team mandates match (LoB filter is optional).
@@ -1591,7 +1638,8 @@ export default function Dashboard() {
         },
         asOf: Date,
       ) =>
-        m.lifecycle_status === "Active" ||
+        // Point-in-time only — do NOT OR current lifecycle_status (that overcounts
+        // mandates activated after asOf / currently Active but inactive at FY end).
         isMandateActiveAsOf(m.created_at, m.lifecycle_status_log as any, asOf);
 
       const isActiveMandateRow = (m: {

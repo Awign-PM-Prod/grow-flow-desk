@@ -29,6 +29,15 @@ export function savePersistedFilters(pageKey: string, filters: unknown): void {
   }
 }
 
+export function clearPersistedFilters(pageKey: string): void {
+  filterMemory.delete(pageKey);
+  try {
+    sessionStorage.removeItem(STORAGE_PREFIX + pageKey);
+  } catch {
+    // ignore
+  }
+}
+
 export function hashPageFilters(filters: unknown): string {
   return JSON.stringify(filters);
 }
@@ -69,6 +78,12 @@ export function setRawPageDataCache(
 
 export function clearRawPageDataCache(pageKey: string): void {
   rawDataMemory.delete(pageKey);
+}
+
+/** Drop all in-memory page data + raw caches (e.g. on sign-out / user switch). */
+export function clearAllPageDataCaches(): void {
+  dataMemory.clear();
+  rawDataMemory.clear();
 }
 
 /** Static hash for list pages where filters are client-side only. */

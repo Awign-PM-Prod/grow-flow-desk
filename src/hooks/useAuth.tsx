@@ -11,6 +11,10 @@ import {
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
+import {
+  clearAllPageDataCaches,
+  clearPersistedFilters,
+} from "@/lib/pageSession";
 
 export type UserRole = "kam" | "manager" | "leadership" | "superadmin" | "team_admin" | "nso";
 export type Team = "ce" | "staffing" | "experts";
@@ -261,6 +265,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserRoles([]);
     setFullName(null);
     setTeam(null);
+    // Drop dashboard filters/caches so the next sign-in does not inherit
+    // another user's team / KAM / LoB scope (wrong mandate counts).
+    clearPersistedFilters("dashboard-filters");
+    clearAllPageDataCaches();
     setLoading(false);
     isSigningOutRef.current = false;
     navigate("/auth", { replace: true });
