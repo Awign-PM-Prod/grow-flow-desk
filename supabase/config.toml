@@ -3,6 +3,9 @@ project_id = "nwrgfauknnizzebvigye"
 [functions.invite-user]
 verify_jwt = true
 
+# Serves both the admin "Reset Password" button and the login page's self-service
+# "Forgot password" form. The anon key is a valid JWT, so signed-out callers pass
+# verify_jwt; the function itself distinguishes admin vs self-service requests.
 [functions.send-password-reset]
 verify_jwt = true
 

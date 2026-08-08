@@ -4,6 +4,9 @@ export const PORTAL_EMAIL_SENDING_ENABLED = false;
 /** Welcome/invite email sent when an admin creates a new user. */
 export const PORTAL_INVITE_EMAIL_ENABLED = true;
 
+/** Password reset link email (admin-triggered and self-service "forgot password"). */
+export const PORTAL_PASSWORD_RESET_EMAIL_ENABLED = true;
+
 export const PORTAL_EMAIL_SENDING_DISABLED_MESSAGE =
   "Email sending is temporarily disabled.";
 
@@ -13,4 +16,8 @@ export function isPortalEmailSendingEnabled(): boolean {
 
 export function isPortalInviteEmailEnabled(): boolean {
   return PORTAL_INVITE_EMAIL_ENABLED;
+}
+
+export function isPortalPasswordResetEmailEnabled(): boolean {
+  return PORTAL_PASSWORD_RESET_EMAIL_ENABLED;
 }

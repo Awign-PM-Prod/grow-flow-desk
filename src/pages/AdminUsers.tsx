@@ -16,8 +16,10 @@ import { DeleteUserDialog } from "@/components/DeleteUserDialog";
 import { UserInviteInfo } from "@/components/UserInviteInfo";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { formatTeamLabel } from "@/lib/teamLabels";
+import { getAppSiteUrl } from "@/lib/app-site-url";
+import { parseEdgeFunctionError } from "@/lib/edge-function-errors";
 import {
-  isPortalEmailSendingEnabled,
+  isPortalPasswordResetEmailEnabled,
   PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
 } from "@/lib/portalEmailSending";
 
@@ -157,7 +159,7 @@ export default function AdminUsers() {
 
   const handleSendPasswordReset = async (user: UserData) => {
     try {
-      if (!isPortalEmailSendingEnabled()) {
+      if (!isPortalPasswordResetEmailEnabled()) {
         toast({
           title: "Email sending disabled",
           description: PORTAL_EMAIL_SENDING_DISABLED_MESSAGE,
@@ -173,7 +175,7 @@ export default function AdminUsers() {
         throw new Error("Not authenticated");
       }
 
-      const { error } = await supabase.functions.invoke("send-password-reset", {
+      const { data, error } = await supabase.functions.invoke("send-password-reset", {
         body: {
           email: user.email,
           full_name: user.full_name || user.email,
@@ -181,7 +183,9 @@ export default function AdminUsers() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(await parseEdgeFunctionError(error, data));
+      }
 
       toast({
         title: "Success!",
