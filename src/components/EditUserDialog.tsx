@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseEdgeFunctionError } from "@/lib/edge-function-errors";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { formatTeamLabel } from "@/lib/teamLabels";
+import { roleRequiresTeam } from "@/lib/userRoleTeam";
 
 import { type Team } from "@/hooks/useAuth";
 
@@ -65,9 +66,9 @@ export function EditUserDialog({
     if (user) {
       const userRole = ALL_ROLES.includes(user.role as AppRole) ? (user.role as AppRole) : "";
       setRole(assignableRoles.includes(userRole as AppRole) ? userRole : "");
-      if (lockedTeam) {
+      if (lockedTeam && roleRequiresTeam(user.role)) {
         setTeam(lockedTeam);
-      } else if (user.role === "superadmin") {
+      } else if (!roleRequiresTeam(user.role)) {
         setTeam("");
       } else {
         setTeam(VALID_TEAMS.includes(user.team as Team) ? (user.team as Team) : "");
@@ -79,8 +80,10 @@ export function EditUserDialog({
     e.preventDefault();
     if (!user || !role) return;
 
-    const effectiveTeam = lockedTeam ?? (role === "superadmin" ? null : team);
-    if (role !== "superadmin" && !effectiveTeam) return;
+    const effectiveTeam = roleRequiresTeam(role)
+      ? lockedTeam ?? (team || null)
+      : null;
+    if (roleRequiresTeam(role) && !effectiveTeam) return;
 
     setLoading(true);
 
@@ -122,7 +125,7 @@ export function EditUserDialog({
 
   if (!user) return null;
 
-  const showTeamField = role !== "superadmin";
+  const showTeamField = roleRequiresTeam(role);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -143,7 +146,19 @@ export function EditUserDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="edit-role">Role *</Label>
-              <Select value={role} onValueChange={(v) => setRole(v as AppRole)} required>
+              <Select
+                value={role}
+                onValueChange={(v) => {
+                  const nextRole = v as AppRole;
+                  setRole(nextRole);
+                  if (!roleRequiresTeam(nextRole)) {
+                    setTeam("");
+                  } else if (lockedTeam) {
+                    setTeam(lockedTeam);
+                  }
+                }}
+                required
+              >
                 <SelectTrigger id="edit-role">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>

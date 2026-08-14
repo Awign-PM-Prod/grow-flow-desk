@@ -105,14 +105,14 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const resolvedTeam =
-      role === "superadmin"
+      role === "superadmin" || role === "nso"
         ? null
         : isGlobalAdmin
         ? team ?? null
         : userProfile?.team ?? null;
 
     const validTeams = ["ce", "staffing", "experts"];
-    if (role !== "superadmin") {
+    if (role !== "superadmin" && role !== "nso") {
       if (!resolvedTeam || !validTeams.includes(resolvedTeam)) {
         throw new Error("A valid team is required for this role");
       }

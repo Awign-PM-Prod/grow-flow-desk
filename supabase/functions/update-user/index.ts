@@ -130,11 +130,12 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    const resolvedTeam: Team | null = role === "superadmin"
-      ? null
-      : (authResult.isGlobalAdmin ? (team ?? null) : authResult.team);
+    const resolvedTeam: Team | null =
+      role === "superadmin" || role === "nso"
+        ? null
+        : (authResult.isGlobalAdmin ? (team ?? null) : authResult.team);
 
-    if (role !== "superadmin") {
+    if (role !== "superadmin" && role !== "nso") {
       if (!resolvedTeam || !VALID_TEAMS.includes(resolvedTeam)) {
         return errorResponse("A valid team is required for this role");
       }

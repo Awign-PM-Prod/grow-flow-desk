@@ -29,6 +29,7 @@ import {
 } from "@/lib/portalEmailSending";
 import { TeamSelectItems } from "@/components/TeamSelectItems";
 import { formatTeamLabel } from "@/lib/teamLabels";
+import { roleRequiresTeam } from "@/lib/userRoleTeam";
 import { z } from "zod";
 
 const inviteSchema = z.object({
@@ -139,10 +140,15 @@ export function InviteUserDialog({
   const { toast } = useToast();
 
   useEffect(() => {
+    if (!open) return;
+    if (!roleRequiresTeam(role)) {
+      setTeam("");
+      return;
+    }
     if (lockedTeam) {
       setTeam(lockedTeam);
     }
-  }, [lockedTeam, open]);
+  }, [lockedTeam, open, role]);
 
   const assignableRoles = isGlobalAdmin
     ? ["kam", "manager", "leadership", "team_admin", "superadmin", "nso"]
@@ -154,9 +160,11 @@ export function InviteUserDialog({
 
     try {
       // Validate inputs
-      const effectiveTeam = lockedTeam ?? (role === "superadmin" ? undefined : team);
+      const effectiveTeam = roleRequiresTeam(role)
+        ? lockedTeam ?? team
+        : undefined;
 
-      if (role !== "superadmin" && !effectiveTeam) {
+      if (roleRequiresTeam(role) && !effectiveTeam) {
         toast({
           title: "Validation Error",
           description: "Please select a team for this role",
@@ -289,7 +297,18 @@ export function InviteUserDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="role">Role *</Label>
-              <Select value={role} onValueChange={setRole} required>
+              <Select
+                value={role}
+                onValueChange={(value) => {
+                  setRole(value);
+                  if (!roleRequiresTeam(value)) {
+                    setTeam("");
+                  } else if (lockedTeam) {
+                    setTeam(lockedTeam);
+                  }
+                }}
+                required
+              >
                 <SelectTrigger id="role">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
@@ -323,7 +342,7 @@ export function InviteUserDialog({
                 {role === "nso" && "Read-only access to mandates and related data where they are assigned as NSO"}
               </p>
             </div>
-            {role !== "superadmin" && (
+            {roleRequiresTeam(role) && (
               <div className="grid gap-2">
                 <Label htmlFor="team">Team *</Label>
                 {lockedTeam ? (
@@ -376,7 +395,7 @@ export function InviteUserDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || !email || !fullName || !role || !team || !password || !confirmPassword}>
+            <Button type="submit" disabled={loading || !email || !fullName || !role || (roleRequiresTeam(role) && !lockedTeam && !team) || !password || !confirmPassword}>
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
