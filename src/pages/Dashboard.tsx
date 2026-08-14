@@ -51,6 +51,17 @@ import {
   getLobDashboardCategoriesForFilter,
   resolveDashboardChartLobKey,
 } from "@/lib/teamLob";
+import {
+  isAllMandateTypes,
+  mandateTypeFilterLabel,
+  mandateTypeIsSelected,
+  MANDATE_TYPE_FILTER_OPTIONS,
+  managerTargetValueForSelectedTypes,
+  monthlyTargetTypesForSelection,
+  normalizeMandateTypeFilter,
+  selectedIncludesCrossSell,
+  toggleMandateTypeFilter,
+} from "@/lib/mandateTypeFilter";
 
 const lobOptions = [...ALL_LOB_OPTIONS];
 
@@ -201,27 +212,6 @@ function formatCurrencyLabel(value: number): string {
   return `₹${formatNumber(value)}`;
 }
 
-/** Single-month target from manager_targets for the mandate-type filter (org-level buckets). */
-const managerTargetValueForMandateFilter = (
-  existing: number,
-  newAc: number,
-  filterUpsellStatus: string
-): number => {
-  if (filterUpsellStatus === "All Cross Sell + Existing") {
-    return existing;
-  }
-  if (filterUpsellStatus === "New Acquisitions") {
-    return newAc;
-  }
-  if (filterUpsellStatus === "All mandate types" || filterUpsellStatus === "all") {
-    return existing + newAc;
-  }
-  if (filterUpsellStatus === "Existing" || filterUpsellStatus === "All Cross Sell") {
-    return existing;
-  }
-  return 0;
-};
-
 type ManagerTargetRow = {
   month: number;
   year: number;
@@ -235,7 +225,7 @@ const sumManagerTargetsForMonth = (
   rows: ManagerTargetRow[] | null | undefined,
   month: number,
   year: number,
-  filterUpsellStatus: string
+  selectedMandateTypes: readonly string[]
 ): number => {
   if (!rows?.length) return 0;
   return rows
@@ -244,31 +234,20 @@ const sumManagerTargetsForMonth = (
       const existing = parseFloat(String(row.existing_target ?? 0)) || 0;
       const newAc = parseFloat(String(row.new_ac_target ?? 0)) || 0;
       return (
-        sum + managerTargetValueForMandateFilter(existing, newAc, filterUpsellStatus)
+        sum + managerTargetValueForSelectedTypes(existing, newAc, selectedMandateTypes)
       );
     }, 0);
 };
 
-/** Filter monthly_targets rows to match the dashboard mandate-type (upsell) filter. */
+/** Filter monthly_targets rows to match the dashboard mandate-type filter. */
 const filterMonthlyTargetsByUpsellStatus = (
   targets: any[],
-  filterUpsellStatus: string,
+  selectedMandateTypes: readonly string[],
   mandateTypeById: Record<string, string>
 ): any[] => {
   return targets.filter((target: any) => {
     if (target.target_type === "new_cross_sell") {
-      if (
-        filterUpsellStatus === "Existing" ||
-        filterUpsellStatus === "New Acquisitions"
-      ) {
-        return false;
-      }
-      return (
-        filterUpsellStatus === "All Cross Sell" ||
-        filterUpsellStatus === "All Cross Sell + Existing" ||
-        filterUpsellStatus === "All mandate types" ||
-        filterUpsellStatus === "all"
-      );
+      return selectedIncludesCrossSell(selectedMandateTypes);
     }
 
     if (target.target_type === "existing" && target.mandate_id) {
@@ -278,20 +257,7 @@ const filterMonthlyTargetsByUpsellStatus = (
           ? target.mandates[0]?.type
           : target.mandates?.type);
       if (!mandateType) return false;
-
-      if (filterUpsellStatus === "Existing") return mandateType === "Existing";
-      if (filterUpsellStatus === "All Cross Sell") {
-        return mandateType === "New Cross Sell";
-      }
-      if (filterUpsellStatus === "All Cross Sell + Existing") {
-        return mandateType === "Existing" || mandateType === "New Cross Sell";
-      }
-      if (filterUpsellStatus === "New Acquisitions") {
-        return mandateType === "New Acquisition";
-      }
-      return (
-        filterUpsellStatus === "All mandate types" || filterUpsellStatus === "all"
-      );
+      return mandateTypeIsSelected(selectedMandateTypes, mandateType);
     }
 
     return false;
@@ -396,7 +362,10 @@ function filterMandatesActiveAsOf(mandates: any[] | null | undefined, asOf: Date
 type DashboardPersistedFilters = {
   filterDashboardMonth: string;
   filterFinancialYear: string;
-  filterUpsellStatus: string;
+  /** Multi-select mandate types. Empty = all. Legacy single-select strings are normalized on load. */
+  selectedMandateTypes: string[];
+  /** @deprecated replaced by selectedMandateTypes */
+  filterUpsellStatus?: string;
   selectedLobs: string[];
   filterKam: string;
   filterNso: string;
@@ -447,7 +416,7 @@ type DashboardDataCache = {
 const defaultDashboardFilters = (): DashboardPersistedFilters => ({
   filterDashboardMonth: "all",
   filterFinancialYear: getCurrentFinancialYear(),
-  filterUpsellStatus: "All mandate types",
+  selectedMandateTypes: [],
   selectedLobs: [],
   filterKam: "all",
   filterNso: "all",
@@ -476,6 +445,12 @@ export default function Dashboard() {
     if (isNSO) {
       base.filterNso = "all";
     }
+    base.selectedMandateTypes = normalizeMandateTypeFilter(
+      base.selectedMandateTypes?.length
+        ? base.selectedMandateTypes
+        : base.filterUpsellStatus,
+    );
+    delete base.filterUpsellStatus;
     return base;
   })();
 
@@ -593,9 +568,10 @@ export default function Dashboard() {
   const [filterFinancialYear, setFilterFinancialYear] = useState<string>(
     initialDashboardFilters.filterFinancialYear,
   );
-  const [filterUpsellStatus, setFilterUpsellStatus] = useState<string>(
-    initialDashboardFilters.filterUpsellStatus,
+  const [selectedMandateTypes, setSelectedMandateTypes] = useState<string[]>(
+    initialDashboardFilters.selectedMandateTypes,
   );
+  const [mandateTypeFilterOpen, setMandateTypeFilterOpen] = useState(false);
   const [selectedLobs, setSelectedLobs] = useState<string[]>(initialDashboardFilters.selectedLobs);
   const [lobFilterOpen, setLobFilterOpen] = useState(false);
   const [filterKam, setFilterKam] = useState<string>(initialDashboardFilters.filterKam);
@@ -605,7 +581,7 @@ export default function Dashboard() {
     savePersistedFilters("dashboard-filters", {
       filterDashboardMonth,
       filterFinancialYear,
-      filterUpsellStatus,
+      selectedMandateTypes,
       selectedLobs,
       filterKam,
       filterNso,
@@ -615,7 +591,7 @@ export default function Dashboard() {
   }, [
     filterDashboardMonth,
     filterFinancialYear,
-    filterUpsellStatus,
+    selectedMandateTypes,
     selectedLobs,
     filterKam,
     filterNso,
@@ -659,7 +635,7 @@ export default function Dashboard() {
       clearRawPageDataCache(DASHBOARD_RAW_CACHE_PAGE);
       setFilterDashboardMonth("all");
       setFilterFinancialYear(getCurrentFinancialYear());
-      setFilterUpsellStatus("All mandate types");
+      setSelectedMandateTypes([]);
       setFilterKam(isKAM && nextId ? nextId : "all");
       setFilterNso("all");
       setSelectedLobs(
@@ -720,7 +696,7 @@ export default function Dashboard() {
       hashPageFilters({
         filterFinancialYear,
         filterDashboardMonth,
-        filterUpsellStatus,
+        selectedMandateTypes: [...selectedMandateTypes].sort(),
         filterKam,
         filterNso,
         selectedTeam,
@@ -730,7 +706,7 @@ export default function Dashboard() {
     [
       filterFinancialYear,
       filterDashboardMonth,
-      filterUpsellStatus,
+      selectedMandateTypes,
       filterKam,
       filterNso,
       selectedTeam,
@@ -796,7 +772,7 @@ export default function Dashboard() {
     applyDashboardCache,
     filterFinancialYear,
     filterDashboardMonth,
-    filterUpsellStatus,
+    selectedMandateTypes,
     filterKam,
     filterNso,
     isKAM,
@@ -1013,7 +989,7 @@ export default function Dashboard() {
   const isMonthFilterActive = filterDashboardMonth !== "all";
   const isLobFilterActive = selectedLobs.length > 0;
   const isMandateTypeFilterActive =
-    filterUpsellStatus !== "All mandate types";
+    !isAllMandateTypes(selectedMandateTypes);
 
   const hasActiveDashboardFilters =
     isTeamFilterActive ||
@@ -1037,7 +1013,7 @@ export default function Dashboard() {
     } else {
       setSelectedLobs([]);
     }
-    setFilterUpsellStatus("All mandate types");
+    setSelectedMandateTypes([]);
     if (!isKAM) {
       setFilterKam("all");
     }
@@ -1238,12 +1214,20 @@ export default function Dashboard() {
     const prevMonthActive = filterMandatesActiveAsOf(mcvFilteredMandates, perfPrevMonthEnd);
     const currMonthActive = filterMandatesActiveAsOf(mcvFilteredMandates, perfCurrMonthEnd);
 
+    const retentionTypeOrder = ["Star", "A", "B", "C", "D", "E", "NI", "Not Set"];
     const retentionTypes = [
       ...new Set([
         ...prevMonthActive.map((m: any) => m.retention_type || "Not Set"),
         ...currMonthActive.map((m: any) => m.retention_type || "Not Set"),
       ]),
-    ].sort();
+    ].sort((a, b) => {
+      const aIndex = retentionTypeOrder.indexOf(a);
+      const bIndex = retentionTypeOrder.indexOf(b);
+      const aRank = aIndex === -1 ? retentionTypeOrder.length : aIndex;
+      const bRank = bIndex === -1 ? retentionTypeOrder.length : bIndex;
+      if (aRank !== bRank) return aRank - bRank;
+      return a.localeCompare(b);
+    });
 
     const performanceData: Array<{
       group: string;
@@ -1370,26 +1354,6 @@ export default function Dashboard() {
     setUpsellGroupC(processedUpsellGroupC);
     setUpsellPerformance(processedUpsellPerformance);
   }, [processedUpsellGroupB, processedUpsellGroupC, processedUpsellPerformance]);
-
-  // Helper function to apply target type filter to a Supabase query
-  // Note: For each month/year combination, there can be maximum 2 targets:
-  // 1 with target_type = 'existing' and 1 with target_type = 'new_cross_sell'
-  const applyTargetTypeFilter = (query: any, statusFilter: string): any => {
-    if (statusFilter === "Existing") {
-      return query.eq("target_type", "existing");
-    } else if (statusFilter === "All Cross Sell") {
-      return query.eq("target_type", "new_cross_sell");
-    } else if (statusFilter === "All Cross Sell + Existing") {
-      // For "All Cross Sell + Existing", include both target types
-      return query.in("target_type", ["existing", "new_cross_sell"]);
-    } else if (statusFilter === "New Acquisitions") {
-      // For "New Acquisitions", there are no targets, return query that will return no results
-      return query.eq("target_type", "nonexistent"); // This will ensure no targets are returned
-    }
-    // For other statuses, don't filter by target_type (show all targets)
-    return query;
-  };
-
 
   const fetchKams = async () => {
     try {
@@ -1598,7 +1562,7 @@ export default function Dashboard() {
         isNsoFilterActive,
       };
       const mandateFilterBase = {
-        statusFilter: filterUpsellStatus,
+        statusFilter: selectedMandateTypes,
         nsoFilterActive,
         selectedLobs,
         ...personFilterOpts,
@@ -1824,7 +1788,7 @@ export default function Dashboard() {
       const rawMonthlyTargets = rawPayload.monthlyTargets;
       const rawDroppedDeals = rawPayload.droppedDeals;
 
-      // LoB Sales / Max MCV: reuse broad mandates for active card IDs (no re-fetch)
+      // Max MCV Per LoB: same active-as-of set as the Active Mandates card.
       const activeCardIdSet = new Set(activeMandateIdsFromCard);
       const lobMandatesData: any[] = rawPayload.mandates.filter((m) =>
         activeCardIdSet.has(m.id),
@@ -1833,8 +1797,13 @@ export default function Dashboard() {
 
       if (lobMandatesError) throw lobMandatesError;
 
-      // Get mandate IDs for filtering targets (same scope as former LoB targets query)
-      const mandateIds = lobMandatesData?.map((m: any) => m.id).filter(Boolean) || [];
+      // LoB Existing Sales Performance: all scoped mandates, including currently Inactive.
+      const lobSalesMandatesData: any[] = withoutTestProfileRows(
+        prefetchedKamMandatesRaw,
+      );
+
+      // Get mandate IDs for filtering LoB targets (active + inactive)
+      const mandateIds = lobSalesMandatesData.map((m: any) => m.id).filter(Boolean) || [];
       const mandateIdSet = new Set(mandateIds);
 
       const fyMonthNumbers = isMonthScoped
@@ -1889,28 +1858,18 @@ export default function Dashboard() {
         });
       };
 
-      // LoB targets: mirror former server filters on cached FY monthly_targets
+      const { targetTypes: lobTargetTypes, requireMandateIds: lobRequireMandateIds } =
+        monthlyTargetTypesForSelection(selectedMandateTypes);
       let targetsData: any[] = [];
       const lobTargetsError: any = null;
-      if (filterUpsellStatus === "Existing") {
-        targetsData =
-          mandateIds.length > 0
-            ? filterRawMonthlyTargets({
-                targetTypes: ["existing"],
-                requireMandateIds: true,
-              })
-            : [];
-      } else if (filterUpsellStatus === "All Cross Sell") {
-        targetsData = filterRawMonthlyTargets({
-          targetTypes: ["new_cross_sell"],
-        });
-      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-        targetsData = filterRawMonthlyTargets({
-          targetTypes: ["existing", "new_cross_sell"],
-        });
+      if (lobTargetTypes.length === 0) {
+        targetsData = [];
+      } else if (lobRequireMandateIds && mandateIds.length === 0) {
+        targetsData = [];
       } else {
         targetsData = filterRawMonthlyTargets({
-          targetTypes: ["existing", "new_cross_sell"],
+          targetTypes: lobTargetTypes,
+          requireMandateIds: lobRequireMandateIds,
         });
       }
 
@@ -1925,31 +1884,14 @@ export default function Dashboard() {
       if (!lobTargetsError && targetsData && targetsData.length > 0) {
         // Create a map of mandate IDs to their LoB for quick lookup
         const mandateLobMap: Record<string, string> = {};
-        lobMandatesData?.forEach((m: any) => {
+        lobSalesMandatesData.forEach((m: any) => {
           if (m.id && m.lob) {
             const mapped = resolveDashboardChartLobKey(m.lob, chartLobOptions);
             if (mapped) mandateLobMap[m.id] = mapped;
           }
         });
 
-        // Create a map of KAM+Account combinations to their mandates' LoBs
-        // For new_cross_sell targets, we need to find which mandates match the KAM+account
-        const kamAccountMandatesMap: Record<string, string[]> = {}; // "kamId_accountId" -> [lob1, lob2, ...]
-        lobMandatesData?.forEach((m: any) => {
-          if (m.kam_id && m.lob) {
-            // For new_cross_sell, we need to match by account_id from mandates
-            // But mandates don't directly have account_id in the query, so we'll use a different approach
-            // Actually, for new_cross_sell targets, we need to get account_id from the target itself
-          }
-        });
-
         targetsData.forEach((target: any) => {
-          if (
-            target.mandate_id &&
-            inactiveMandateIdsRef.current.has(target.mandate_id as string)
-          ) {
-            return;
-          }
           const monthDate = new Date(target.year, target.month - 1, 1);
           if (
             !includeInDashboardPeriod(
@@ -1980,9 +1922,9 @@ export default function Dashboard() {
             }
           } else if (target.target_type === "new_cross_sell" && target.kam_id && target.account_id) {
             // New cross sell target: find mandates with matching KAM and account_id
-            const matchingMandates = lobMandatesData?.filter((m: any) => 
+            const matchingMandates = lobSalesMandatesData.filter((m: any) =>
               m.kam_id === target.kam_id && m.account_id === target.account_id
-            ) || [];
+            );
             
             if (matchingMandates.length > 0) {
               // Distribute target across matching mandates' LoBs
@@ -2013,8 +1955,8 @@ export default function Dashboard() {
       }
 
       // Process achieved values from monthly_data (new format: just a number, not an array)
-      if (!lobMandatesError && lobMandatesData && lobMandatesData.length > 0) {
-        lobMandatesData.forEach((mandate: any) => {
+      if (lobSalesMandatesData.length > 0) {
+        lobSalesMandatesData.forEach((mandate: any) => {
           const lob = resolveDashboardChartLobKey(mandate.lob, chartLobOptions);
           if (lob && lobData[lob]) {
             // monthly_data is a JSONB object where:
@@ -2067,7 +2009,7 @@ export default function Dashboard() {
       // Debug: Log the calculated data to verify values
       console.log("LoB Sales Performance - Calculated Values:", formattedLobData);
 
-      setLobSalesPerformance(activeMandatesCardCount === 0 ? [] : formattedLobData);
+      setLobSalesPerformance(formattedLobData);
 
       const maxMcvByLob: Record<string, number> = {};
       chartLobOptions.forEach((l) => {
@@ -2127,44 +2069,32 @@ export default function Dashboard() {
 
       // KAM targets from cached FY monthly_targets (same filters as former query)
       const kamMandateIdSet = new Set(kamMandateIds);
+      const { targetTypes: kamTargetTypes } =
+        monthlyTargetTypesForSelection(selectedMandateTypes);
       let kamTargetsData: any[] = [];
       const kamTargetsError: any = null;
-      if (filterUpsellStatus === "Existing") {
-        kamTargetsData =
-          kamMandateIds.length > 0
-            ? filterRawMonthlyTargets({
-                targetTypes: ["existing"],
-                applyLobOnMandate: false,
-              }).filter(
-                (t: any) => t.mandate_id && kamMandateIdSet.has(t.mandate_id),
-              )
-            : [];
-      } else if (filterUpsellStatus === "All Cross Sell") {
+      if (kamTargetTypes.length === 0) {
+        kamTargetsData = [];
+      } else {
         const kamIdsFromMandates = new Set(
           (kamMandatesData?.map((m: any) => m.kam_id).filter(Boolean) || []) as string[],
         );
-        kamTargetsData =
-          kamIdsFromMandates.size > 0
-            ? filterRawMonthlyTargets({
-                targetTypes: ["new_cross_sell"],
-                applyLobOnMandate: false,
-                kamIds: kamIdsFromMandates,
-              })
-            : [];
-      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
         kamTargetsData = filterRawMonthlyTargets({
-          targetTypes: ["existing", "new_cross_sell"],
+          targetTypes: kamTargetTypes,
           applyLobOnMandate: false,
-        });
-      } else {
-        kamTargetsData = filterRawMonthlyTargets({
-          targetTypes: ["existing", "new_cross_sell"],
-          applyLobOnMandate: false,
+        }).filter((t: any) => {
+          if (t.target_type === "existing") {
+            return t.mandate_id && kamMandateIdSet.has(t.mandate_id);
+          }
+          if (t.target_type === "new_cross_sell") {
+            return t.kam_id && kamIdsFromMandates.has(t.kam_id);
+          }
+          return false;
         });
       }
 
       console.log("KAM Targets Query Details:", {
-        filter: filterUpsellStatus,
+        filter: selectedMandateTypes,
         mandateIdsCount: kamMandateIds.length,
         mandateIds: kamMandateIds.slice(0, 5), // First 5 for debugging
         financialYear: financialYearString,
@@ -2178,7 +2108,7 @@ export default function Dashboard() {
         console.log("Sample KAM target:", kamTargetsData[0]);
       }
 
-      console.log("KAM Targets Query - Filter:", filterUpsellStatus, "Mandate IDs:", kamMandateIds.length);
+      console.log("KAM Targets Query - Filter:", selectedMandateTypes, "Mandate IDs:", kamMandateIds.length);
       console.log("KAM Targets Data:", kamTargetsData?.length || 0, "Error:", kamTargetsError);
 
       // KAM names — reuse wave-1 profiles fetch
@@ -2374,7 +2304,7 @@ export default function Dashboard() {
         let cardTargets = filterTargetsByKamNso(kamTargetsData || []);
         cardTargets = filterMonthlyTargetsByUpsellStatus(
           cardTargets,
-          filterUpsellStatus,
+          selectedMandateTypes,
           mandateTypeById
         );
 
@@ -2409,10 +2339,10 @@ export default function Dashboard() {
             const k = managerMonthKey(row.month, row.year);
             const existing = parseFloat(String(row.existing_target ?? 0)) || 0;
             const newAc = parseFloat(String(row.new_ac_target ?? 0)) || 0;
-            const tv = managerTargetValueForMandateFilter(
+            const tv = managerTargetValueForSelectedTypes(
               existing,
               newAc,
-              filterUpsellStatus
+              selectedMandateTypes
             );
             if (fyPairSet.has(k)) {
               totalAnnualTarget += tv;
@@ -2427,7 +2357,7 @@ export default function Dashboard() {
           managerTargetsFyRows,
           refMonth,
           refYear,
-          filterUpsellStatus
+          selectedMandateTypes
         );
       }
 
@@ -2476,7 +2406,7 @@ export default function Dashboard() {
             managerTargetsFyRows,
             refMonth,
             refYear,
-            filterUpsellStatus,
+            selectedMandateTypes,
           );
         } else if (managerTargetsFyRows) {
           for (const row of managerTargetsFyRows) {
@@ -2484,10 +2414,10 @@ export default function Dashboard() {
             if (!fyPairSet.has(k)) continue;
             const existing = parseFloat(String(row.existing_target ?? 0)) || 0;
             const newAc = parseFloat(String(row.new_ac_target ?? 0)) || 0;
-            targetMcvCardPlanned += managerTargetValueForMandateFilter(
+            targetMcvCardPlanned += managerTargetValueForSelectedTypes(
               existing,
               newAc,
-              filterUpsellStatus,
+              selectedMandateTypes,
             );
           }
         }
@@ -2522,110 +2452,6 @@ export default function Dashboard() {
                       const achievedMcv = getAchievedMcv(monthRecord);
                       totalFfmAchieved += achievedMcv;
                     }
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
-        // Only count achieved MCV for current month that falls within selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'New Cross Sell'
-            if (mandate.type === "New Cross Sell") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    // Check if this month falls within the selected financial year
-                    const [yearStr, monthStr] = monthYear.split('-');
-                    const year = parseInt(yearStr);
-                    const month = parseInt(monthStr);
-                    const monthDate = new Date(year, month - 1, 1);
-                    
-                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
-                    const achievedMcv = getAchievedMcv(monthRecord);
-                      totalFfmAchieved += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "Existing") {
-        // For "Existing" status, calculate from mandates with type = 'Existing'
-        // Only count achieved MCV for current month that falls within selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'Existing'
-            if (mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    // Check if this month falls within the selected financial year
-                    const [yearStr, monthStr] = monthYear.split('-');
-                    const year = parseInt(yearStr);
-                    const month = parseInt(monthStr);
-                    const monthDate = new Date(year, month - 1, 1);
-                    
-                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
-                    const achievedMcv = getAchievedMcv(monthRecord);
-                      totalFfmAchieved += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-        // For "All Cross Sell + Existing", calculate from mandates with type = 'New Cross Sell' OR 'Existing'
-        // Only count achieved MCV for current month that falls within selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Include mandates with type = 'New Cross Sell' or 'Existing'
-            if (mandate.type === "New Cross Sell" || mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    // Check if this month falls within the selected financial year
-                    const [yearStr, monthStr] = monthYear.split('-');
-                    const year = parseInt(yearStr);
-                    const month = parseInt(monthStr);
-                    const monthDate = new Date(year, month - 1, 1);
-                    
-                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
-                    const achievedMcv = getAchievedMcv(monthRecord);
-                      totalFfmAchieved += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "New Acquisitions") {
-        // For "New Acquisitions", calculate from mandates with type = 'New Acquisition'
-        // Only count achieved MCV for current month that falls within selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'New Acquisition'
-            if (mandate.type === "New Acquisition") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    // Check if this month falls within the selected financial year
-                    const [yearStr, monthStr] = monthYear.split('-');
-                    const year = parseInt(yearStr);
-                    const month = parseInt(monthStr);
-                    const monthDate = new Date(year, month - 1, 1);
-                    
-                    // includeInDashboardPeriod handles both month-scoped and full-FY modes
-                    if (includeInDashboardPeriod(monthDate, monthYear)) {
-                    const achievedMcv = getAchievedMcv(monthRecord);
-                      totalFfmAchieved += achievedMcv;
                   }
                 });
               }
@@ -2693,126 +2519,6 @@ export default function Dashboard() {
             }
           });
         }
-      } else if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
-        // Only count achieved MCV for months that belong to current quarter and selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'New Cross Sell'
-            if (mandate.type === "New Cross Sell") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    const [year, month] = monthYear.split('-');
-                    const yearNum = parseInt(year);
-                    const monthNum = parseInt(month);
-                  const achievedMcv = getAchievedMcv(monthRecord);
-                    
-                    // Check if this month belongs to the current quarter and selected FY
-                    const monthDate = new Date(yearNum, monthNum - 1, 1);
-                    if (
-                      quarterMonthYearPairs.some(
-                        (p) => p.month === monthNum && p.year === yearNum
-                      ) &&
-                      monthInSelectedFY(monthDate)
-                    ) {
-                      totalMcvThisQuarter += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "Existing") {
-        // For "Existing" status, calculate from mandates with type = 'Existing'
-        // Only count achieved MCV for months that belong to current quarter and selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'Existing'
-            if (mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    const [year, month] = monthYear.split('-');
-                    const yearNum = parseInt(year);
-                    const monthNum = parseInt(month);
-                  const achievedMcv = getAchievedMcv(monthRecord);
-                    
-                    // Check if this month belongs to the current quarter and selected FY
-                    const monthDate = new Date(yearNum, monthNum - 1, 1);
-                    if (
-                      quarterMonthYearPairs.some(
-                        (p) => p.month === monthNum && p.year === yearNum
-                      ) &&
-                      monthInSelectedFY(monthDate)
-                    ) {
-                      totalMcvThisQuarter += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-        // For "All Cross Sell + Existing", calculate from mandates with type = 'New Cross Sell' OR 'Existing'
-        // Only count achieved MCV for months that belong to current quarter and selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Include mandates with type = 'New Cross Sell' or 'Existing'
-            if (mandate.type === "New Cross Sell" || mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    const [year, month] = monthYear.split('-');
-                    const yearNum = parseInt(year);
-                    const monthNum = parseInt(month);
-                  const achievedMcv = getAchievedMcv(monthRecord);
-                    
-                    // Check if this month belongs to the current quarter and selected FY
-                    const monthDate = new Date(yearNum, monthNum - 1, 1);
-                    if (
-                      quarterMonthYearPairs.some(
-                        (p) => p.month === monthNum && p.year === yearNum
-                      ) &&
-                      monthInSelectedFY(monthDate)
-                    ) {
-                      totalMcvThisQuarter += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "New Acquisitions") {
-        // For "New Acquisitions", calculate from mandates with type = 'New Acquisition'
-        // Only count achieved MCV for months that belong to current quarter and selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'New Acquisition'
-            if (mandate.type === "New Acquisition") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    const [year, month] = monthYear.split('-');
-                    const yearNum = parseInt(year);
-                    const monthNum = parseInt(month);
-                  const achievedMcv = getAchievedMcv(monthRecord);
-                    
-                    // Check if this month belongs to the current quarter and selected FY
-                    const monthDate = new Date(yearNum, monthNum - 1, 1);
-                    if (
-                      quarterMonthYearPairs.some(
-                        (p) => p.month === monthNum && p.year === yearNum
-                      ) &&
-                      monthInSelectedFY(monthDate)
-                    ) {
-                      totalMcvThisQuarter += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
       } else {
         // For other statuses (including "All mandate types"), use all mandates
         if (!mcvError && allMandatesForMcv) {
@@ -2853,86 +2559,6 @@ export default function Dashboard() {
       // If filtering by NSO or all NSOs, process New Acquisition mandates
       if (isNsoFilterActive(filterNso)) {
         // For NSO filter, only process New Acquisition mandates
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            if (mandate.type === "New Acquisition") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  if (monthYear === prevMonthYearStr) {
-                    const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (monthInSelectedFY(monthDate)) {
-                      totalMcvLastMonth += achievedMcv;
-                    }
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            if (mandate.type === "New Cross Sell") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  if (monthYear === prevMonthYearStr) {
-                    const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (monthInSelectedFY(monthDate)) {
-                      totalMcvLastMonth += achievedMcv;
-                    }
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "Existing") {
-        // For "Existing" status, calculate from mandates with type = 'Existing'
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            if (mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  if (monthYear === prevMonthYearStr) {
-                    const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (monthInSelectedFY(monthDate)) {
-                      totalMcvLastMonth += achievedMcv;
-                    }
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-        // For "All Cross Sell + Existing", calculate from mandates with type = 'New Cross Sell' OR 'Existing'
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            if (mandate.type === "New Cross Sell" || mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  if (monthYear === prevMonthYearStr) {
-                    const achievedMcv = getAchievedMcv(monthRecord);
-                    const monthDate = new Date(prevCalendarYear, prevCalendarMonth - 1, 1);
-                    if (monthInSelectedFY(monthDate)) {
-                      totalMcvLastMonth += achievedMcv;
-                    }
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "New Acquisitions") {
-        // For "New Acquisitions", calculate from mandates with type = 'New Acquisition'
         if (!mcvError && allMandatesForMcv) {
           allMandatesForMcv.forEach((mandate: any) => {
             if (mandate.type === "New Acquisition") {
@@ -3009,20 +2635,7 @@ export default function Dashboard() {
           }
           
           const mandateType = mandate.type;
-          
-          // Filter by mandate type based on filterUpsellStatus
-          if (filterUpsellStatus === "Existing") {
-            return mandateType === 'Existing';
-          } else if (filterUpsellStatus === "All Cross Sell") {
-            return mandateType === 'New Cross Sell';
-          } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-            return mandateType === 'Existing' || mandateType === 'New Cross Sell';
-          } else if (filterUpsellStatus === "New Acquisitions") {
-            return mandateType === 'New Acquisition';
-          } else {
-            // For "All mandate types" or other status filters, include all targets linked to mandates
-            return true;
-          }
+          return mandateTypeIsSelected(selectedMandateTypes, mandateType);
         });
       }
 
@@ -3059,78 +2672,6 @@ export default function Dashboard() {
                   
                   if (monthInSelectedFY(monthDate)) {
                     totalAnnualAchieved += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
-        // Only count achieved MCV for months that fall within the selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'New Cross Sell'
-            if (mandate.type === "New Cross Sell") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    const [year, month] = monthYear.split('-');
-                    const yearNum = parseInt(year);
-                    const monthNum = parseInt(month);
-                    const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  const achievedMcv = getAchievedMcv(monthRecord);
-                    
-                    if (monthInSelectedFY(monthDate)) {
-                      totalAnnualAchieved += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "Existing") {
-        // For "Existing" status, calculate from mandates with type = 'Existing'
-        // Only count achieved MCV for months that fall within the selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'Existing'
-            if (mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    const [year, month] = monthYear.split('-');
-                    const yearNum = parseInt(year);
-                    const monthNum = parseInt(month);
-                    const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  const achievedMcv = getAchievedMcv(monthRecord);
-                    
-                    if (monthInSelectedFY(monthDate)) {
-                      totalAnnualAchieved += achievedMcv;
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "All Cross Sell + Existing") {
-        // For "All Cross Sell + Existing", calculate from mandates with type = 'New Cross Sell' OR 'Existing'
-        // Only count achieved MCV for months that fall within the selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Include mandates with type = 'New Cross Sell' or 'Existing'
-            if (mandate.type === "New Cross Sell" || mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                    const [year, month] = monthYear.split('-');
-                    const yearNum = parseInt(year);
-                    const monthNum = parseInt(month);
-                    const monthDate = new Date(yearNum, monthNum - 1, 1);
-                  const achievedMcv = getAchievedMcv(monthRecord);
-                    
-                    if (monthInSelectedFY(monthDate)) {
-                      totalAnnualAchieved += achievedMcv;
                   }
                 });
               }
@@ -3213,64 +2754,6 @@ export default function Dashboard() {
             }
           });
         }
-      } else if (filterUpsellStatus === "All Cross Sell") {
-        // For "All Cross Sell", calculate from mandates with type = 'New Cross Sell'
-        // Only count achieved MCV for current month that falls within selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'New Cross Sell'
-            if (mandate.type === "New Cross Sell") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                    // Check if this is the current month and within selected FY
-                    if (monthYear === currentMonthYear) {
-                      const [yearStr, monthStr] = monthYear.split('-');
-                      const year = parseInt(yearStr);
-                      const month = parseInt(monthStr);
-                      const monthDate = new Date(year, month - 1, 1);
-                      
-                      if (includeInDashboardPeriod(monthDate, monthYear)) {
-                        const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                        totalCurrentMonthAchieved += achievedMcv;
-                      }
-                    }
-                  }
-                });
-              }
-            }
-          });
-        }
-      } else if (filterUpsellStatus === "Existing") {
-        // For "Existing" status, calculate from mandates with type = 'Existing'
-        // Only count achieved MCV for current month that falls within selected FY
-        if (!mcvError && allMandatesForMcv) {
-          allMandatesForMcv.forEach((mandate: any) => {
-            // Ensure mandate type is 'Existing'
-            if (mandate.type === "Existing") {
-              const monthlyData = mandate.monthly_data;
-              if (monthlyData && typeof monthlyData === 'object' && !Array.isArray(monthlyData)) {
-                Object.entries(monthlyData).forEach(([monthYear, monthRecord]: [string, any]) => {
-                  if (Array.isArray(monthRecord) && monthRecord.length >= 2) {
-                    // Check if this is the current month and within selected FY
-                    if (monthYear === currentMonthYear) {
-                      const [yearStr, monthStr] = monthYear.split('-');
-                      const year = parseInt(yearStr);
-                      const month = parseInt(monthStr);
-                      const monthDate = new Date(year, month - 1, 1);
-                      
-                      if (includeInDashboardPeriod(monthDate, monthYear)) {
-                        const achievedMcv = parseFloat(monthRecord[1]?.toString() || "0") || 0;
-                        totalCurrentMonthAchieved += achievedMcv;
-                      }
-                    }
-                  }
-                });
-              }
-            }
-          });
-        }
       } else {
         // For other statuses (including "All mandate types"), use all mandates
         if (!mcvError && allMandatesForMcv) {
@@ -3303,7 +2786,7 @@ export default function Dashboard() {
         let monthCardTargets = filterTargetsByKamNso(kamTargetsData || []);
         monthCardTargets = filterMonthlyTargetsByUpsellStatus(
           monthCardTargets,
-          filterUpsellStatus,
+          selectedMandateTypes,
           mandateTypeById
         );
         totalCurrentMonthTarget = sumMonthlyTargetValues(
@@ -3318,7 +2801,7 @@ export default function Dashboard() {
           managerTargetsFyRows,
           refMonth,
           refYear,
-          filterUpsellStatus
+          selectedMandateTypes
         );
       }
 
@@ -4299,22 +3782,74 @@ export default function Dashboard() {
         </Popover>
         )}
 
-        {/* Status Filter */}
-        <Select value={filterUpsellStatus} onValueChange={(value) => setFilterUpsellStatus(value)}>
-          <SelectTrigger
-            className={cn(
-              dashboardFilterTriggerClass,
-              isMandateTypeFilterActive && dashboardFilterActiveClass,
-            )}
+        {/* Mandate type filter */}
+        <Popover open={mandateTypeFilterOpen} onOpenChange={setMandateTypeFilterOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={mandateTypeFilterOpen}
+              className={cn(
+                dashboardFilterButtonClass,
+                isMandateTypeFilterActive && dashboardFilterActiveClass,
+              )}
+            >
+              <span className="whitespace-nowrap text-left">
+                {mandateTypeFilterLabel(selectedMandateTypes)}
+              </span>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[min(calc(100vw-1.5rem),18rem)] p-0"
+            align="start"
+            sideOffset={6}
+            collisionPadding={12}
           >
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All mandate types">All Mandate Types</SelectItem>
-            <SelectItem value="All Cross Sell + Existing">Existing Mandates</SelectItem>
-            <SelectItem value="New Acquisitions">New Acquisitions</SelectItem>
-          </SelectContent>
-        </Select>
+            <Command>
+              <CommandList>
+                <CommandItem
+                  value="all-mandate-types"
+                  onSelect={() => setSelectedMandateTypes([])}
+                  className="font-medium"
+                >
+                  <span className="min-w-0 flex-1 truncate pr-2 text-left">All Mandate Types</span>
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    <Check
+                      className={cn(
+                        "h-4 w-4",
+                        isAllMandateTypes(selectedMandateTypes)
+                          ? "text-primary opacity-100"
+                          : "opacity-0",
+                      )}
+                    />
+                  </span>
+                </CommandItem>
+                {MANDATE_TYPE_FILTER_OPTIONS.map((typeOption) => (
+                  <CommandItem
+                    key={typeOption}
+                    value={typeOption}
+                    onSelect={() =>
+                      setSelectedMandateTypes((prev) => toggleMandateTypeFilter(prev, typeOption))
+                    }
+                  >
+                    <span className="min-w-0 flex-1 truncate pr-2 text-left">{typeOption}</span>
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                      <Check
+                        className={cn(
+                          "h-4 w-4",
+                          selectedMandateTypes.includes(typeOption)
+                            ? "text-primary opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
 
         {/* KAM filter — hidden for KAM users */}
         {!isKAM && (
@@ -4866,8 +4401,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Dropped Sales and Reasons - Only visible when status filter is "All Cross Sell" */}
-        {filterUpsellStatus === "All Cross Sell" && (
+        {/* Dropped Sales and Reasons — shown when New Cross Sell is the only selected type */}
+        {selectedMandateTypes.length === 1 &&
+          selectedMandateTypes[0] === "New Cross Sell" && (
           <Card>
             <CardHeader>
               <CardTitle>Dropped Sales and Reasons</CardTitle>
@@ -5056,6 +4592,10 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>LoB Existing Sales Performance</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Achieved MCV and targets for all mandates in the selected filters, including
+              currently inactive mandates.
+            </p>
           </CardHeader>
           <CardContent>
             {loading ? (

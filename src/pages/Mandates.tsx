@@ -18,7 +18,7 @@ import { invalidateListData, restoreListData, storeListData } from "@/lib/listPa
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown, History } from "lucide-react";
+import { Loader2, Download, Upload, FileText, BookOpen, Trash2, ChevronsUpDown, History, Check } from "lucide-react";
 import {
   convertToCSV,
   downloadCSV,
@@ -87,6 +87,14 @@ import {
   shouldShowStaffingMandateFields,
   STAFFING_LOBS,
 } from "@/lib/teamLob";
+import {
+  isAllMandateTypes,
+  mandateTypeFilterLabel,
+  mandateTypeIsSelected,
+  MANDATE_TYPE_FILTER_OPTIONS,
+  normalizeMandateTypeFilter,
+  toggleMandateTypeFilter,
+} from "@/lib/mandateTypeFilter";
 import { LobFormField } from "@/components/LobFormField";
 import type { Json } from "@/integrations/supabase/types";
 
@@ -1590,7 +1598,7 @@ export default function Mandates() {
     filterKam: string;
     filterNso: string;
     filterLob: string;
-    filterType: string;
+    filterType: string[];
     filterMandateHealth: string;
     filterUpsellStatus: string;
     filterRetentionType: string;
@@ -1606,7 +1614,7 @@ export default function Mandates() {
     filterKam: "all",
     filterNso: "all",
     filterLob: "all",
-    filterType: "all",
+    filterType: [],
     filterMandateHealth: "all",
     filterUpsellStatus: "all",
     filterRetentionType: "all",
@@ -1618,7 +1626,13 @@ export default function Mandates() {
 
   const savedMandatesFilters = loadPersistedFilters<MandatesPageFilters>("mandates-filters");
   const initialMandatesFilters = savedMandatesFilters
-    ? { ...defaultMandatesFilters, ...savedMandatesFilters }
+    ? {
+        ...defaultMandatesFilters,
+        ...savedMandatesFilters,
+        filterType: normalizeMandateTypeFilter(
+          (savedMandatesFilters as MandatesPageFilters & { filterType?: unknown }).filterType,
+        ),
+      }
     : defaultMandatesFilters;
 
   // Filters for view mode
@@ -1627,7 +1641,8 @@ export default function Mandates() {
   const [filterKam, setFilterKam] = useState<string>(initialMandatesFilters.filterKam);
   const [filterNso, setFilterNso] = useState<string>(initialMandatesFilters.filterNso);
   const [filterLob, setFilterLob] = useState(initialMandatesFilters.filterLob);
-  const [filterType, setFilterType] = useState(initialMandatesFilters.filterType);
+  const [filterType, setFilterType] = useState<string[]>(initialMandatesFilters.filterType);
+  const [typeFilterOpen, setTypeFilterOpen] = useState(false);
   const [filterMandateHealth, setFilterMandateHealth] = useState(
     initialMandatesFilters.filterMandateHealth,
   );
@@ -4613,7 +4628,7 @@ export default function Mandates() {
     setKamFilterSearch("");
     setNsoFilterSearch("");
     setFilterLob("all");
-    setFilterType("all");
+    setFilterType([]);
     setFilterMandateHealth("all");
     setFilterUpsellStatus("all");
     setFilterRetentionType("all");
@@ -5024,7 +5039,7 @@ export default function Mandates() {
       );
     })();
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
-    const matchesType = filterType === "all" || mandate.type === filterType;
+    const matchesType = mandateTypeIsSelected(filterType, mandate.type);
     const matchesHealth = filterMandateHealth === "all" || mandate.mandateHealth === filterMandateHealth;
     const matchesStatus = filterUpsellStatus === "all" || mandate.upsellStatus === filterUpsellStatus;
     const matchesRetentionType = filterRetentionType === "all" || mandate.retention_type === filterRetentionType;
@@ -5058,7 +5073,7 @@ export default function Mandates() {
     (!isKAM && filterKam !== "all") ||
     (!isNSO && filterNso !== "all") ||
     filterLob !== "all" ||
-    filterType !== "all" ||
+    !isAllMandateTypes(filterType) ||
     filterMandateHealth !== "all" ||
     filterUpsellStatus !== "all" ||
     filterRetentionType !== "all" ||
@@ -6093,17 +6108,55 @@ export default function Mandates() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={filterType} onValueChange={setFilterType}>
-                    <SelectTrigger className={`w-full min-w-0 text-left ${filterType !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
-                    <SelectValue placeholder="All Mandate Types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Mandate Types</SelectItem>
-                    <SelectItem value="Existing">Existing</SelectItem>
-                    <SelectItem value="New Acquisition">New Acquisition</SelectItem>
-                    <SelectItem value="New Cross Sell">New Cross Sell</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Popover open={typeFilterOpen} onOpenChange={setTypeFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={typeFilterOpen}
+                      className={`w-full min-w-0 justify-between text-left font-normal ${
+                        !isAllMandateTypes(filterType) ? "border-blue-500 bg-blue-50/50" : ""
+                      }`}
+                    >
+                      <span className="truncate">{mandateTypeFilterLabel(filterType)}</span>
+                      <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command>
+                      <CommandList>
+                        <CommandItem
+                          value="all-mandate-types"
+                          onSelect={() => setFilterType([])}
+                          className="font-medium"
+                        >
+                          <span className="min-w-0 flex-1 truncate pr-2 text-left">All Mandate Types</span>
+                          <Check
+                            className={`h-4 w-4 ${
+                              isAllMandateTypes(filterType) ? "opacity-100" : "opacity-0"
+                            }`}
+                          />
+                        </CommandItem>
+                        {MANDATE_TYPE_FILTER_OPTIONS.map((typeOption) => (
+                          <CommandItem
+                            key={typeOption}
+                            value={typeOption}
+                            onSelect={() =>
+                              setFilterType((prev) => toggleMandateTypeFilter(prev, typeOption))
+                            }
+                          >
+                            <span className="min-w-0 flex-1 truncate pr-2 text-left">{typeOption}</span>
+                            <Check
+                              className={`h-4 w-4 ${
+                                filterType.includes(typeOption) ? "opacity-100" : "opacity-0"
+                              }`}
+                            />
+                          </CommandItem>
+                        ))}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
                 <Select value={filterMandateHealth} onValueChange={setFilterMandateHealth}>
                     <SelectTrigger className={`w-full min-w-0 text-left ${filterMandateHealth !== "all" ? "border-blue-500 bg-blue-50/50" : ""}`}>
                     <SelectValue placeholder="All Mandate Health" />

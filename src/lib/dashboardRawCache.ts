@@ -5,6 +5,10 @@ import {
   filterRowsByTestProfiles,
   type TestProfileExclusions,
 } from "@/lib/dashboardTestAccounts";
+import {
+  mandateTypeIsSelected,
+  normalizeMandateTypeFilter,
+} from "@/lib/mandateTypeFilter";
 
 export const DASHBOARD_RAW_CACHE_PAGE = "dashboard-raw";
 export const DASHBOARD_DERIVED_CACHE_PAGE = "dashboard-v2";
@@ -74,18 +78,14 @@ export async function fetchAllRows<T>(
 
 export function mandateMatchesStatus(
   type: string | null | undefined,
-  statusFilter: string,
+  statusFilter: string | readonly string[],
   nsoFilterActive: boolean,
 ): boolean {
   if (nsoFilterActive) return true;
-  if (statusFilter === "all" || statusFilter === "All mandate types") return true;
-  if (statusFilter === "Existing") return type === "Existing";
-  if (statusFilter === "All Cross Sell") return type === "New Cross Sell";
-  if (statusFilter === "All Cross Sell + Existing") {
-    return type === "New Cross Sell" || type === "Existing";
-  }
-  if (statusFilter === "New Acquisitions") return type === "New Acquisition";
-  return true;
+  const selected = Array.isArray(statusFilter)
+    ? statusFilter
+    : normalizeMandateTypeFilter(statusFilter);
+  return mandateTypeIsSelected(selected, type);
 }
 
 export function mandateMatchesKamNso(
@@ -130,7 +130,7 @@ export function filterDashboardMandates(
     applyStatus: boolean;
     applyKamNso: boolean;
     applyLob: boolean;
-    statusFilter: string;
+    statusFilter: string | readonly string[];
     nsoFilterActive: boolean;
     selectedLobs: string[];
     createdAtLte?: Date | null;
