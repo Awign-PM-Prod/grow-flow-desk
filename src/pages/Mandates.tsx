@@ -1537,6 +1537,7 @@ export default function Mandates() {
   const { user, hasRole, canMutatePortal, team, canSelectAllTeams } = useAuth();
   const isKAM = hasRole("kam");
   const isNSO = hasRole("nso");
+  const isTeamAdmin = hasRole("team_admin");
   const isGlobalAdmin = hasRole("superadmin");
   const canToggleMandateLifecycle =
     hasRole("superadmin") || hasRole("team_admin") || hasRole("manager") || hasRole("kam");
@@ -1810,13 +1811,22 @@ export default function Mandates() {
   );
 
 
+  // Team admins may read other-team KAMs for NSO assignment, but can only
+  // assign a mandate KAM from their own team.
+  const assignmentKams = useMemo(() => {
+    if (isTeamAdmin && team) {
+      return kams.filter((kam) => kam.team === team);
+    }
+    return kams;
+  }, [kams, isTeamAdmin, team]);
+
   // Super admin: once a LoB is picked, scope the KAM list to that LoB's team.
   const createKamOptions = useMemo(() => {
-    if (!canSelectAllTeams) return kams;
+    if (!canSelectAllTeams) return assignmentKams;
     const lobTeam = formData.lob ? resolveTeamFromLob(formData.lob) : null;
     if (!lobTeam) return kams;
     return kams.filter((kam) => kamTeamById[kam.id] === lobTeam);
-  }, [kams, canSelectAllTeams, formData.lob, kamTeamById]);
+  }, [kams, assignmentKams, canSelectAllTeams, formData.lob, kamTeamById]);
 
   const filterLobOptions = useMemo(() => {
     if (canSelectAllTeams) {
@@ -3371,7 +3381,12 @@ export default function Mandates() {
 
       const kamMap: Record<string, string> = {};
       const kamTeamByIdFromCsv: Record<string, Team> = {};
+      const offTeamKamNames = new Set<string>();
       kamData?.forEach((kam) => {
+        if (isTeamAdmin && team && kam.team !== team) {
+          if (kam.full_name) offTeamKamNames.add(kam.full_name);
+          return;
+        }
         kamMap[kam.full_name] = kam.id;
         if (isValidTeam(kam.team)) {
           kamTeamByIdFromCsv[kam.id] = kam.team;
@@ -3442,7 +3457,11 @@ export default function Mandates() {
           );
         }
         if (kamName && !kamId) {
-          errors.push(`KAM "${kamName}" does not exist`);
+          errors.push(
+            offTeamKamNames.has(kamName)
+              ? `KAM "${kamName}" is not on your team`
+              : `KAM "${kamName}" does not exist`,
+          );
         }
         if (kamId && !kamTeamByIdFromCsv[kamId]) {
           errors.push(`KAM "${kamName}" does not have a team assigned`);
@@ -3714,6 +3733,7 @@ export default function Mandates() {
       const kamMap: Record<string, string> = {};
       const kamTeamByIdFromCsv: Record<string, Team> = {};
       kamData?.forEach((kam) => {
+        if (isTeamAdmin && team && kam.team !== team) return;
         kamMap[kam.full_name] = kam.id;
         if (isValidTeam(kam.team)) {
           kamTeamByIdFromCsv[kam.id] = kam.team;
@@ -6017,7 +6037,7 @@ export default function Mandates() {
                           className="h-8"
                         />
                       </div>
-                      {kams
+                      {assignmentKams
                         .filter((kam) =>
                           kam.full_name?.toLowerCase().includes(kamFilterSearch.toLowerCase())
                         )
@@ -6026,7 +6046,7 @@ export default function Mandates() {
                             {kam.full_name}
                           </SelectItem>
                         ))}
-                      {kams.filter((kam) =>
+                      {assignmentKams.filter((kam) =>
                         kam.full_name?.toLowerCase().includes(kamFilterSearch.toLowerCase())
                       ).length === 0 && (
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">No KAMs found</div>
@@ -6566,7 +6586,7 @@ export default function Mandates() {
                                 className="h-8"
                               />
                             </div>
-                            {kams
+                            {assignmentKams
                               .filter((kam) =>
                                 (kam.full_name || "Unknown").toLowerCase().includes(editKamSearch.toLowerCase())
                               )
@@ -6575,7 +6595,7 @@ export default function Mandates() {
                                   {kam.full_name || "Unknown"}
                                 </SelectItem>
                               ))}
-                            {kams.filter((kam) =>
+                            {assignmentKams.filter((kam) =>
                               (kam.full_name || "Unknown").toLowerCase().includes(editKamSearch.toLowerCase())
                             ).length === 0 && (
                               <div className="px-2 py-1.5 text-sm text-muted-foreground">

@@ -60,11 +60,17 @@ export default function AdminKamTeamMapping() {
     try {
       setLoading(true);
 
-      const { data, error } = await supabase
+      let query = supabase
         .from("profiles")
         .select("id, email, full_name, team")
         .eq("role", "kam")
         .order("full_name", { ascending: true, nullsFirst: false });
+
+      if (isTeamAdmin && !isSuperAdmin && adminTeam) {
+        query = query.eq("team", adminTeam);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -97,10 +103,14 @@ export default function AdminKamTeamMapping() {
         row.email.toLowerCase().includes(q) ||
         (row.full_name && row.full_name.toLowerCase().includes(q));
       const matchesTeam =
-        teamFilter === "all" ? true : row.team === teamFilter;
+        isTeamAdmin && adminTeam
+          ? row.team === adminTeam
+          : teamFilter === "all"
+            ? true
+            : row.team === teamFilter;
       return matchesSearch && matchesTeam;
     });
-  }, [rows, searchTerm, teamFilter]);
+  }, [rows, searchTerm, teamFilter, isTeamAdmin, adminTeam]);
 
   const teamSummary = useMemo(() => {
     const counts: Record<string, number> = {};
