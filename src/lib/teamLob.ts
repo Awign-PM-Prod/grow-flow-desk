@@ -119,11 +119,11 @@ export function shouldShowStaffingMandateFields(
   return effectiveTeam === "staffing";
 }
 
-/** CE mandates collect handover info; staffing and experts teams do not. */
+/** All teams collect handover info when mandate type allows it. */
 export function shouldShowHandoverInfo(
-  effectiveTeam: Team | null,
+  _effectiveTeam: Team | null,
 ): boolean {
-  return effectiveTeam !== "staffing" && effectiveTeam !== "experts";
+  return true;
 }
 
 /** When set, LoB is fixed (no dropdown). Staffing team picks Staffing vs New Business Line. */

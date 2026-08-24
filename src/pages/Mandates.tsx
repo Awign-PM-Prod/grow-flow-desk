@@ -2975,7 +2975,7 @@ export default function Mandates() {
         sub_use_case: ensureEnumValue(formData.subUseCase, [...MANDATE_SUB_USE_CASE_VALUES]),
         type: ensureEnumValue(formData.type, [...MANDATE_TYPE_VALUES]),
         
-        // Handover Info — CE only (not staffing / experts)
+        // Handover Info — all teams (NSO still skipped for New Cross Sell)
         new_sales_owner: !showHandoverInfo
           ? null
           : formData.type === "New Cross Sell"
@@ -4831,7 +4831,7 @@ export default function Mandates() {
         use_case: ensureEnumValue(editMandateData.useCase, [...MANDATE_USE_CASE_VALUES]),
         sub_use_case: ensureEnumValue(editMandateData.subUseCase, [...MANDATE_SUB_USE_CASE_VALUES]),
         type: ensureEnumValue(editMandateData.type, [...MANDATE_TYPE_VALUES]),
-        // Handover Info — CE only (not staffing / experts)
+        // Handover Info — all teams (NSO still skipped for New Cross Sell)
         new_sales_owner: !editShowHandoverInfo
           ? null
           : editMandateData.type === "New Cross Sell"
@@ -5500,7 +5500,7 @@ export default function Mandates() {
                 </CardContent>
               </Card>
 
-              {/* 2nd Section: Handover Info (CE only — not staffing / experts) */}
+              {/* 2nd Section: Handover Info (all teams) */}
               {showHandoverInfo &&
                 (formData.type === "New Acquisition" ||
                   formData.type === "Existing" ||
@@ -6731,7 +6731,7 @@ export default function Mandates() {
                 </CardContent>
               </Card>
 
-              {/* 2nd Section: Handover Info (CE only — not staffing / experts) */}
+              {/* 2nd Section: Handover Info (all teams) */}
               {(isEditMode ? editShowHandoverInfo : detailsShowHandoverInfo) &&
                 ((isEditMode &&
                   (editMandateData.type === "New Acquisition" ||
