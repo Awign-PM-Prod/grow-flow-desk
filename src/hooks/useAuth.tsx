@@ -60,7 +60,7 @@ export type AuthContextValue = {
   isAdminUser: boolean;
   /** Can open user management (superadmin: all teams; team admin: own team) */
   canManageUsers: boolean;
-  /** Can pick "All teams" in team filters (superadmin only) */
+  /** Can pick "All teams" in team filters (superadmin and leadership) */
   canSelectAllTeams: boolean;
   isLeadership: boolean;
   isManager: boolean;
@@ -305,7 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isTeamAdmin,
       isAdminUser,
       canManageUsers: isAdminUser,
-      canSelectAllTeams: isSuperAdmin,
+      canSelectAllTeams: isSuperAdmin || hasRole("leadership"),
       isLeadership: hasRole("leadership") || isSuperAdmin,
       isManager: hasRole("manager") || hasRole("leadership") || isSuperAdmin || isTeamAdmin,
       isKAM:

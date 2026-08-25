@@ -34,7 +34,9 @@ interface UserData {
 }
 
 function formatTeamCell(user: UserData): string {
-  if (user.role === "superadmin") return "—";
+  if (user.role === "superadmin" || user.role === "nso" || user.role === "leadership") {
+    return "—";
+  }
   return formatTeamLabel(user.team);
 }
 
@@ -116,7 +118,7 @@ export default function AdminUsers() {
 
   const visibleUsers = users.filter((user) => {
     if (isTeamAdmin) {
-      if (user.role === "superadmin") return false;
+      if (user.role === "superadmin" || user.role === "leadership") return false;
       if (adminTeam && user.team !== adminTeam) return false;
     }
     return true;

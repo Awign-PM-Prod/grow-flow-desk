@@ -44,7 +44,7 @@ interface EditUserDialogProps {
 }
 
 const ALL_ROLES: AppRole[] = ["kam", "manager", "leadership", "superadmin", "team_admin", "nso"];
-const TEAM_SCOPED_ROLES: AppRole[] = ["kam", "manager", "leadership", "team_admin", "nso"];
+const TEAM_SCOPED_ROLES: AppRole[] = ["kam", "manager", "team_admin", "nso"];
 const VALID_TEAMS: Team[] = ["ce", "staffing", "experts"];
 
 export function EditUserDialog({

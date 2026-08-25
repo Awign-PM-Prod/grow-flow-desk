@@ -99,20 +99,20 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     if (!isGlobalAdmin) {
-      if (role === "superadmin") {
-        throw new Error("Team admins cannot invite super admin users");
+      if (role === "superadmin" || role === "leadership") {
+        throw new Error("Team admins cannot invite this role");
       }
     }
 
     const resolvedTeam =
-      role === "superadmin" || role === "nso"
+      role === "superadmin" || role === "nso" || role === "leadership"
         ? null
         : isGlobalAdmin
         ? team ?? null
         : userProfile?.team ?? null;
 
     const validTeams = ["ce", "staffing", "experts"];
-    if (role !== "superadmin" && role !== "nso") {
+    if (role !== "superadmin" && role !== "nso" && role !== "leadership") {
       if (!resolvedTeam || !validTeams.includes(resolvedTeam)) {
         throw new Error("A valid team is required for this role");
       }

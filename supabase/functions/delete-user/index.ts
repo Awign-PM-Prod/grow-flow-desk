@@ -82,8 +82,8 @@ function assertTeamAdminCanManageTarget(
   target: { role: string | null; team: string | null },
 ): string | null {
   if (caller.isGlobalAdmin) return null;
-  if (target.role === "superadmin") {
-    return "Team admins cannot delete super admin users";
+  if (target.role === "superadmin" || target.role === "leadership") {
+    return "Team admins cannot delete this user";
   }
   if (!caller.team || target.team !== caller.team) {
     return "You can only delete users on your own team";

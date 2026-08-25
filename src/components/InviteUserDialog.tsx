@@ -152,7 +152,7 @@ export function InviteUserDialog({
 
   const assignableRoles = isGlobalAdmin
     ? ["kam", "manager", "leadership", "team_admin", "superadmin", "nso"]
-    : ["kam", "manager", "leadership", "team_admin", "nso"];
+    : ["kam", "manager", "team_admin", "nso"];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,7 +336,7 @@ export function InviteUserDialog({
               <p className="text-xs text-muted-foreground">
                 {role === "kam" && "Can manage their own accounts and contacts"}
                 {role === "manager" && "Can view and manage team performance"}
-                {role === "leadership" && "Can view organization-wide metrics"}
+                {role === "leadership" && "Read-only access to organization-wide data across all teams"}
                 {role === "team_admin" && "Full admin access scoped to their assigned team"}
                 {role === "superadmin" && "Full access including user management"}
                 {role === "nso" && "Read-only access to mandates and related data where they are assigned as NSO"}

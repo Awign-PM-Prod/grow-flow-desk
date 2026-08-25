@@ -82,8 +82,8 @@ function assertTeamAdminCanManageTarget(
   target: { role: string | null; team: string | null },
 ): string | null {
   if (caller.isGlobalAdmin) return null;
-  if (target.role === "superadmin") {
-    return "Team admins cannot modify super admin users";
+  if (target.role === "superadmin" || target.role === "leadership") {
+    return "Team admins cannot modify this user";
   }
   if (!caller.team || target.team !== caller.team) {
     return "You can only manage users on your own team";
@@ -99,7 +99,7 @@ interface UpdateUserRequest {
 
 const VALID_ROLES: AppRole[] = ["kam", "manager", "leadership", "superadmin", "team_admin", "nso"];
 const VALID_TEAMS: Team[] = ["ce", "staffing", "experts"];
-const TEAM_ADMIN_ASSIGNABLE: AppRole[] = ["kam", "manager", "leadership", "team_admin", "nso"];
+const TEAM_ADMIN_ASSIGNABLE: AppRole[] = ["kam", "manager", "team_admin", "nso"];
 
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
@@ -131,11 +131,11 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const resolvedTeam: Team | null =
-      role === "superadmin" || role === "nso"
+      role === "superadmin" || role === "nso" || role === "leadership"
         ? null
         : (authResult.isGlobalAdmin ? (team ?? null) : authResult.team);
 
-    if (role !== "superadmin" && role !== "nso") {
+    if (role !== "superadmin" && role !== "nso" && role !== "leadership") {
       if (!resolvedTeam || !VALID_TEAMS.includes(resolvedTeam)) {
         return errorResponse("A valid team is required for this role");
       }
