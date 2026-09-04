@@ -265,3 +265,23 @@ export function getDefaultDashboardLobs(
   if (fixed) return [fixed];
   return [];
 }
+
+/**
+ * Dashboard queries refuse to run until a team scope exists.
+ * Team-locked roles use their profile team. Org-wide roles (superadmin,
+ * leadership, NSO) use "all" — NSO has no profile team, so waiting for one
+ * leaves the dashboard spinning forever.
+ */
+export function resolveDashboardTeamScope(args: {
+  canSelectAllTeams: boolean;
+  userTeam: Team | null;
+  current: "all" | Team | null;
+}): "all" | Team {
+  if (!args.canSelectAllTeams && args.userTeam) {
+    return args.userTeam;
+  }
+  if (args.canSelectAllTeams) {
+    return args.current ?? "all";
+  }
+  return "all";
+}

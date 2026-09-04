@@ -50,6 +50,7 @@ import {
   getDefaultDashboardLobs,
   getLobDashboardCategoriesForFilter,
   resolveDashboardChartLobKey,
+  resolveDashboardTeamScope,
 } from "@/lib/teamLob";
 import {
   isAllMandateTypes,
@@ -436,9 +437,12 @@ export default function Dashboard() {
       ? { ...defaultDashboardFilters(), ...savedDashboardFilters }
       : defaultDashboardFilters();
     // Locked-team users must never inherit another team from sessionStorage.
-    if (!canSelectAllTeams && userTeam) {
-      base.selectedTeam = userTeam;
-    }
+    // Org-wide users with no team (NSO) must not keep a null scope — fetches wait on it.
+    base.selectedTeam = resolveDashboardTeamScope({
+      canSelectAllTeams,
+      userTeam,
+      current: base.selectedTeam,
+    });
     if (isKAM && user?.id) {
       base.filterKam = user.id;
     }
@@ -614,13 +618,15 @@ export default function Dashboard() {
   // Default dashboard team scope to the user's own team; global superadmins can switch.
   // Non-admins must ALWAYS use their profile team — never keep a stale persisted team
   // from a previous session (that under/over-counts mandates).
+  // NSO has no profile team; treat them as org-wide ("all") so cards can load.
   useEffect(() => {
-    if (canSelectAllTeams) {
-      setSelectedTeam((prev) => prev ?? "all");
-      return;
-    }
-    if (!userTeam) return;
-    setSelectedTeam(userTeam);
+    setSelectedTeam((prev) =>
+      resolveDashboardTeamScope({
+        canSelectAllTeams,
+        userTeam,
+        current: prev,
+      }),
+    );
   }, [canSelectAllTeams, userTeam]);
 
   // When the signed-in user changes, drop in-memory caches and reset filters that
@@ -643,11 +649,13 @@ export default function Dashboard() {
           ? []
           : getDefaultDashboardLobs(userTeam, canSelectAllTeams),
       );
-      if (!canSelectAllTeams && userTeam) {
-        setSelectedTeam(userTeam);
-      } else if (canSelectAllTeams) {
-        setSelectedTeam("all");
-      }
+      setSelectedTeam(
+        resolveDashboardTeamScope({
+          canSelectAllTeams,
+          userTeam,
+          current: "all",
+        }),
+      );
     }
     dashboardUserIdRef.current = nextId;
   }, [user?.id, isKAM, canSelectAllTeams, isTeamAdmin, userTeam]);
@@ -1425,7 +1433,7 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     try {
       if (!selectedTeam) {
-        // Wait until auth profile team is available.
+        // Team-locked users wait for their profile team; NSO/org-wide resolve to "all".
         return;
       }
 
