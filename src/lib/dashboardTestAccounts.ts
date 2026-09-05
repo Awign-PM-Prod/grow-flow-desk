@@ -42,11 +42,20 @@ export function applyExcludeTestKamFilter(
 
 export function filterRowsByTestProfiles<
   T extends { kam_id?: string | null; new_sales_owner?: string | null },
->(rows: T[] | null | undefined, exclusions: TestProfileExclusions): T[] {
+>(
+  rows: T[] | null | undefined,
+  exclusions: TestProfileExclusions,
+  currentUser?: { id?: string | null; email?: string | null },
+): T[] {
+  const userEmailNorm = currentUser?.email?.trim().toLowerCase();
   return (rows ?? []).filter((row) => {
-    if (row.kam_id && exclusions.kamIds.has(row.kam_id)) return false;
+    if (row.kam_id && exclusions.kamIds.has(row.kam_id)) {
+      if (!currentUser?.id || row.kam_id !== currentUser.id) return false;
+    }
     const nso = row.new_sales_owner?.trim().toLowerCase();
-    if (nso && exclusions.nsoEmails.has(nso)) return false;
+    if (nso && exclusions.nsoEmails.has(nso)) {
+      if (!userEmailNorm || nso !== userEmailNorm) return false;
+    }
     return true;
   });
 }
@@ -57,15 +66,26 @@ export function filterTargetsByTestProfiles<
     nso_mail_id?: string | null;
     mandates?: { kam_id?: string | null } | { kam_id?: string | null }[] | null;
   },
->(targets: T[] | null | undefined, exclusions: TestProfileExclusions): T[] {
+>(
+  targets: T[] | null | undefined,
+  exclusions: TestProfileExclusions,
+  currentUser?: { id?: string | null; email?: string | null },
+): T[] {
+  const userEmailNorm = currentUser?.email?.trim().toLowerCase();
   return (targets ?? []).filter((target) => {
-    if (target.kam_id && exclusions.kamIds.has(target.kam_id)) return false;
+    if (target.kam_id && exclusions.kamIds.has(target.kam_id)) {
+      if (!currentUser?.id || target.kam_id !== currentUser.id) return false;
+    }
     const nso = target.nso_mail_id?.trim().toLowerCase();
-    if (nso && exclusions.nsoEmails.has(nso)) return false;
+    if (nso && exclusions.nsoEmails.has(nso)) {
+      if (!userEmailNorm || nso !== userEmailNorm) return false;
+    }
     const mandate = Array.isArray(target.mandates)
       ? target.mandates[0]
       : target.mandates;
-    if (mandate?.kam_id && exclusions.kamIds.has(mandate.kam_id)) return false;
+    if (mandate?.kam_id && exclusions.kamIds.has(mandate.kam_id)) {
+      if (!currentUser?.id || mandate.kam_id !== currentUser.id) return false;
+    }
     return true;
   });
 }

@@ -5094,10 +5094,7 @@ export default function Mandates() {
       if (filterNso === "all") {
         return true;
       }
-      return (
-        mandate.type === "New Acquisition" &&
-        mandate.new_sales_owner === filterNso
-      );
+      return mandate.new_sales_owner === filterNso;
     })();
     const matchesLob = filterLob === "all" || mandate.lob === filterLob;
     const matchesType = mandateTypeIsSelected(filterType, mandate.type);
@@ -7618,7 +7615,12 @@ export default function Mandates() {
 
               // Update or create monthly_data
               // Store only achieved MCV (not planned)
-              const currentData = currentMandate?.monthly_data || {};
+              const currentData =
+                currentMandate?.monthly_data &&
+                typeof currentMandate.monthly_data === "object" &&
+                !Array.isArray(currentMandate.monthly_data)
+                  ? (currentMandate.monthly_data as Record<string, unknown>)
+                  : {};
               const updatedData = {
                 ...currentData,
                 [monthYear]: achievedMcv,
@@ -7626,7 +7628,7 @@ export default function Mandates() {
 
               const { error: updateError } = await supabase
                 .from("mandates")
-                .update({ monthly_data: updatedData })
+                .update({ monthly_data: updatedData as unknown as Json })
                 .eq("id", mandateForUpdate.id);
 
               if (updateError) throw updateError;
@@ -7641,7 +7643,6 @@ export default function Mandates() {
                 month: "",
                 year: "",
                 financialYear: "",
-                plannedMcv: "",
                 achievedMcv: "",
               });
               

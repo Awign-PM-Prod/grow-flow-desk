@@ -1544,6 +1544,7 @@ export default function Dashboard() {
           financialYearString,
           isKAM,
           userId: user?.id,
+          userEmail: user?.email,
           testExclusions: testExclusionsFresh,
         });
         if (rawError) throw rawError;
@@ -1558,7 +1559,11 @@ export default function Dashboard() {
         T extends { kam_id?: string | null; new_sales_owner?: string | null },
       >(
         rows: T[] | null | undefined,
-      ) => filterRowsByTestProfiles(rows, testExclusions);
+      ) =>
+        filterRowsByTestProfiles(rows, testExclusions, {
+          id: user?.id,
+          email: user?.email,
+        });
 
       const nsoFilterActive = isNsoFilterActive(filterNso);
       const personFilterOpts = {

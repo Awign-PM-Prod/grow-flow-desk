@@ -109,7 +109,6 @@ export function mandateMatchesKamNso(
     if (mandate.kam_id !== opts.filterKam) return false;
   }
   if (opts.isNsoFilterActive(opts.filterNso)) {
-    if (mandate.type !== "New Acquisition") return false;
     if (mandate.new_sales_owner !== opts.filterNso) return false;
   }
   return true;
@@ -200,6 +199,7 @@ type FetchRawArgs = {
   financialYearString: string | null;
   isKAM: boolean;
   userId?: string | null;
+  userEmail?: string | null;
   testExclusions: TestProfileExclusions;
 };
 
@@ -218,6 +218,7 @@ export async function fetchDashboardRawPayload(
     financialYearString,
     isKAM,
     userId,
+    userEmail,
     testExclusions,
   } = args;
 
@@ -325,6 +326,7 @@ export async function fetchDashboardRawPayload(
   const mandates = filterRowsByTestProfiles(
     mandatesResult.data,
     testExclusions,
+    { id: userId, email: userEmail },
   ) as DashboardMandateRow[];
 
   const accountIds = [
